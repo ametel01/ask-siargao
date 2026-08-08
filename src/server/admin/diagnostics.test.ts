@@ -27,7 +27,7 @@ function keyValueCredential(key: string, separator: "=" | ": ", scope: string, s
 }
 
 describe("admin access", () => {
-  test("requires a token in production and accepts matching configured tokens", () => {
+  test("requires an allowlisted Account in production and keeps tokens local-only", () => {
     expect(evaluateAdminAccess({ nodeEnv: "production" })).toEqual({
       allowed: false,
       reason: "production_token_required",
@@ -38,12 +38,26 @@ describe("admin access", () => {
         suppliedToken: "operator-token",
         nodeEnv: "production",
       }),
+    ).toEqual({ allowed: false, reason: "production_token_required" });
+    expect(
+      evaluateAdminAccess({
+        configuredToken: "operator-token",
+        suppliedToken: "operator-token",
+        nodeEnv: "development",
+      }),
     ).toEqual({ allowed: true, mode: "token" });
+    expect(
+      evaluateAdminAccess({
+        nodeEnv: "production",
+        operatorAccountId: "account_operator",
+        operatorAllowlist: new Set(["account_operator"]),
+      }),
+    ).toEqual({ allowed: true, mode: "operator" });
     expect(
       evaluateAdminAccess({
         configuredToken: "operator-token",
         suppliedToken: "wrong-token",
-        nodeEnv: "production",
+        nodeEnv: "development",
       }),
     ).toEqual({ allowed: false, reason: "invalid_token" });
   });
@@ -78,6 +92,34 @@ describe("admin diagnostics", () => {
     expect(JSON.stringify(redacted)).not.toContain("sk_test");
     expect(JSON.stringify(redacted)).not.toContain("whsec_test");
     expect(JSON.stringify(redacted)).toContain("[redacted]");
+  });
+
+  test("redacts identity, prompts, IPs, precise locations, cookies, and provider payloads", () => {
+    const redacted = redactDiagnosticValue({
+      cookie: "session=private",
+      ipAddress: "198.51.100.42",
+      latitude: 9.848,
+      longitude: 126.045,
+      prompt: "private travel request",
+      providerPayload: { object: "provider body" },
+      rawWebhook: "signed body",
+      userId: "clerk_account_private",
+      safeSummary: "retry from 198.51.100.42",
+    });
+    const serialized = JSON.stringify(redacted);
+
+    for (const secret of [
+      "session=private",
+      "198.51.100.42",
+      "9.848",
+      "126.045",
+      "private travel request",
+      "provider body",
+      "signed body",
+      "clerk_account_private",
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
   });
 
   test("redacts free-text provider credential fragments from traces", () => {

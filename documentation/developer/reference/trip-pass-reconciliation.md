@@ -1,90 +1,64 @@
-# Trip Pass Reconciliation and Support Diagnostics
+# Trip Pass Reconciliation and Repair
 
-Trip Pass reconciliation is implemented in
-`src/server/trip-pass/reconciliation.ts`. It compares local orders, grants,
-passes, usage meters, usage events, analytics configuration, shared quota-store
-configuration, price-catalog state, and model-cost circuit configuration.
+Reconciliation and repair are separate authority boundaries.
 
-## Default Mode
+`reconcileLiveCommerce()` in `src/server/operations/live-reconciliation.ts` loads local Order and
+access state, completes authoritative provider lookup without a database transaction, compares the
+facts, and then records only opaque `finding_*` records. It never transitions an Order, creates a
+Trip Pass, changes a Usage Meter, or calls a provider mutation. Historical `mode: "repair"` and
+`confirmMutation` inputs to `reconcileTripPassState()` remain accepted for rolling-deployment
+compatibility but are ignored; every flag combination is detect-only.
 
-`buildTripPassReconciliationSnapshot()` and `reconcileTripPassState()` default
-to dry-run behavior. Dry runs report issues and planned actions without changing
-orders, grants, passes, meters, or usage events.
+## Provider-neutral adapter contract
 
-Mutation requires both:
+Protected provider lanes inject `AuthoritativeCommerceReader`. The reader receives transient
+Checkout Session or Payment Intent lookup inputs; provider IDs do not appear in returned traces,
+Finding views, diagnostics, logs, or alert payloads. `OperationEventRecorder` records only ordered
+operation name/result pairs. This lets tests prove `authoritative_payment_lookup` completes before
+`record_reconciliation_findings` begins without retaining provider payloads.
 
-- `mode: "repair"`
-- `confirmMutation: true`
+## Diagnostics
 
-Without explicit confirmation, repair mode returns a skipped action.
+`/admin/diagnostics` reads live `operational_findings` and incomplete
+`operational_worker_tasks`. It shows only opaque Finding/Task IDs, constrained kind/status/impact
+codes, attempt counts, and sanitized error codes. It never renders local entity references, Clerk
+IDs, emails, prompts, IPs, precise locations, raw webhooks, cookies, payment object IDs, or provider
+payloads.
 
-## Safe Repairs
+Production read access requires a signed-in Clerk Account whose immutable Account ID is in the
+server-only `OPERATOR_ACCOUNT_IDS` allowlist. `ADMIN_ACCESS_TOKEN` is local read-only compatibility
+and is rejected in production.
 
-The service only repairs idempotent local ledger omissions:
+## Repair Actions
 
-- paid Trip Pass orders without any linked grant receive a manual reconciliation
-  grant for the original owner.
-- active passes missing usage meter rows receive any missing default meter rows.
-- stale reserved usage events are released.
+Use `previewRepairAction()` before `executeRepairAction()`. Execution requires all of:
 
-Paid Answer Reservations use their own durable database-time lease and are recovered by the paid
-chat reservation boundary. The `trip_usage_events` stale-reservation repair above remains for
-legacy and secondary-meter events; it is not the commercial `chat_message` reservation ledger.
+- the same opaque Finding ID and action type as the preview;
+- the preview digest, so changed state forces another human review;
+- literal confirmation `APPLY REPAIR`;
+- a constrained reason code and an idempotency key;
+- a named allowlisted Operator Account;
+- Clerk `second_factor` reverification age 0–5 minutes.
 
-Retention purge failures are isolated per reservation. After the failed purge transaction rolls
-back, a separate Family → Account → reservation transaction records a database-time retry deadline,
-bounded failure count, and redacted failure category. Due retries remain eligible, while the
-backoff ordering lets later unattempted rows progress through bounded batches. The reservation is
-marked purged only when its one exact settled usage event is scrubbed in the same transaction.
-The failure counter saturates at 31; retry delay already saturates after eight failures, so corrupt
-or legacy maximum-count rows cannot overflow the counter or block later retention work.
+The transaction locks the Finding, rechecks the preview, applies one provider-neutral local repair,
+stores the Operator Account ID, hashed idempotency key, reason, sanitized before/after states and
+database time, and resolves the Finding. Repeating the key returns the original audited result.
+Provider calls are not permitted inside a Repair Action transaction.
 
-The service does not transfer ownership, create grants for ownerless paid
-orders, merge duplicate grants, change refunded or disputed state, reprice
-historic orders, or reconstruct prompts/provider payloads.
+## Durable workers
 
-## Support Lookup
+`runOperationalWorker()` claims `operational_worker_tasks` with database-time leases and
+`FOR UPDATE SKIP LOCKED`, invokes an injected task handler outside the claim transaction, and fences
+success/retry updates by lease token. Crashes leave work reclaimable after lease expiry. Repeated
+failures remain visible and can invoke a scrubbed Sentry warning/page callback. Supported task kinds
+are Account Closure, Pending Stripe Event, Paid After Closure refund, retention purge, and commerce
+reconciliation. Existing CLI entrypoints and thin authenticated adapters inject their provider
+clients; no scheduler vendor or cadence is selected by engineering.
 
-`lookupTripPassSupportReference()` accepts a local order reference, local pass
-reference, or authenticated user context. When a user context is supplied with an
-order or pass reference, it acts as an ownership guard. Cross-user references
-return `forbidden`; mixed order/pass references owned by different users return
-`ambiguous`.
+## Alert ownership
 
-Support summaries include local order/pass references, coarse statuses, and
-meter counts. They do not include email addresses, Stripe checkout session IDs,
-Stripe payment intent IDs, raw prompts, precise locations, provider payloads, or
-webhook bodies.
-
-## Cost Reconciliation Boundaries
-
-Durable usage events are reconciled against settled meter counts and stored
-provider request references. Missing and duplicate provider request references
-are reported without reconstructing prompts or repricing historic usage.
-
-`paid_answer_usage_event_missing` is emitted when a settled Paid Answer Reservation has no exact
-aggregate event matching its deterministic event ID, paid-answer idempotency key, pass, meter,
-account, `settled` event type, and `chat_message` meter type. The check starts from the reservation,
-so it also detects a missing event, a linkage mismatch, or a finalize conflict that prevented the
-event insert. A correctly linked event whose per-request fields were policy-purged remains valid
-because its quantity and ledger identity survive. This issue is audit-only in both dry-run and
-repair modes: reconciliation does not fabricate a usage event, and the warning remains until the
-exact durable event is restored through an audited ledger correction.
-
-Reservation-originated integrity and Usage-event diagnostics are read in deterministic ID-keyset
-pages until exhaustion. The 500-row page size bounds each query; it is not a result cap, so older
-settled answers remain visible and rows at page boundaries are neither skipped nor duplicated.
-Other issue collectors are also exhaustive; only support-summary lookups retain their intentional
-ten-reference presentation cap.
-
-Operational concurrency leases and budget reservation state are held in the shared quota store.
-The quota store expires stale entries internally but does not expose a read API for operator
-diagnostics, so reconciliation reports shared-store and provider/global circuit configuration.
-Commercial Paid Answer Reservations are separate PostgreSQL state and retain only aggregate facts
-after their configured per-request detail deadline.
-
-## Admin Surface
-
-`/admin/diagnostics` renders a redacted diagnostics snapshot for local release
-review. Production access remains gated by `ADMIN_ACCESS_TOKEN` through the
-`x-admin-token` header.
+Sentry owns operational delivery. `deliverOperationalAlertOnce()` uses a durable unique alert key,
+retryable failed delivery, and a strictly allowlisted payload of Finding ID, impact, operation, and
+error code. Confirmed high-impact payment/access/privacy/Redis mismatches page once. Lower-impact
+conditions warn or create tickets. PostHog remains timeout-bounded analytics only; its success or
+failure cannot change commerce, access, closure, reconciliation, repair, or worker state.

@@ -75,6 +75,25 @@ export type AuditDiagnosticsInput = {
   tripPassReconciliation?: TripPassReconciliationSnapshot | null;
   tripPassSupportLookup?: TripPassSupportLookupResult | null;
   now: Date;
+  operationalFindings?: OperationalFindingDiagnostic[];
+  operationalWorkers?: OperationalWorkerDiagnostic[];
+};
+
+export type OperationalFindingDiagnostic = {
+  findingId: string;
+  impact: "warning" | "high";
+  kind: string;
+  status: "open" | "resolved";
+  summaryCode: string;
+  detectedAt: string;
+};
+
+export type OperationalWorkerDiagnostic = {
+  taskId: string;
+  taskType: string;
+  status: string;
+  attempts: number;
+  lastErrorCode: string | null;
 };
 
 export type AdminDiagnosticsSnapshot = ReturnType<typeof buildAuditDiagnostics>;
@@ -159,6 +178,8 @@ export function buildAuditDiagnostics(input: AuditDiagnosticsInput) {
       },
     })),
     jobFailures,
+    operationalFindings: input.operationalFindings ?? [],
+    operationalWorkers: input.operationalWorkers ?? [],
     tripPassReconciliation: input.tripPassReconciliation
       ? (redactDiagnosticValue(input.tripPassReconciliation) as TripPassReconciliationSnapshot)
       : null,
@@ -182,6 +203,64 @@ export function buildAuditDiagnostics(input: AuditDiagnosticsInput) {
       reviewerResults: input.reviewerResults,
     },
   };
+}
+
+export async function loadLiveDiagnostics(
+  db: import("@/server/db/query-client").DatabaseQueryClient,
+  now = new Date(),
+) {
+  const [findings, workers] = await Promise.all([
+    db.query<{
+      id: string;
+      impact: "warning" | "high";
+      kind: string;
+      status: "open" | "resolved";
+      summary_code: string;
+      detected_at: Date | string;
+    }>(
+      `select id, impact, kind, status, summary_code, detected_at
+       from operational_findings order by detected_at desc, id limit 100`,
+    ),
+    db.query<{
+      id: string;
+      task_type: string;
+      status: string;
+      attempts: number;
+      last_error_code: string | null;
+    }>(
+      `select id, task_type, status, attempts, last_error_code
+       from operational_worker_tasks
+       where status <> 'succeeded' order by next_attempt_at, id limit 100`,
+    ),
+  ]);
+  return buildAuditDiagnostics({
+    accommodationMatches: [],
+    audits: [],
+    completenessChecks: [],
+    facts: [],
+    jobs: [],
+    llmRuns: [],
+    now,
+    operationalFindings: findings.rows.map((row) => ({
+      detectedAt: new Date(row.detected_at).toISOString(),
+      findingId: row.id,
+      impact: row.impact,
+      kind: row.kind,
+      status: row.status,
+      summaryCode: row.summary_code,
+    })),
+    operationalWorkers: workers.rows.map((row) => ({
+      attempts: row.attempts,
+      lastErrorCode: row.last_error_code,
+      status: row.status,
+      taskId: row.id,
+      taskType: row.task_type,
+    })),
+    providerErrors: [],
+    reviewerResults: [],
+    sourceProfiles: [],
+    toolCalls: [],
+  });
 }
 
 export function createDiagnosticLogEvent(input: {

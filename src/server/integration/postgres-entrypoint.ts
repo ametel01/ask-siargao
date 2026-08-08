@@ -5,6 +5,7 @@ import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withTimeout } from "@/server/integration/entrypoint-shared";
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
 import { runTripPassPaymentLifecyclePostgresRegression } from "@/server/integration/trip-pass-payment-lifecycle-postgres";
+import { runOperationsPostgresIntegration } from "@/server/operations/operations.postgres-integration";
 import {
   applyStripeInboxEvent,
   claimPendingStripeInboxEvents,
@@ -49,6 +50,12 @@ await withRealPostgresHarness(async (harness) => {
   await runTripPassPaymentLifecyclePostgresRegression(harness);
   await runAccountClosurePostgresIntegration(harness);
   await runPaidAnswerReservationPostgresIntegration(harness);
+  const operationsClient = harness.createQueryClient();
+  try {
+    await runOperationsPostgresIntegration(operationsClient);
+  } finally {
+    await operationsClient.end();
+  }
 
   console.log(
     JSON.stringify(
@@ -117,8 +124,8 @@ async function runHistoricalPaidAnswerMigrationUpgrade() {
       const upgrade = await harness.migrate();
       assertDeepEqual(
         upgrade.applied,
-        ["0015_paid_answer_retention_retry.sql"],
-        "historical native ledger must advance only through 0015",
+        ["0015_paid_answer_retention_retry.sql", "0016_operational_findings_and_repair.sql"],
+        "historical native ledger must advance through the additive operations migration",
       );
       const upgraded = await client.query<{
         purge_failure_count: number;

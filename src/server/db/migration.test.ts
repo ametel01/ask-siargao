@@ -288,7 +288,10 @@ describe("Step 3 database migration", () => {
     );
 
     const upgrade = await runLedgerBackedMigrations(database, migrationFiles);
-    expect(upgrade.applied).toEqual(["0015_paid_answer_retention_retry.sql"]);
+    expect(upgrade.applied).toEqual([
+      "0015_paid_answer_retention_retry.sql",
+      "0016_operational_findings_and_repair.sql",
+    ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
       purge_attempted_at: Date | null;

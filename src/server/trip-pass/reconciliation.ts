@@ -1,23 +1,16 @@
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
-import {
-  initializeTripPassMeters,
-  tripPassMeterLimits,
-  tripPassMeterTypes,
-} from "@/server/payments/trip-pass";
+import { tripPassMeterTypes } from "@/server/payments/trip-pass";
 import {
   readTripPassEnvironment,
   type TripPassMeterType,
-  tripPassMeterTypes as tripPassLedgerMeterTypes,
   tripPassProductCode,
   tripPassProductVersion,
 } from "@/server/trip-pass/catalog";
-import { grantTripPass } from "@/server/trip-pass/entitlement";
 
 const defaultStaleOrderMs = 30 * 60 * 1000;
 const defaultStaleReservationMs = 10 * 60 * 1000;
 const reconciliationPageSize = 500;
-const tripPassLedgerMeterTypeSet = new Set<string>(tripPassLedgerMeterTypes);
 
 export type TripPassReconciliationMode = "dry_run" | "repair";
 
@@ -158,11 +151,6 @@ type MissingMeterRow = PassRow & {
   expected_meter_count: string | number;
 };
 
-type PassMeterContractRow = {
-  expires_at: Date | string;
-  meter_limits_json: Record<string, number> | string | null;
-};
-
 type MeterAggregateRow = {
   trip_pass_id: string;
   meter_type: string;
@@ -217,8 +205,6 @@ export async function reconcileTripPassState(
   const staleOrderMs = options.staleOrderMs ?? defaultStaleOrderMs;
   const staleReservationMs = options.staleReservationMs ?? defaultStaleReservationMs;
   const scope = options.scope ?? {};
-  const mode = options.mode ?? "dry_run";
-  const mutate = mode === "repair" && options.confirmMutation === true;
   const issues = await collectTripPassIssues({
     db,
     env: options.env,
@@ -227,22 +213,16 @@ export async function reconcileTripPassState(
     staleOrderMs,
     staleReservationMs,
   });
-  const actions = await buildRepairActions({ db, issues, mutate, now });
-
-  if (mode === "repair" && !options.confirmMutation) {
-    actions.push({
-      action: "grant_missing_trip_pass",
-      localRef: "scope",
-      status: "skipped",
-      reason: "repair_requires_explicit_confirmation",
-    });
-  }
+  // Reconciliation is permanently detect-only. Historical `mode` and
+  // `confirmMutation` inputs remain accepted during rolling deployment but are
+  // intentionally ignored. Mutations belong to an audited Repair Action.
+  const actions = await buildRepairActions({ db, issues, now });
 
   const snapshot = createSnapshot({
     actions,
     env: options.env,
     issues,
-    mode,
+    mode: "dry_run",
     now,
     scope,
     staleOrderMs,
@@ -445,7 +425,6 @@ async function collectTripPassIssues(input: {
 async function buildRepairActions(input: {
   db: DatabaseQueryClient;
   issues: TripPassDiagnosticIssue[];
-  mutate: boolean;
   now: Date;
 }): Promise<TripPassRepairAction[]> {
   return Promise.all(
@@ -454,13 +433,13 @@ async function buildRepairActions(input: {
         return [];
       }
       if (issue.code === "paid_without_pass") {
-        return [grantMissingTripPass(input.db, issue.localRef, input.mutate, input.now)];
+        return [grantMissingTripPass(input.db, issue.localRef)];
       }
       if (issue.code === "missing_usage_meters") {
-        return [initializeMissingMeters(input.db, issue.localRef, input.mutate, input.now)];
+        return [initializeMissingMeters(issue.localRef)];
       }
       if (issue.code === "stale_usage_reservation") {
-        return [releaseStaleReservation(input.db, issue.localRef, input.mutate, input.now)];
+        return [releaseStaleReservation(issue.localRef)];
       }
       return [];
     }),
@@ -470,8 +449,6 @@ async function buildRepairActions(input: {
 async function grantMissingTripPass(
   db: DatabaseQueryClient,
   orderId: string,
-  mutate: boolean,
-  now: Date,
 ): Promise<TripPassRepairAction> {
   const order = await loadOrderById(orderId, db);
   if (!order?.user_id) {
@@ -482,105 +459,29 @@ async function grantMissingTripPass(
       reason: "order_missing_authenticated_owner",
     };
   }
-  if (!mutate) {
-    return {
-      action: "grant_missing_trip_pass",
-      localRef: orderId,
-      status: "planned",
-      reason: "dry_run_would_create_manual_reconciliation_grant",
-    };
-  }
-
-  try {
-    const result = await grantTripPass(
-      {
-        orderId: order.id,
-        sourceEventId: `trip_pass_reconcile:${order.id}`,
-        sourceType: "manual_operator",
-        userId: order.user_id,
-        now,
-      },
-      db,
-    );
-    return {
-      action: "grant_missing_trip_pass",
-      localRef: orderId,
-      status: "applied",
-      reason: result.status === "duplicate" ? "grant_already_present" : "manual_grant_created",
-    };
-  } catch {
-    return {
-      action: "grant_missing_trip_pass",
-      localRef: orderId,
-      status: "failed",
-      reason: "manual_grant_failed",
-    };
-  }
-}
-
-async function initializeMissingMeters(
-  db: DatabaseQueryClient,
-  passId: string,
-  mutate: boolean,
-  now: Date,
-): Promise<TripPassRepairAction> {
-  if (!mutate) {
-    return {
-      action: "initialize_missing_meters",
-      localRef: passId,
-      status: "planned",
-      reason: "dry_run_would_insert_missing_meter_rows",
-    };
-  }
-
-  const contract = await loadPassMeterContract(db, passId);
-  await initializeTripPassMeters(
-    {
-      tripPassId: passId,
-      meterLimits: contract.meterLimits,
-      resetAt: contract.expiresAt,
-      now,
-    },
-    db,
-  );
   return {
-    action: "initialize_missing_meters",
-    localRef: passId,
-    status: "applied",
-    reason: "missing_meter_rows_initialized",
+    action: "grant_missing_trip_pass",
+    localRef: orderId,
+    status: "planned",
+    reason: "repair_action_required_for_manual_grant",
   };
 }
 
-async function releaseStaleReservation(
-  db: DatabaseQueryClient,
-  eventId: string,
-  mutate: boolean,
-  now: Date,
-): Promise<TripPassRepairAction> {
-  if (!mutate) {
-    return {
-      action: "release_stale_reservation",
-      localRef: eventId,
-      status: "planned",
-      reason: "dry_run_would_release_reserved_usage_event",
-    };
-  }
+async function initializeMissingMeters(passId: string): Promise<TripPassRepairAction> {
+  return {
+    action: "initialize_missing_meters",
+    localRef: passId,
+    status: "planned",
+    reason: "repair_action_required_for_missing_meters",
+  };
+}
 
-  await db.query(
-    `
-      update trip_usage_events
-      set event_type = 'released',
-          occurred_at = $2
-      where id = $1
-        and event_type = 'reserved'
-    `,
-    [eventId, now],
-  );
+async function releaseStaleReservation(eventId: string): Promise<TripPassRepairAction> {
   return {
     action: "release_stale_reservation",
     localRef: eventId,
-    status: "applied",
-    reason: "stale_reserved_usage_event_released",
+    status: "planned",
+    reason: "repair_action_required_for_stale_reservation",
   };
 }
 
@@ -910,44 +811,6 @@ async function loadPassesMissingMeters(
     [...params, tripPassMeterTypes.length],
   );
   return result.rows;
-}
-
-async function loadPassMeterContract(db: DatabaseQueryClient, passId: string) {
-  const result = await db.query<PassMeterContractRow>(
-    `
-      select p.expires_at, g.meter_limits_json
-      from trip_passes p
-      left join trip_pass_grants g on g.trip_pass_id = p.id
-      where p.id = $1
-      order by g.created_at desc nulls last
-      limit 1
-    `,
-    [passId],
-  );
-  const row = result.rows[0];
-  const rawMeterLimits: unknown = row?.meter_limits_json
-    ? typeof row.meter_limits_json === "string"
-      ? JSON.parse(row.meter_limits_json)
-      : row.meter_limits_json
-    : null;
-  const parsed =
-    rawMeterLimits && typeof rawMeterLimits === "object" && !Array.isArray(rawMeterLimits)
-      ? (rawMeterLimits as Record<string, unknown>)
-      : null;
-  const meterLimits = Object.fromEntries(
-    Object.entries(parsed ?? {}).filter(
-      ([meterType, limit]) =>
-        tripPassLedgerMeterTypeSet.has(meterType) &&
-        typeof limit === "number" &&
-        Number.isInteger(limit) &&
-        limit > 0,
-    ),
-  ) as Partial<Record<TripPassMeterType, number>>;
-
-  return {
-    expiresAt: row ? new Date(row.expires_at) : null,
-    meterLimits: Object.keys(meterLimits).length > 0 ? meterLimits : tripPassMeterLimits,
-  };
 }
 
 async function loadMeterAggregateMismatches(

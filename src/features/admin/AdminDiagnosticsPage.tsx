@@ -51,7 +51,8 @@ export function AdminDiagnosticsPage({
             <SectionHeading icon={Lock} title="Admin access required" />
             <p className={appBodyClass}>
               Diagnostics are environment gated. Configure `ADMIN_ACCESS_TOKEN` and send it as an
-              `x-admin-token` header to inspect operational data.
+              `x-admin-token` header for local read-only compatibility, or sign in with an
+              allowlisted Operator Account in production.
             </p>
           </div>
         </section>
@@ -176,6 +177,28 @@ export function AdminDiagnosticsPage({
             )}
           </section>
         </div>
+
+        <section className={appPanelClass}>
+          <SectionHeading icon={AlertTriangle} title="Operational findings" />
+          <div className={gridClass}>
+            {snapshot.operationalFindings.length > 0 ? (
+              snapshot.operationalFindings.map((finding) => (
+                <DiagnosticCard
+                  body={finding.summaryCode}
+                  key={finding.findingId}
+                  meta={`${finding.impact} · ${finding.status}`}
+                  title={`${finding.kind}: ${finding.findingId}`}
+                />
+              ))
+            ) : (
+              <EmptyState
+                description="No live reconciliation findings are recorded."
+                icon={AlertTriangle}
+                title="No operational findings"
+              />
+            )}
+          </div>
+        </section>
 
         <section className={appPanelClass}>
           <SectionHeading icon={Gauge} title="LLM cost drivers" />

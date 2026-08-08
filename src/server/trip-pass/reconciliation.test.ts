@@ -10,6 +10,7 @@ import {
 } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
+import { grantTripPass } from "@/server/trip-pass/entitlement";
 import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
 import {
   buildTripPassReconciliationSnapshot,
@@ -57,7 +58,7 @@ describe("Trip Pass reconciliation", () => {
     });
   });
 
-  test("applies idempotent safe repairs and does not duplicate grants on repeat", async () => {
+  test("cannot mutate through historical repair flags", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_repair", "user_repair");
       await insertPassWithStaleReservation(db, "trip_pass_repair_stale", "user_repair_stale");
@@ -77,31 +78,21 @@ describe("Trip Pass reconciliation", () => {
         now,
       });
 
-      expect(first.actions).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            action: "grant_missing_trip_pass",
-            localRef: "order_repair",
-            status: "applied",
-          }),
-          expect.objectContaining({
-            action: "release_stale_reservation",
-            localRef: "usage_event_stale",
-            status: "applied",
-          }),
-        ]),
-      );
-      expect(second.actions).not.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ action: "grant_missing_trip_pass", localRef: "order_repair" }),
-        ]),
-      );
-      await expectCounts(db, { grants: "1", passes: "2" });
-      await expectUsageEventType(db, "usage_event_stale", "released");
+      for (const snapshot of [first, second]) {
+        expect(snapshot.mode).toBe("dry_run");
+        expect(snapshot.actions).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ localRef: "order_repair", status: "planned" }),
+            expect.objectContaining({ localRef: "usage_event_stale", status: "planned" }),
+          ]),
+        );
+      }
+      await expectCounts(db, { grants: "0", passes: "1" });
+      await expectUsageEventType(db, "usage_event_stale", "reserved");
     });
   });
 
-  test("does not persist legacy paid order email during missing-pass repair", async () => {
+  test("does not persist legacy paid order email while detect-only", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_repair_email", "user_repair_email");
 
@@ -114,11 +105,7 @@ describe("Trip Pass reconciliation", () => {
       });
 
       expect(repaired.actions).toContainEqual(
-        expect.objectContaining({
-          action: "grant_missing_trip_pass",
-          localRef: "order_repair_email",
-          status: "applied",
-        }),
+        expect.objectContaining({ localRef: "order_repair_email", status: "planned" }),
       );
       const pass = await db.query<{ email: string | null }>(
         `
@@ -130,14 +117,14 @@ describe("Trip Pass reconciliation", () => {
         `,
         ["order_repair_email"],
       );
-      expect(pass.rows[0]?.email).toBeNull();
+      expect(pass.rows).toEqual([]);
     });
   });
 
   test("reconciles legacy version 1 meters from the recorded grant contract", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_legacy", "user_legacy", "legacy");
-      await reconcileTripPassState({ confirmMutation: true, db, env, mode: "repair", now });
+      await grantOrderForTest(db, "order_legacy", "user_legacy");
       const grants = await db.query<{ trip_pass_id: string }>(
         "select trip_pass_id from trip_pass_grants where order_id = $1",
         ["order_legacy"],
@@ -169,14 +156,14 @@ describe("Trip Pass reconciliation", () => {
         expect.objectContaining({
           action: "initialize_missing_meters",
           localRef: passId,
-          status: "applied",
+          status: "planned",
         }),
       );
       const meters = await db.query<{ count: string }>(
         "select count(*)::text as count from trip_usage_meters where trip_pass_id = $1",
         [passId],
       );
-      expect(meters.rows[0]?.count).toBe("5");
+      expect(meters.rows[0]?.count).toBe("4");
     });
   });
 
@@ -212,7 +199,7 @@ describe("Trip Pass reconciliation", () => {
   test("returns safe support summaries without payment secrets or email addresses", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_lookup", "user_lookup");
-      await reconcileTripPassState({ confirmMutation: true, db, env, mode: "repair", now });
+      await grantOrderForTest(db, "order_lookup", "user_lookup");
 
       const lookup = await lookupTripPassSupportReference(
         { orderId: "order_lookup", userId: "user_lookup" },
@@ -647,6 +634,19 @@ async function insertPaidOrder(
       product.amount,
       product.currency,
     ],
+  );
+}
+
+async function grantOrderForTest(db: DatabaseQueryClient, orderId: string, userId: string) {
+  await grantTripPass(
+    {
+      now,
+      orderId,
+      sourceEventId: `test-grant:${orderId}`,
+      sourceType: "manual_operator",
+      userId,
+    },
+    db,
   );
 }
 

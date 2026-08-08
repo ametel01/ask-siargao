@@ -456,7 +456,9 @@ test("renders final report with evidence and limitations", async ({ page }) => {
   await expect(page.getByText(/Exact room noise level is not verified/i)).toBeVisible();
 });
 
-test("renders local admin diagnostics without leaking sample secrets", async ({ page }) => {
+test("renders live-shaped local admin diagnostics without sample or private data", async ({
+  page,
+}) => {
   await enableProtectedUiHarness(page, {
     "x-admin-token": process.env.ADMIN_ACCESS_TOKEN ?? "replace-me",
   });
@@ -464,8 +466,10 @@ test("renders local admin diagnostics without leaking sample secrets", async ({ 
 
   await expect(page.getByRole("heading", { name: "Audit diagnostics" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Blocked audits" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "audit_blocked_001" }).first()).toBeVisible();
-  await expect(page.getByText("Weather source").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Operational findings" })).toBeVisible();
+  await expect(page.getByText("No operational findings", { exact: true })).toBeVisible();
+  await expect(page.getByText("audit_blocked_001")).toHaveCount(0);
+  await expect(page.getByText("Weather source")).toHaveCount(0);
   await expect(page.getByText("traveler@example.com")).toHaveCount(0);
   await expect(page.getByText(/sk_test_should_not_render/i)).toHaveCount(0);
 });
