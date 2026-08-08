@@ -1916,8 +1916,10 @@ function ChatWorkspaceView({
             aria-label="Chat message scroll area"
             className="min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-[linear-gradient(180deg,rgba(255,253,247,0.96),rgba(251,246,232,0.9))] px-4 pt-5 pb-36 sm:px-6 md:py-4 lg:px-8"
             data-testid="chat-message-scroll-area"
+            id="main-content"
             onScroll={updateScrollToLatestVisibility}
             ref={chatScrollAreaRef}
+            tabIndex={-1}
           >
             <div className="mx-auto grid min-h-full max-w-3xl content-start gap-6 pb-6 md:max-w-5xl md:gap-4">
               {savedTripStatus === "loading" ? (
@@ -1930,7 +1932,7 @@ function ChatWorkspaceView({
               ) : null}
               {savedTripStatus === "error" ? (
                 <p
-                  className="m-0 text-sm font-bold text-text-alert"
+                  className="m-0 text-sm font-bold text-risk-high-foreground"
                   data-testid="saved-trip-status"
                 >
                   Saved planning is unavailable right now. Try refreshing.
@@ -2144,7 +2146,7 @@ function ChatTravelRail({
             )}
           </div>
           <Link
-            className="inline-flex w-fit items-center gap-2 text-sm font-extrabold text-white no-underline hover:text-brand-lagoon-300"
+            className="inline-flex min-h-11 w-fit items-center gap-2 text-sm font-extrabold text-white no-underline hover:text-brand-lagoon-300"
             href="/settings"
           >
             View saved planning
@@ -2358,7 +2360,7 @@ function ChatTopBar({
         </div>
       )}
       {threadActionState.error ? (
-        <p className="basis-full m-0 text-sm font-bold text-text-alert" role="status">
+        <p className="basis-full m-0 text-sm font-bold text-risk-high-foreground" role="status">
           {threadActionState.error}
         </p>
       ) : null}
@@ -2501,7 +2503,7 @@ function MobileChatNavigation({
                   </p>
                 ) : null}
                 {historyStatus === "error" ? (
-                  <p className="m-0 px-3 py-2 text-sm font-bold text-text-alert">
+                  <p className="m-0 px-3 py-2 text-sm font-bold text-risk-high-foreground">
                     Chat history is unavailable
                   </p>
                 ) : null}
@@ -2792,17 +2794,23 @@ function ThreadRenameDialog({
             />
           </label>
           {validationError || error ? (
-            <p className="m-0 text-sm font-bold text-text-alert" role="alert">
+            <p className="m-0 text-sm font-bold text-risk-high-foreground" role="alert">
               {validationError ?? error}
             </p>
           ) : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Dialog.Close asChild>
-              <Button disabled={isPending} type="button" variant="outline">
+              <Button
+                className="min-h-11 rounded-md"
+                disabled={isPending}
+                type="button"
+                variant="outline"
+              >
                 Cancel
               </Button>
             </Dialog.Close>
             <Button
+              className="min-h-11 rounded-md"
               disabled={isPending || Boolean(validationError)}
               type="button"
               onClick={() => {
@@ -2862,18 +2870,23 @@ function ThreadDeleteDialog({
             />
           </label>
           {error ? (
-            <p className="m-0 text-sm font-bold text-text-alert" role="alert">
+            <p className="m-0 text-sm font-bold text-risk-high-foreground" role="alert">
               {error}
             </p>
           ) : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Dialog.Close asChild>
-              <Button disabled={isPending} type="button" variant="outline">
+              <Button
+                className="min-h-11 rounded-md"
+                disabled={isPending}
+                type="button"
+                variant="outline"
+              >
                 Cancel
               </Button>
             </Dialog.Close>
             <Button
-              className="bg-red-700 text-white hover:bg-red-800"
+              className="min-h-11 rounded-md bg-red-700 text-white hover:bg-red-800"
               disabled={isPending || value !== confirmation}
               type="button"
               onClick={() => {
@@ -2947,17 +2960,26 @@ function ThreadArchiveDialog({
               />
             </label>
             {error ? (
-              <p className="m-0 text-sm font-bold text-text-alert" role="alert">
+              <p className="m-0 text-sm font-bold text-risk-high-foreground" role="alert">
                 {error}
               </p>
             ) : null}
             <div className="flex flex-wrap justify-end gap-2">
               <Dialog.Close asChild>
-                <Button disabled={isPending} type="button" variant="outline">
+                <Button
+                  className="min-h-11 rounded-md"
+                  disabled={isPending}
+                  type="button"
+                  variant="outline"
+                >
                   Cancel
                 </Button>
               </Dialog.Close>
-              <Button disabled={isPending || value !== confirmation} type="submit">
+              <Button
+                className="min-h-11 rounded-md"
+                disabled={isPending || value !== confirmation}
+                type="submit"
+              >
                 <Archive aria-hidden="true" size={16} />
                 {isPending ? "Archiving" : "Archive chat"}
               </Button>
@@ -3323,7 +3345,10 @@ function MobileTripContextSheet({
                 Loading your trip details. Nothing from this browser is being used yet.
               </p>
             ) : tripDataSource === "error" ? (
-              <p className="m-0 text-sm font-bold text-text-alert" data-testid="mobile-trip-state">
+              <p
+                className="m-0 text-sm font-bold text-risk-high-foreground"
+                data-testid="mobile-trip-state"
+              >
                 Trip details could not be loaded. Refresh the conversation to try again.
               </p>
             ) : (
@@ -3744,7 +3769,7 @@ function ChatContextRail({
                 Saving your trip details.
               </p>
             ) : saveError ? (
-              <p className="m-0 text-xs font-bold text-text-alert" role="alert">
+              <p className="m-0 text-xs font-bold text-risk-high-foreground" role="alert">
                 {saveError}
               </p>
             ) : null}
@@ -3754,7 +3779,7 @@ function ChatContextRail({
             {tripDataSource === "loading" ? (
               <p className="m-0 text-xs font-bold text-text-muted">Loading your trip details.</p>
             ) : tripDataSource === "error" ? (
-              <p className="m-0 text-xs font-bold text-text-alert">
+              <p className="m-0 text-xs font-bold text-risk-high-foreground">
                 Trip details could not be loaded. Refresh to try again.
               </p>
             ) : (
@@ -4383,7 +4408,7 @@ function ChatMessage({
         <p className="m-0 whitespace-pre-wrap break-words text-base leading-[1.5] font-medium [overflow-wrap:anywhere] md:text-sm md:leading-[1.55] md:font-extrabold lg:text-base">
           {message.text}
         </p>
-        <time className="mt-2 hidden text-right text-xs font-semibold text-white/75 md:block">
+        <time className="mt-2 hidden text-right text-xs font-semibold text-text-on-dark md:block">
           {message.timestamp}
         </time>
       </article>
@@ -4682,7 +4707,7 @@ function AssistantRatingControls({
       <Button
         aria-label="Rate assistant response helpful"
         aria-pressed={rating === "up"}
-        className={`size-11 rounded-md border-border-default hover:bg-brand-lavender-50 sm:size-9 ${
+        className={`size-11 rounded-md border-border-default hover:bg-brand-lavender-50 ${
           rating === "up" ? "bg-brand-lagoon-100 text-brand-lagoon-700" : "bg-white text-text-muted"
         }`}
         disabled={disabled}
@@ -4696,7 +4721,7 @@ function AssistantRatingControls({
       <Button
         aria-label="Rate assistant response not helpful"
         aria-pressed={rating === "down"}
-        className={`size-11 rounded-md border-border-default hover:bg-brand-lavender-50 sm:size-9 ${
+        className={`size-11 rounded-md border-border-default hover:bg-brand-lavender-50 ${
           rating === "down" ? "bg-surface-caveat text-text-caveat" : "bg-white text-text-muted"
         }`}
         disabled={disabled}
@@ -4734,7 +4759,10 @@ function SelectedSavedItemStatus({
 
   if (status === "error") {
     return (
-      <p className="m-0 text-sm font-bold text-text-alert" data-testid="selected-saved-item-status">
+      <p
+        className="m-0 text-sm font-bold text-risk-high-foreground"
+        data-testid="selected-saved-item-status"
+      >
         Saved planning is unavailable right now. The selected item was not opened.
       </p>
     );
@@ -4891,7 +4919,7 @@ function SavedPlanTray({
                   <MapPin aria-hidden="true" size={14} />
                 )}
               </span>
-              <label className="flex min-w-0 items-center gap-2">
+              <label className="flex min-h-11 min-w-0 items-center gap-2">
                 <input
                   aria-label={`Include ${item.title} in shared plan`}
                   checked={isIncluded}
@@ -4925,7 +4953,10 @@ function SavedPlanTray({
       ) : null}
 
       {shareStatus === "error" ? (
-        <p className="m-0 text-xs font-bold text-text-alert" data-testid="saved-plan-share-error">
+        <p
+          className="m-0 text-xs font-bold text-risk-high-foreground"
+          data-testid="saved-plan-share-error"
+        >
           {shareErrorMessage}
         </p>
       ) : null}
@@ -4967,7 +4998,7 @@ function SavedPlanTray({
             </a>
           </Button>
           {copyStatus === "error" ? (
-            <p className="m-0 text-xs font-bold text-text-alert sm:col-span-3">
+            <p className="m-0 text-xs font-bold text-risk-high-foreground sm:col-span-3">
               Copy failed. The link is still available above.
             </p>
           ) : null}

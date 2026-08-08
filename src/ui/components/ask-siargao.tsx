@@ -85,12 +85,16 @@ export function BrandLockup({ className }: { className?: string }) {
 export function AppBackdrop({
   children,
   className,
+  id = "main-content",
+  tabIndex = -1,
   variant = "default",
   ...props
 }: HTMLAttributes<HTMLElement> & { variant?: "default" | "sunset" }) {
   return (
     <main
       className={cn(variant === "sunset" ? sunsetBackdropClass : appBackdropClass, className)}
+      id={id}
+      tabIndex={tabIndex}
       {...props}
     >
       {children}

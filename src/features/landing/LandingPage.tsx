@@ -115,7 +115,11 @@ const realityCheckExampleSteps = [
 
 export function LandingPage() {
   return (
-    <main className="min-h-screen overflow-x-clip bg-brand-navy-980 text-text-on-dark">
+    <main
+      className="min-h-screen overflow-x-clip bg-brand-navy-980 text-text-on-dark"
+      id="main-content"
+      tabIndex={-1}
+    >
       <section
         aria-label="Ask Siargao landing page"
         className="relative isolate overflow-hidden bg-brand-navy-980"

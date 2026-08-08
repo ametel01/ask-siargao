@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-06T23:30:04Z",
+  "generatedAt": "2026-08-08T18:58:04Z",
   "title": "Design System: Ask Siargao",
   "extensions": {
     "colorMeta": {
@@ -32,6 +32,21 @@
           "#71b6b8",
           "#b4d9d7",
           "#e8f2ef"
+        ]
+      },
+      "storm-reef": {
+        "role": "primary",
+        "displayName": "Storm Reef",
+        "canonical": "#102c38",
+        "tonalRamp": [
+          "#071f28",
+          "#102c38",
+          "#183f4a",
+          "#285c65",
+          "#477b82",
+          "#79a2a5",
+          "#b7d0cf",
+          "#edf4f1"
         ]
       },
       "lagoon-deep": {
@@ -88,6 +103,21 @@
           "#4c31b8",
           "#5d3ed1",
           "#6c46e8",
+          "#875cf6",
+          "#a486ff",
+          "#cbc3ec",
+          "#f5f3ff"
+        ]
+      },
+      "pass-violet-night": {
+        "role": "secondary",
+        "displayName": "Pass Violet Night",
+        "canonical": "#271776",
+        "tonalRamp": [
+          "#140c3f",
+          "#271776",
+          "#3b2395",
+          "#5d3ed1",
           "#875cf6",
           "#a486ff",
           "#cbc3ec",
@@ -211,6 +241,21 @@
           "#9696b2",
           "#b7b7cb",
           "#d9d9e5",
+          "#f3f3f8"
+        ]
+      },
+      "text-soft": {
+        "role": "neutral",
+        "displayName": "Soft Ink",
+        "canonical": "#727197",
+        "tonalRamp": [
+          "#20203f",
+          "#3d3d60",
+          "#5a5a7c",
+          "#727197",
+          "#9291ac",
+          "#b2b1c6",
+          "#d6d5e1",
           "#f3f3f8"
         ]
       },
@@ -424,7 +469,7 @@
       "refersTo": "chip-action",
       "description": "A compact prompt or selected traveler constraint.",
       "html": "<button class=\"ds-chip\">Check a stay</button>",
-      "css": ".ds-chip { min-height: 36px; padding: 8px 12px; border: 1px solid var(--border-default, #ddd8ef); border-radius: 999px; background: var(--brand-lagoon-100, #ddfbf4); color: var(--brand-lagoon-700, #0a6f67); font: 800 12px/1.25 var(--font-body, 'Nunito Sans', sans-serif); transition: background-color 140ms cubic-bezier(.2,0,0,1), border-color 140ms cubic-bezier(.2,0,0,1); cursor: pointer; } .ds-chip:hover { background: #bff3e9; border-color: var(--brand-lagoon-300, #8ee6d8); } .ds-chip:focus-visible { outline: 3px solid rgba(20,184,166,.24); outline-offset: 2px; }"
+      "css": ".ds-chip { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border-default, #ddd8ef); border-radius: 999px; background: var(--brand-lagoon-100, #ddfbf4); color: var(--brand-lagoon-700, #0a6f67); font: 800 12px/1.25 var(--font-body, 'Nunito Sans', sans-serif); transition: background-color 140ms cubic-bezier(.2,0,0,1), border-color 140ms cubic-bezier(.2,0,0,1); cursor: pointer; } .ds-chip:hover { background: #bff3e9; border-color: var(--brand-lagoon-300, #8ee6d8); } .ds-chip:focus-visible { outline: 3px solid rgba(20,184,166,.24); outline-offset: 2px; }"
     },
     {
       "name": "Operational Panel",
@@ -440,7 +485,7 @@
       "refersTo": "button-secondary",
       "description": "A translucent night-surface pill for short landing-page orientation.",
       "html": "<nav class=\"ds-nav\" aria-label=\"Preview navigation\"><a href=\"#question\">Start a question</a><a href=\"#planning\">Plan smarter</a><a href=\"#pass\">Trip Pass</a></nav>",
-      "css": ".ds-nav { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid rgba(255,249,233,.28); border-radius: 999px; background: rgba(255,249,233,.10); font-family: var(--font-body, 'Nunito Sans', sans-serif); } .ds-nav a { min-height: 40px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 999px; color: var(--text-on-dark-muted, #d8d5f4); font-size: 13px; font-weight: 800; text-decoration: none; transition: background-color 140ms cubic-bezier(.2,0,0,1), color 140ms cubic-bezier(.2,0,0,1); } .ds-nav a:hover { background: rgba(255,249,233,.16); color: var(--text-on-dark, #fff9e9); } .ds-nav a:focus-visible { outline: 3px solid var(--brand-lagoon-300, #8ee6d8); outline-offset: 2px; }"
+      "css": ".ds-nav { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border: 1px solid rgba(255,249,233,.28); border-radius: 999px; background: rgba(255,249,233,.10); font-family: var(--font-body, 'Nunito Sans', sans-serif); } .ds-nav a { min-height: 44px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 999px; color: var(--text-on-dark-muted, #d8d5f4); font-size: 13px; font-weight: 800; text-decoration: none; transition: background-color 140ms cubic-bezier(.2,0,0,1), color 140ms cubic-bezier(.2,0,0,1); } .ds-nav a:hover { background: rgba(255,249,233,.16); color: var(--text-on-dark, #fff9e9); } .ds-nav a:focus-visible { outline: 3px solid var(--brand-lagoon-300, #8ee6d8); outline-offset: 2px; }"
     },
     {
       "name": "Evidence Receipt",
@@ -488,6 +533,11 @@
         "section": "typography"
       },
       {
+        "name": "The Direct-to-Work Rule",
+        "body": "Preserve one first-focus skip link and one `main-content` landmark on every top-level surface so keyboard users can bypass repeated navigation immediately.",
+        "section": "layout"
+      },
+      {
         "name": "The Flat-by-Default Rule",
         "body": "Repeated content stays flat. A shadow must explain a panel boundary, transient layer, or singular focal point.",
         "section": "elevation"
@@ -504,6 +554,7 @@
       "Do preserve the Two-Register Rule when moving between editorial and operational surfaces.",
       "Do prefer one-pixel borders, tonal layers, and line items before adding shadow or another card.",
       "Do keep controls visibly focused, at least 2.75rem tall when practical, and compatible with reduced motion.",
+      "Do preserve the first-focus skip link, unique `main-content` landmark, and three-pixel focus treatment on every top-level surface.",
       "Do use real island imagery as a contextual frame, with dark overlays strong enough to protect text contrast."
     ],
     "donts": [

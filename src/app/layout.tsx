@@ -1,12 +1,10 @@
-import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Cormorant_Garamond, Nunito_Sans } from "next/font/google";
 import type { ReactNode } from "react";
 
+import { SkipToMainContent } from "@/components/SkipToMainContent";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { clerkAppearance } from "@/features/auth/clerk-appearance";
-import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 import "@/theme/global.css";
 
 const bodyFont = Nunito_Sans({
@@ -33,6 +31,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const appContent = (
     <>
+      <SkipToMainContent />
       <TooltipProvider>{children}</TooltipProvider>
       <Toaster position="top-center" richColors />
     </>
@@ -40,13 +39,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
 
   return (
     <html className={`${bodyFont.variable} ${displayFont.variable}`} lang="en">
-      <body>
-        {isClerkServerConfigured ? (
-          <ClerkProvider appearance={clerkAppearance}>{appContent}</ClerkProvider>
-        ) : (
-          appContent
-        )}
-      </body>
+      <body>{appContent}</body>
     </html>
   );
 }

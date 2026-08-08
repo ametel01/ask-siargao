@@ -2,6 +2,7 @@ import { SignUp } from "@clerk/nextjs";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { ClerkProviderBoundary } from "@/features/auth/ClerkProviderBoundary";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
 import { AppBackdrop, appNightPanelClass, BrandLockup } from "@/ui/components/ask-siargao";
@@ -12,14 +13,16 @@ export default function SignUpPage() {
   }
 
   return (
-    <AppBackdrop className="grid place-items-center px-4 py-10">
-      <section className="grid justify-items-center gap-5">
-        <Link aria-label="Ask Siargao home" className="no-underline" href="/">
-          <BrandLockup />
-        </Link>
-        <SignUp appearance={clerkAppearance} />
-      </section>
-    </AppBackdrop>
+    <ClerkProviderBoundary>
+      <AppBackdrop className="grid place-items-center px-4 py-10">
+        <section className="grid justify-items-center gap-5">
+          <Link aria-label="Ask Siargao home" className="no-underline" href="/">
+            <BrandLockup />
+          </Link>
+          <SignUp appearance={clerkAppearance} />
+        </section>
+      </AppBackdrop>
+    </ClerkProviderBoundary>
   );
 }
 
@@ -36,7 +39,7 @@ function ClerkUnavailable({ actionLabel }: { actionLabel: string }) {
         </p>
         <Button
           asChild
-          className="w-fit rounded-md bg-[image:var(--gradient-lagoon-cta)]"
+          className="min-h-11 w-fit rounded-md bg-[image:var(--gradient-lagoon-cta)] px-4"
           type="button"
         >
           <Link href="/chat">Back to chat</Link>

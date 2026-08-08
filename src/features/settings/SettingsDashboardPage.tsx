@@ -521,7 +521,11 @@ function SettingsDashboardContent({
   }
 
   return (
-    <main className="min-h-screen overflow-x-clip bg-brand-lavender-50 text-text-default">
+    <main
+      className="min-h-screen overflow-x-clip bg-brand-lavender-50 text-text-default"
+      id="main-content"
+      tabIndex={-1}
+    >
       <section className="bg-brand-navy-980 text-text-on-dark">
         <div className={settingsWorkspaceClass}>
           <SettingsHeader />
@@ -751,7 +755,7 @@ function SummaryPanelBody({
     return <p className="m-0 text-sm font-bold text-text-muted">{loadingText}</p>;
   }
   if (status === "error") {
-    return <p className="m-0 text-sm font-bold text-text-alert">{errorText}</p>;
+    return <p className="m-0 text-sm font-bold text-risk-high-foreground">{errorText}</p>;
   }
   if (!hasContent) {
     return <p className="m-0 text-sm font-bold text-text-muted">{emptyText}</p>;
@@ -1521,6 +1525,7 @@ function AccountClosureControl() {
           <Input
             aria-label="Account Closure confirmation"
             autoComplete="off"
+            className="h-11 rounded-md"
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}
           />
@@ -1552,7 +1557,12 @@ function AccountClosureControl() {
                   ? "Account closed"
                   : "Close Account permanently"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+            <Button
+              className="min-h-11 rounded-md"
+              type="button"
+              variant="outline"
+              onClick={() => setIsOpen(false)}
+            >
               Cancel
             </Button>
           </div>
@@ -1607,10 +1617,10 @@ function MarketingConsentControl({
   return (
     <div className="grid min-w-0 gap-3 rounded-md border border-border-default p-3">
       <h3 className="m-0 text-sm font-semibold">Marketing consent</h3>
-      <label className="flex min-w-0 items-start gap-3 text-sm font-bold text-text-default">
+      <label className="flex min-h-11 min-w-0 items-center gap-3 text-sm font-bold text-text-default">
         <input
           checked={marketingValue}
-          className="mt-1 size-4 accent-brand-lagoon-600"
+          className="size-4 accent-brand-lagoon-600"
           type="checkbox"
           onChange={(event) => {
             setMarketingValueOverride(event.target.checked);
@@ -1765,6 +1775,7 @@ function PrivacyConfirmationDialog({
         >
           Type {action.confirmation} to continue
           <Input
+            className="h-11 rounded-md"
             id="privacy-confirmation-input"
             ref={inputRef}
             value={confirmationValue}
@@ -2146,7 +2157,7 @@ function PreferenceCheckbox({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-3 text-sm font-bold">
+    <label className="flex min-h-11 items-center gap-3 text-sm font-bold">
       <input
         aria-describedby={error ? errorId : undefined}
         aria-invalid={Boolean(error)}
@@ -2469,7 +2480,7 @@ function MultiValueField({
                 <button
                   aria-label={`Remove ${token.item}`}
                   aria-describedby={itemError ? itemErrorId : undefined}
-                  className="shrink-0 rounded-sm px-1 text-brand-lagoon-800 underline outline-none focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+                  className="inline-flex min-h-11 shrink-0 items-center rounded-sm px-1 text-brand-lagoon-800 underline outline-none focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
                   type="button"
                   onClick={() => {
                     onChange(value.filter((_, itemIndex) => itemIndex !== token.index));

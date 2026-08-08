@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { ClerkProviderBoundary } from "@/features/auth/ClerkProviderBoundary";
 import { ProfileSettingsPage } from "@/features/profile/ProfileSettingsPage";
 import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 
@@ -7,5 +8,9 @@ export default async function ProfilePage() {
     await auth.protect();
   }
 
-  return <ProfileSettingsPage />;
+  return (
+    <ClerkProviderBoundary>
+      <ProfileSettingsPage />
+    </ClerkProviderBoundary>
+  );
 }

@@ -1,3 +1,4 @@
+import { ClerkProviderBoundary } from "@/features/auth/ClerkProviderBoundary";
 import { ChatWorkspace } from "@/features/chat/ChatWorkspace";
 
 export default async function ChatPage({
@@ -8,10 +9,12 @@ export default async function ChatPage({
   const { prompt, savedItemId, threadId } = await searchParams;
 
   return (
-    <ChatWorkspace
-      initialPrompt={prompt}
-      initialSavedItemId={savedItemId}
-      initialThreadId={threadId}
-    />
+    <ClerkProviderBoundary>
+      <ChatWorkspace
+        initialPrompt={prompt}
+        initialSavedItemId={savedItemId}
+        initialThreadId={threadId}
+      />
+    </ClerkProviderBoundary>
   );
 }

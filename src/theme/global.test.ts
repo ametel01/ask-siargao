@@ -11,6 +11,8 @@ describe("theme foreground contrast", () => {
     ["high-confidence status", "--confidence-high-foreground", "--confidence-high-soft"],
     ["medium-confidence status", "--confidence-medium-foreground", "--confidence-medium-soft"],
     ["high-risk status", "--risk-high-foreground", "--risk-high-soft"],
+    ["soft supporting text", "--text-soft", "--surface-default"],
+    ["user message timestamp", "--text-on-dark", "--brand-lagoon-700"],
     ["Trip Pass CTA", "--trip-pass-cta-foreground", "--brand-lagoon-600"],
     ["Trip Pass CTA hover", "--trip-pass-cta-hover-foreground", "--brand-lagoon-700"],
   ])("keeps %s text at WCAG AA", (_label, foreground, background) => {

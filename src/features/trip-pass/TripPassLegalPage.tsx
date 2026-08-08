@@ -11,7 +11,11 @@ import { appSurfacePanelClass } from "@/ui/components/ask-siargao";
 
 export function TripPassLegalPage() {
   return (
-    <main className="min-h-screen bg-brand-lavender-50 px-4 py-5 text-text-default sm:px-6 lg:px-8 lg:py-8">
+    <main
+      className="min-h-screen bg-brand-lavender-50 px-4 py-5 text-text-default sm:px-6 lg:px-8 lg:py-8"
+      id="main-content"
+      tabIndex={-1}
+    >
       <div className="mx-auto grid w-full max-w-5xl gap-5">
         <Link
           className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline outline-none focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"

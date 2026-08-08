@@ -4,10 +4,12 @@ description: An island field desk that turns local evidence into calm, practical
 colors:
   deep-island-night: "#05082a"
   deep-reef: "#062f35"
+  storm-reef: "#102c38"
   lagoon-deep: "#0a6f67"
   lagoon-signal: "#14b8a6"
   lagoon-mist: "#ddfbf4"
   compass-violet: "#5d3ed1"
+  pass-violet-night: "#271776"
   violet-mist: "#f5f3ff"
   shell-paper: "#fffdf7"
   warm-paper: "#fbf6e8"
@@ -16,6 +18,7 @@ colors:
   sunset-coral: "#ff9b83"
   text-strong: "#0d104a"
   text-muted: "#5f5f87"
+  text-soft: "#727197"
   text-on-night: "#fff9e9"
   text-on-night-muted: "#d8d5f4"
   border-soft: "#ddd8ef"
@@ -106,6 +109,7 @@ components:
     typography: "{typography.label}"
     rounded: "{rounded.pill}"
     padding: "0.5rem 0.75rem"
+    height: "2.75rem"
   panel-operational:
     backgroundColor: "{colors.shell-paper}"
     textColor: "{colors.text-strong}"
@@ -160,6 +164,8 @@ signals for action, orientation, confidence, and warning.
 
 - **Compass Violet** (`compass-violet`): orientation, personalization, account actions, and
   secondary product controls. It should not compete with lagoon calls to action.
+- **Pass Violet Night** (`pass-violet-night`): the deepest violet anchor reserved for premium
+  Trip Pass atmosphere and layered with the existing compass-violet family.
 - **Lagoon Mist** (`lagoon-mist`): quiet selected states, supportive chips, and icon wells.
 - **Violet Mist** (`violet-mist`): secondary control backgrounds and low-pressure interactive
   states.
@@ -180,8 +186,12 @@ signals for action, orientation, confidence, and warning.
   tonal separation.
 - **Deep Reef** (`deep-reef`): the green-black coastal companion to Deep Island Night in sidebars
   and atmospheric gradients.
+- **Storm Reef** (`storm-reef`): the blue-green night edge that closes application backdrops
+  without introducing a new accent family.
 - **Strong Ink** and **Muted Ink** (`text-strong`, `text-muted`): primary and supporting copy on
   paper surfaces.
+- **Soft Ink** (`text-soft`): de-emphasized supporting copy on paper surfaces where small text must
+  remain readable; it is not a substitute for Dusk Lavender on dark surfaces.
 - **Shell Light** and **Dusk Lavender** (`text-on-night`, `text-on-night-muted`): primary and
   supporting copy on dark surfaces.
 - **Soft Lavender Border** (`border-soft`): the recurring cool divider and container boundary.
@@ -246,11 +256,18 @@ groups, `1rem`–`1.5rem` inside standard panels, and `2rem`–`3rem` between ma
 Maintain a minimum interactive height of `2.75rem` for traveler-facing controls whenever space
 allows.
 
+Every top-level route begins with a keyboard-first skip link before the application chrome. It
+stays visually off-canvas at rest, reveals itself on focus without shifting layout, and transfers
+focus to the route's primary content landmark.
+
 **The Narrative-to-Workbench Rule.** Persuasive surfaces may breathe and use asymmetry; operational
 surfaces compress into aligned columns and scannable rows without losing the same palette or voice.
 
 **The One-Scroll-Owner Rule.** Full-height workspaces give each column one deliberate scrolling
 region. Avoid nested scroll traps inside chat, context, or settings panels.
+
+**The Direct-to-Work Rule.** Preserve one first-focus skip link and one `main-content` landmark on
+every top-level surface so keyboard users can bypass repeated navigation immediately.
 
 ## Elevation & Depth
 
@@ -366,6 +383,8 @@ motion may briefly reveal sequence but must disappear at rest and respect reduce
 - **Do** prefer one-pixel borders, tonal layers, and line items before adding shadow or another card.
 - **Do** keep controls visibly focused, at least `2.75rem` tall when practical, and compatible with
   reduced motion.
+- **Do** preserve the first-focus skip link, unique `main-content` landmark, and three-pixel focus
+  treatment on every top-level surface.
 - **Do** use real island imagery as a contextual frame, with dark overlays strong enough to protect
   text contrast.
 

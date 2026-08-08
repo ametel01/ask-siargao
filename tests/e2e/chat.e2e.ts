@@ -1569,6 +1569,7 @@ test("hides stale local saved planning while authenticated hydration is pending 
   await expect(page.getByTestId("saved-trip-status")).toContainText(
     "Saved planning is unavailable",
   );
+  await expect(page.getByTestId("saved-trip-status")).toHaveCSS("color", "rgb(139, 38, 53)");
   await expect(page.getByText("Stale browser saved place")).toHaveCount(0);
 });
 
@@ -2109,6 +2110,10 @@ test("loads signed-in chat history and preserves the thread after reload", async
   await expect(page.getByTestId("context-rail")).toContainText("Aug 1 - 6");
   await expect(page.getByTestId("context-rail")).not.toContainText("Near Cloud 9 / Catangnan");
   await expect(page.getByRole("heading", { name: "Recent questions" })).toBeVisible();
+  const savedPlanningLinkBox = await page
+    .getByRole("link", { name: "View saved planning" })
+    .boundingBox();
+  expect(savedPlanningLinkBox?.height ?? 0).toBeGreaterThanOrEqual(44);
   await page.getByRole("button", { name: /Cloud 9 plan/ }).click();
   await expect(page.getByText("Where should I eat near Cloud 9?")).toBeVisible();
   await expect(page.getByText("Try Shaka for breakfast and Bravo for dinner.")).toBeVisible();
@@ -2131,6 +2136,14 @@ test("loads signed-in chat history and preserves the thread after reload", async
   const helpfulButton = hydratedAnswer.getByRole("button", {
     name: "Rate assistant response helpful",
   });
+  const notHelpfulButton = hydratedAnswer.getByRole("button", {
+    name: "Rate assistant response not helpful",
+  });
+  for (const ratingButton of [helpfulButton, notHelpfulButton]) {
+    const ratingButtonBox = await ratingButton.boundingBox();
+    expect(ratingButtonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(ratingButtonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+  }
   await sourceControl.focus();
   await expect(sourceControl).toBeFocused();
   await page.keyboard.press("Tab");
@@ -2430,7 +2443,15 @@ test("opens and manages exact chat and saved planning selections", async ({ page
 
   await page.getByRole("button", { name: "Rename selected chat" }).click();
   const renameDialog = page.getByRole("dialog", { name: "Rename chat" });
-  await expect(renameDialog.getByLabel("Thread title")).toBeVisible();
+  const renameInput = renameDialog.getByLabel("Thread title");
+  await expect(renameInput).toBeVisible();
+  for (const control of [
+    renameInput,
+    renameDialog.getByRole("button", { name: "Cancel" }),
+    renameDialog.getByRole("button", { name: "Save" }),
+  ]) {
+    await expectMinimumTouchTarget(control);
+  }
   await renameDialog.getByLabel("Thread title").fill("   ");
   await expect(renameDialog.getByRole("button", { name: "Save" })).toBeDisabled();
   await renameDialog.getByLabel("Thread title").fill("Cloud 9 quiet stay");
@@ -2465,6 +2486,13 @@ test("opens and manages exact chat and saved planning selections", async ({ page
   const archiveDialog = page.getByRole("dialog", { name: "Archive chat?" });
   const archiveConfirmation = archiveDialog.getByLabel("Type ARCHIVE to archive this chat");
   await expect(archiveConfirmation).toBeFocused();
+  for (const control of [
+    archiveConfirmation,
+    archiveDialog.getByRole("button", { name: "Cancel" }),
+    archiveDialog.getByRole("button", { name: "Archive chat" }),
+  ]) {
+    await expectMinimumTouchTarget(control);
+  }
   await expect(archiveDialog.getByRole("button", { name: "Archive chat" })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(archiveDialog).toHaveCount(0);
@@ -2488,6 +2516,13 @@ test("opens and manages exact chat and saved planning selections", async ({ page
   await expect(page).toHaveURL(/threadId=thread_backup/);
   await page.getByRole("button", { name: "Delete selected chat" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "Delete chat?" });
+  for (const control of [
+    deleteDialog.getByLabel("Type DELETE to delete this chat"),
+    deleteDialog.getByRole("button", { name: "Cancel" }),
+    deleteDialog.getByRole("button", { name: "Delete chat" }),
+  ]) {
+    await expectMinimumTouchTarget(control);
+  }
   await expect(deleteDialog.getByRole("button", { name: "Delete chat" })).toBeDisabled();
   await deleteDialog.getByLabel("Type DELETE to delete this chat").fill("DELETE");
   await deleteDialog.getByRole("button", { name: "Delete chat" }).click();
@@ -4330,12 +4365,14 @@ test("prevents empty share selections and keeps local saves after share API fail
   await page.getByRole("button", { name: "Save Shaka Siargao" }).click();
   await expect(page.getByTestId("saved-plan-tray")).toContainText("1 selected to share");
 
-  await page.getByLabel("Include Shaka Siargao in shared plan").uncheck();
+  const includeShakaCheckbox = page.getByLabel("Include Shaka Siargao in shared plan");
+  await expectMinimumTouchTarget(includeShakaCheckbox.locator("xpath=.."));
+  await includeShakaCheckbox.uncheck();
   await expect(page.getByTestId("saved-plan-share-empty")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Share$/ })).toBeDisabled();
   expect(savedSyncRequests).toBe(0);
 
-  await page.getByLabel("Include Shaka Siargao in shared plan").check();
+  await includeShakaCheckbox.check();
   await page.getByRole("button", { name: /^Share$/ }).click();
 
   await expect(page.getByTestId("saved-plan-share-error")).toContainText(
@@ -5412,6 +5449,12 @@ async function boundingBoxSnapshot(locator: Locator) {
     throw new Error("Expected element bounding box.");
   }
   return box;
+}
+
+async function expectMinimumTouchTarget(locator: Locator) {
+  const box = await boundingBoxSnapshot(locator);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(box.width).toBeGreaterThanOrEqual(44);
 }
 
 function expectBoxStable(

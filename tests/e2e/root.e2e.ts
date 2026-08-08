@@ -52,6 +52,19 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   );
 });
 
+test("keeps Clerk client chunks off the unconfigured public landing route", async ({ page }) => {
+  await page.goto("/");
+
+  const clerkChunkSources = await page
+    .locator("script[src]")
+    .evaluateAll((scripts) =>
+      scripts
+        .map((script) => script.getAttribute("src") ?? "")
+        .filter((source) => decodeURIComponent(source).toLowerCase().includes("clerk")),
+    );
+  expect(clerkChunkSources).toEqual([]);
+});
+
 test("does not preload the CSS-hidden desktop hero on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
@@ -171,6 +184,9 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
       rgb: [10, 111, 103],
     },
   ];
+
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to main content" })).toBeFocused();
 
   for (const { link, rgb } of expectedTabOrder) {
     await page.keyboard.press("Tab");
@@ -768,7 +784,11 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await page.getByLabel("Display name").fill("Alex in Siargao");
   await page.getByLabel("Add preferred area").fill("Pacifico");
   await page.getByLabel("Add preferred area").press("Enter");
-  await page.getByRole("button", { name: "Remove Pacifico" }).click();
+  const removePacificoButton = page.getByRole("button", { name: "Remove Pacifico" });
+  const removePacificoBox = await removePacificoButton.boundingBox();
+  expect(removePacificoBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+  expect(removePacificoBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+  await removePacificoButton.click();
   await expect(page.getByLabel("Add preferred area")).toBeFocused();
   await page.getByLabel("Add preferred area").fill("Pacifico");
   await page.getByLabel("Add preferred area").press("Enter");
@@ -778,13 +798,19 @@ test("edits profile details and reloads the persisted values", async ({ page }) 
   await page.getByLabel("Maximum ride time in minutes").fill("45");
   await page.getByLabel("Budget level").selectOption("premium");
   await page.getByLabel("Weather preference").selectOption("flexible");
-  await page.getByLabel("Vegan").check();
+  const veganCheckbox = page.getByLabel("Vegan");
+  const veganTargetBox = await veganCheckbox.locator("xpath=..").boundingBox();
+  expect(veganTargetBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await veganCheckbox.check();
   await page.getByLabel("Gluten-free").check();
   await page.getByRole("button", { name: "Add Food", exact: true }).click();
   await page.getByLabel("Quiet sleep matters").check();
   await page.getByLabel("Accommodation").fill("Pacifico beach stay");
   await page.getByLabel("Trip notes").fill("Arriving in September");
-  await page.getByLabel("Send occasional Ask Siargao product updates").check();
+  const marketingCheckbox = page.getByLabel("Send occasional Ask Siargao product updates");
+  const marketingTargetBox = await marketingCheckbox.locator("xpath=..").boundingBox();
+  expect(marketingTargetBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await marketingCheckbox.check();
   await expect(page.getByText("You have unsaved changes")).toBeVisible();
 
   profileSaveMode = "delayed";
@@ -1300,6 +1326,15 @@ test("keeps privacy confirmations modal and preserves deterministic failure stat
     let dialog = page.getByRole("dialog", { name: "Delete all chat history?" });
     const confirmationInput = dialog.getByRole("textbox");
     await expect(confirmationInput).toBeFocused();
+    for (const control of [
+      confirmationInput,
+      dialog.getByRole("button", { name: "Cancel" }),
+      dialog.getByRole("button", { name: "Delete all chat history", exact: true }),
+    ]) {
+      const box = await control.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+    }
     await dialog.getByLabel("Type DELETE CHAT HISTORY to continue").fill("DELETE CHAT HISTORY");
     await page.keyboard.press("Tab");
     await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
