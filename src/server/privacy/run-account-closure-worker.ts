@@ -2,6 +2,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import Stripe from "stripe";
 
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
 
 const result = await runClosureCleanupBatch({
@@ -23,7 +24,7 @@ const result = await runClosureCleanupBatch({
       if (!stripeKey) {
         throw new Error("stripe_configuration_unavailable");
       }
-      const stripe = new Stripe(stripeKey);
+      const stripe = new Stripe(stripeKey, { apiVersion: STRIPE_API_VERSION });
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       if (session.status === "open") {
         await stripe.checkout.sessions.expire(sessionId);

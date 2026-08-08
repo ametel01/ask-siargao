@@ -39,6 +39,12 @@ Scripts are defined in `package.json`.
 | `bun test` | `bun test` | Run Bun unit and integration tests. |
 | `bun run test:e2e` | `playwright test` | Run Playwright browser tests. |
 | `bun run test:e2e:production-perf` | `PLAYWRIGHT_PRODUCTION_PERF=1 playwright test` | Run the tagged production-performance Playwright lane against a built `next start` server. |
+| `bun run test:e2e:clerk` | `playwright test --config=playwright.clerk.config.ts --grep-invert='final live boundary'` | Run the mutating protected Clerk test-instance scenarios. This command denies non-manual, non-protected, SHA-mismatched, production-origin, or non-test-key contexts. |
+| `bun run test:e2e:clerk:final-boundary` | `playwright test --config=playwright.clerk.config.ts --grep='final live boundary'` | After Clerk deletion/worker checks, authenticate the persistent boundary fixture and re-prove the exact deployed SHA, database sentinel, and complete migration ledger immediately before evidence. |
+| `bun run test:e2e:clerk:verify-deletion` | `bun run src/server/qa/verify-clerk-release-candidate-deletion.ts` | After the protected Closure Operation worker drains, verify the disposable Clerk test identity no longer exists without printing its email or provider response. |
+| `bun run test:smoke:trip-pass-stripe` | `bun run src/server/qa/run-stripe-release-candidate.ts` | Run authenticated protected-app Playwright against real Stripe test mode: per-group exact deployed-SHA/database proof, ambiguous retry, return, a distinct 30-minute authoritative expiry boundary, authenticated cancellation, payment, signed webhooks, activation/duplicate/reversed delivery, paid-answer settlement, cumulative refunds, dispute, closure race, and Paid After Closure; then run supplemental contracts. |
+| `bun run test:e2e:stripe:final-boundary` | `playwright test --config=playwright.stripe.config.ts --grep='final live boundary'` | After Stripe workers, authenticate the persistent boundary fixture and re-prove the exact deployed SHA, database sentinel, and complete migration ledger immediately before evidence. |
+| `bun run qa:provider-rc-evidence` | `bun run src/server/qa/run-provider-release-candidate-evidence.ts` | After a protected provider lane passes, write a SHA- and migration-qualified redacted evidence manifest. Pass `-- --lane clerk` or `-- --lane stripe`. |
 | `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
 
 The release-candidate gate is:
@@ -49,6 +55,11 @@ bun run verify:ci
 
 `bun run format` is a fix command, not a verification gate. `bun run verify` and `bun run
 verify:ci` are non-mutating verification commands.
+
+The provider commands are not normal local or pull-request gates. Dispatch the protected workflow
+from the default branch after its requested full SHA is present in `main`; GitHub environment
+approval supplies dedicated test-only resources. A normal invocation without that context must
+fail before contacting Clerk or Stripe.
 
 ## Real Service Integration Lanes
 

@@ -111,6 +111,10 @@ export async function stripeWebhookResponseFromEvent(
         orderId: "orderId" in tripPassResult ? tripPassResult.orderId : undefined,
         stripeEventId: "stripeEventId" in tripPassResult ? tripPassResult.stripeEventId : event.id,
         reason: "reason" in tripPassResult ? tripPassResult.reason : undefined,
+        semanticOrdering:
+          options.preparedEvent?.kind === "refund" || options.preparedEvent?.kind === "dispute"
+            ? options.preparedEvent.semanticOrdering
+            : undefined,
       },
       { status: tripPassResult.status === "rejected" ? 400 : 200 },
     );

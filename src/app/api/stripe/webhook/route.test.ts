@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import Stripe from "stripe";
 
 import { POST } from "@/app/api/stripe/webhook/route";
-import { stripeWebhookResponse } from "@/app/api/stripe/webhook/webhook-route";
+import {
+  stripeWebhookResponse,
+  stripeWebhookResponseFromEvent,
+} from "@/app/api/stripe/webhook/webhook-route";
 import {
   type AuditLifecycleRecord,
   createAuditLifecycleRecord,
@@ -20,6 +23,10 @@ import {
   receiveStripeWebhookEvent,
   STRIPE_API_VERSION,
 } from "@/server/payments/stripe-event-inbox";
+import {
+  buildProviderReleaseCandidateStripeEvent,
+  providerReleaseCandidateStripeEventTypes,
+} from "@/server/qa/provider-release-candidate";
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
@@ -41,6 +48,74 @@ describe("Stripe webhook route", () => {
     restoreEnvValue("REDIS_URL", originalRedisUrl);
     restoreEnvValue("STRIPE_RESTRICTED_KEY", originalStripeRestrictedKey);
     restoreEnvValue("STRIPE_WEBHOOK_SECRET", originalStripeWebhookSecret);
+  });
+
+  test("reports semantic provider-before-application evidence only from a prepared provider fact", async () => {
+    const event = {
+      id: "evt_ordering_evidence",
+      object: "event",
+      type: "charge.refunded",
+      data: { object: { id: "ch_ordering_evidence", object: "charge" } },
+    } as Stripe.Event;
+    const response = await stripeWebhookResponseFromEvent(
+      event,
+      {
+        ...routeDependencies(),
+        applyTripPassStripeEvent: async () => ({
+          status: "rejected",
+          reason: "trip_pass_payment_intent_not_found",
+          stripeEventId: event.id,
+        }),
+      },
+      {
+        preparedEvent: {
+          event,
+          fact: null,
+          kind: "refund",
+          semanticOrdering: "provider_lookup_completed_before_application_started",
+        },
+      },
+    );
+
+    expect(await response.json()).toMatchObject({
+      applicationStatus: "rejected",
+      semanticOrdering: "provider_lookup_completed_before_application_started",
+    });
+  });
+
+  test("accepts and applies every protected release-candidate event envelope", async () => {
+    await withRouteTestDb(async (db) => {
+      for (const [index, type] of providerReleaseCandidateStripeEventTypes.entries()) {
+        const event = buildProviderReleaseCandidateStripeEvent({
+          eventId: `evt_provider_rc_route_${index}`,
+          object: protectedEventObject(type, index),
+          type,
+        });
+        const response = await stripeWebhookResponse(await signedRequest(JSON.stringify(event)), {
+          ...routeDependencies(),
+          applyTripPassStripeEvent: async () => ({
+            status: "noop",
+            reason: "protected_route_contract",
+            stripeEventId: event.id,
+          }),
+          prepareTripPassStripeEvent: async (verifiedEvent) => ({
+            event: verifiedEvent,
+            kind: "direct",
+          }),
+          receiveStripeWebhookEvent: (verifiedEvent, options) =>
+            receiveStripeWebhookEvent(verifiedEvent, { ...options, db }),
+        });
+        const body = await response.json();
+
+        expect(response.status, type).toBe(200);
+        expect(body.applicationStatus, type).toBe("noop");
+      }
+
+      const rows = await db.query<{ count: string }>(
+        "select count(*)::text as count from trip_pass_stripe_events where status = 'applied'",
+      );
+      expect(rows.rows[0]?.count).toBe(String(providerReleaseCandidateStripeEventTypes.length));
+    });
   });
 
   test("rejects unsigned requests before durable receipt", async () => {
@@ -724,6 +799,48 @@ function ignoredEventPayload(input: { eventId?: string } = {}) {
     request: null,
     type: "customer.created",
   });
+}
+
+function protectedEventObject(
+  type: (typeof providerReleaseCandidateStripeEventTypes)[number],
+  index: number,
+) {
+  if (type.startsWith("checkout.session.")) {
+    return {
+      id: `cs_provider_rc_${index}`,
+      object: "checkout.session",
+      client_reference_id: `order_provider_rc_${index}`,
+      metadata: {
+        productCode: "siargao_trip_pass_14d_v2",
+        productVersion: "2",
+        tripPassOrderId: `order_provider_rc_${index}`,
+      },
+      mode: "payment",
+      payment_intent: `pi_provider_rc_${index}`,
+      payment_status: type === "checkout.session.completed" ? "paid" : "unpaid",
+    };
+  }
+  if (type === "charge.refunded") {
+    return {
+      id: `ch_provider_rc_${index}`,
+      object: "charge",
+      payment_intent: `pi_provider_rc_${index}`,
+    };
+  }
+  if (type.startsWith("refund.")) {
+    return {
+      id: `re_provider_rc_${index}`,
+      object: "refund",
+      charge: `ch_provider_rc_${index}`,
+      payment_intent: `pi_provider_rc_${index}`,
+    };
+  }
+  return {
+    id: `du_provider_rc_${index}`,
+    object: "dispute",
+    charge: `ch_provider_rc_${index}`,
+    payment_intent: `pi_provider_rc_${index}`,
+  };
 }
 
 function deferred<T>() {
