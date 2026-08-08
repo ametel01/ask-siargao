@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const productionOrigin = "https://asksiargao.com";
 const stagingOrigin = "https://staging.asksiargao.com";
@@ -7,6 +11,7 @@ const productionVercelUrl = "ask-siargao-production-a1b2c3.vercel.app";
 const stagingBranch = "protected-staging";
 const stagingTargetEnv = "staging";
 const vercelProjectId = "prj_askSiargaoStableProject";
+const validationScript = fileURLToPath(new URL("./validate-clerk-deployment.ts", import.meta.url));
 
 const completeProductionEnv = {
   CLERK_AUTH_MODE: "enabled",
@@ -70,6 +75,30 @@ describe("Clerk deployment validation command", () => {
     expect(result.stderr).toContain("missing_required_clerk_field");
   });
 
+  test("does not hydrate missing production secrets from local environment files", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ask-siargao-clerk-validation-"));
+    const localSecret = "sk_live_local_file_must_be_ignored";
+
+    try {
+      await writeFile(join(cwd, ".env.local"), `CLERK_SECRET_KEY=${localSecret}\n`);
+
+      const result = await runValidationCommand(
+        {
+          ...completeProductionEnv,
+          CLERK_SECRET_KEY: undefined,
+        },
+        cwd,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("CLERK_SECRET_KEY");
+      expect(result.stderr).toContain("missing_required_clerk_field");
+      expect(result.stderr).not.toContain(localSecret);
+    } finally {
+      await rm(cwd, { force: true, recursive: true });
+    }
+  });
+
   test("fails contradictory Vercel production pretending to be local and disabled", async () => {
     const result = await runValidationCommand({
       CLERK_AUTH_MODE: "disabled",
@@ -125,16 +154,13 @@ describe("Clerk deployment validation command", () => {
   });
 });
 
-async function runValidationCommand(env: Record<string, string | undefined>) {
-  const subprocess = Bun.spawn(
-    [process.execPath, "run", "src/server/auth/validate-clerk-deployment.ts"],
-    {
-      cwd: process.cwd(),
-      env: commandEnv(env),
-      stderr: "pipe",
-      stdout: "pipe",
-    },
-  );
+async function runValidationCommand(env: Record<string, string | undefined>, cwd = process.cwd()) {
+  const subprocess = Bun.spawn([process.execPath, "--no-env-file", "run", validationScript], {
+    cwd,
+    env: commandEnv(env),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
 
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(subprocess.stdout).text(),
