@@ -63,8 +63,8 @@ does not establish Production Readiness or Launch Authorization.
 _Avoid_: Readiness, launch status
 
 **Foundation Gate Status**:
-The result of the repository lint, type, test, migration, build, browser, performance, PostgreSQL,
-and Redis gates for one exact candidate. Passing does not establish Production Readiness.
+The evidence state showing that every required repository check passed for one exact candidate.
+Passing does not establish Production Readiness.
 _Avoid_: Engineering readiness, production-ready
 
 **Prospective Candidate**:
@@ -103,6 +103,11 @@ The independently authorized release lane that exposes public knowledge and auth
 under bounded usage, traffic, cost, monitoring, and rollback controls while Trip Pass checkout
 remains globally disabled.
 _Avoid_: Production launch, paid beta
+
+**General Free Availability**:
+The independently authorized release lane that removes beta traffic caps while retaining the free
+allowance, cost circuit, monitoring, rollback controls, and globally disabled Trip Pass checkout.
+_Avoid_: Free Controlled Beta, General Paid Availability
 
 **Recovery Evidence**:
 Observed proof that a release lane can be restored or rolled back within its approved objectives. A

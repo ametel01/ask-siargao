@@ -9,6 +9,8 @@ releasing the codebase.
 - [First local run](developer/tutorials/first-local-run.md)
 - [Build the data pipeline with local Postgres](developer/how-to-guides/build-the-data-pipeline-with-local-postgres.md)
 - [Release-candidate QA](developer/how-to-guides/run-release-candidate-qa.md)
+- [Launch the free product](developer/how-to-guides/launch-free-product.md)
+- [Launch Trip Pass](developer/how-to-guides/launch-trip-pass.md)
 - [Environment reference](developer/reference/environment.md)
 - [Clerk auth and account lifecycle](developer/reference/clerk-auth-session-chat-history-requirements.md)
 - [Architecture and boundaries](developer/explanation/audit-lifecycle-and-boundaries.md)

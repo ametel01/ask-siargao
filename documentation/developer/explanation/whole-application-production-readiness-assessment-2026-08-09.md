@@ -5,14 +5,15 @@ This immutable assessment records the repository-backed production-readiness pos
 and release evidence. It is historical audit evidence, not a live launch checklist, Launch
 Authorization, or an implementation plan. Current release gates remain in the
 [release-candidate QA guide](../how-to-guides/run-release-candidate-qa.md) and
-[Trip Pass launch guide](../how-to-guides/launch-trip-pass.md).
+[free-product](../how-to-guides/launch-free-product.md) and
+[Trip Pass](../how-to-guides/launch-trip-pass.md) launch guides.
 
 ## Verdict
 
-Production Readiness is evaluated independently for three release lanes: Free Controlled Beta,
-Checkout Canary, and General Paid Availability. A capability is not Production Ready merely because
-its code is implemented; it must also be deployed and configured, monitored, recoverable, and
-verified for the exact release candidate.
+Production Readiness is evaluated independently for four release lanes: Free Controlled Beta,
+General Free Availability, Checkout Canary, and General Paid Availability. A capability is not
+Production Ready merely because its code is implemented; it must also be deployed and configured,
+monitored, recoverable, and verified for the exact release candidate.
 
 Repository verification is Foundation Gate Status, not “engineering readiness.” The pre-merge
 commit is a Prospective Candidate. Only an immutable trusted-main commit deployed to the protected
@@ -27,8 +28,24 @@ hybrid labels such as “conditional no-go.”
 | Release lane | Implementation Status | Production Readiness | Launch Authorization | Assessment |
 | --- | --- | --- | --- | --- |
 | Free Controlled Beta | Partial | Not Ready | Not Authorized | The core product is mostly implemented, but shared security and release blockers remain |
+| General Free Availability | Partial | Not Ready | Not Authorized | Free-beta evidence, uncapped operational capacity, and independent authorization do not exist |
 | Checkout Canary | Partial | Not Ready | Not Authorized | Substantial Trip Pass code exists, but paid operational and provider prerequisites are incomplete |
 | General Paid Availability | Partial | Not Ready | Not Authorized | Canary evidence, monitored operation, and independent authorization do not exist |
+
+The following accountable launch inputs are explicitly `UNASSIGNED`:
+
+- daily provider and model spend cap;
+- Evidence Owner;
+- Launch Approver;
+- exposure Operator;
+- rollback owner;
+- security and privacy incident owner; and
+- cost owner.
+
+This is a settled blocking state, not missing audit research. Free Controlled Beta remains Not Ready
+without an approved spend cap. Every release lane remains Not Authorized without named accountable
+people, and no person may self-approve by combining the Launch Approver role with candidate author,
+Evidence Owner, or exposure Operator.
 
 Production Readiness and Launch Authorization are separate conclusions. Closing engineering gates
 does not expose a release lane automatically. Only an eligible non-author human approver may grant
@@ -59,6 +76,10 @@ The following findings block every release lane:
 
 The Free Controlled Beta also requires verified free-allowance integrity, chat and provider
 availability, privacy deletion, cost limits, and free-product rollback controls.
+
+General Free Availability retains the free allowance, cost circuit, monitoring, rollback controls,
+and globally disabled checkout boundary while removing beta traffic caps. It requires successful
+Free Controlled Beta evidence and a separate Launch Authorization.
 
 If Shared Trip Links are enabled, their 30-day default expiry and revocation behavior are also an
 all-lane gate.
@@ -302,14 +323,19 @@ agents or test processes.
 
 ## Resolution tracking
 
-This assessment remains unchanged after the grilling session so it continues to describe the
-2026-08-09 evidence. Remediation status belongs in GitHub issues or an umbrella
+After the confirmed grilling session, this assessment remains a record of the 2026-08-09 evidence
+and the decisions used to interpret it. Remediation status belongs in GitHub issues or an umbrella
 production-readiness issue. No live issue links existed when this snapshot was captured; future
 tracking should link back to the relevant finding rather than rewriting it as fixed here.
 
+Live remediation should use one umbrella production-readiness issue with one child issue per
+independently verifiable finding. Each child records affected release lanes, owner, non-waivable
+status, acceptance evidence, and dependency relationships. Unrelated security, operations, and
+feature work should not share one implementation issue.
+
 ## Release disposition at assessment time
 
-All three release lanes lacked complete exact-candidate evidence at assessment time. Checkout should
+All four release lanes lacked complete exact-candidate evidence at assessment time. Checkout should
 remain globally off.
 
 The Free Controlled Beta can be reconsidered independently after, at minimum:
@@ -326,7 +352,13 @@ Its initial exposure is limited to 100 new Ask Siargao Accounts and 1,000 Travel
 Cost alerts fire at 70% of the approved daily provider and model budget, and new Travel Answers stop
 at 100%. Exposure rolls back when the five-minute server-error rate remains above 2% for ten minutes
 and stops immediately for an authentication, privacy, or data-integrity incident. The absolute daily
-provider and model budget remained unresolved when this snapshot was captured.
+provider and model budget is explicitly `UNASSIGNED`.
+
+Promotion to General Free Availability requires 14 consecutive observation days, at least 250
+distinct Ask Siargao Accounts, at least 1,000 completed Travel Answers, less than 1% server errors
+over the full window, no authentication, privacy, or data-integrity incident, no unresolved
+high-severity provider or application incident, cost within the approved budget, successfully
+exercised alert and rollback paths, and a separate Launch Authorization.
 
 The Checkout Canary additionally requires deployed and monitored workers, protected Clerk and
 Stripe QA, verified backup and recovery operations, completed alert ownership, and independent
@@ -336,3 +368,12 @@ accounts, one successful full refund, zero unresolved money/access mismatches, n
 alert, workers within their documented cadence, and no high-severity incident. General Paid
 Availability additionally requires successful canary evidence and a separate Launch Authorization
 decision.
+
+The command documented as `verify:ci` was not a true CI-equivalent gate because it omitted the real
+PostgreSQL and Redis lanes. The current local aggregate should become
+`verify:foundation:local`; `verify:foundation` should provision or target disposable PostgreSQL and
+Redis and run every Foundation Gate requirement. CI and documentation should use that same
+vocabulary.
+
+The live release-candidate QA, free-product launch, and Trip Pass launch guides contain the settled
+policies. This dated assessment remains historical evidence linked from those guides.

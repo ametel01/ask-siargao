@@ -6,6 +6,8 @@ Use these pages when working on the Ask Siargao codebase.
 - [Build the data pipeline with local Postgres](how-to-guides/build-the-data-pipeline-with-local-postgres.md): use Docker Compose Postgres before cloud Postgres to validate migrations, seed data, ingestion, confidence, freshness, and audit gating.
 - [Operate the production database](how-to-guides/operate-the-production-database.md): provision, monitor, maintain, back up, and restore the production Postgres database.
 - [Run release-candidate QA](how-to-guides/run-release-candidate-qa.md): validate the release candidate across product, security, public, and operational surfaces.
+- [Launch the free product](how-to-guides/launch-free-product.md): authorize Free Controlled Beta and promote it to General Free Availability under explicit traffic, cost, monitoring, and rollback controls.
+- [Launch Trip Pass](how-to-guides/launch-trip-pass.md): authorize the mandatory Checkout Canary and later General Paid Availability using exact-candidate evidence and independent approval.
 - [Extend a Reality Check kind](how-to-guides/extend-a-reality-check-kind.md): add or change an on-demand decision category without weakening evidence ordering, artifact selection, compatibility, or privacy.
 - [Environment reference](reference/environment.md): environment variables read by the app.
 - [Script reference](reference/scripts.md): Bun scripts and quality gates.

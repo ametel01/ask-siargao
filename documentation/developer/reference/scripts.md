@@ -23,7 +23,7 @@ Scripts are defined in `package.json`.
 | `bun run db:ingest:open-meteo-marine` | `bun run src/server/providers/ingest-open-meteo-marine.ts` | Fetch the Siargao Open-Meteo Marine forecast and persist modelled sea-level, wave, swell, and current facts into Postgres at `DATABASE_URL`. This is tide-proxy model data, not official tide-gauge or safety authority data. |
 | `bun run agent-memory:sync` | `bun run src/server/chat/sync-agent-memory-vector-store.ts` | Sync reference-role `docs/agent-memory/` files to an OpenAI vector store for chat-agent file search. Use `bun run agent-memory:sync -- --dry-run` for local/CI verification without network access. Non-dry-run sync requires `OPENAI_API_KEY`; pass `-- --vector-store-id <id>` or set `OPENAI_AGENT_MEMORY_VECTOR_STORE_ID` to reuse an existing store. The command prints the vector store ID to configure and never prints raw memory file bodies. |
 | `bun run eval:reality-check` | `bun run src/server/evaluations/run-reality-check-matrix.ts` | Print the deterministic on-demand Reality Check scenario and fail-closed contract matrix. Add `-- --write` to refresh the checked-in JSON artifact. |
-| `bun run qa:trip-pass-launch` | `bun run src/server/qa/run-trip-pass-launch-proof.ts` | Emit deterministic, redacted engineering evidence for the exact checked-out SHA and ordered migration checksums. Add `-- --write` to write the SHA-qualified JSON artifact under `.tmp/trip-pass-launch/`. The manifest records checkout `off` and keeps engineering readiness separate from pending human launch authorization; it never writes `docs/evaluations/**` or authorizes checkout. |
+| `bun run qa:trip-pass-launch` | `bun run src/server/qa/run-trip-pass-launch-proof.ts` | Emit deterministic, redacted Foundation Gate evidence for the exact checked-out SHA and ordered migration checksums. Add `-- --write` to write the SHA-qualified JSON artifact under `.tmp/trip-pass-launch/`. The manifest records checkout `off` and keeps Foundation Gate Status separate from pending Launch Authorization; it never writes `docs/evaluations/**` or authorizes checkout. |
 | `bun run db:migrate:test` | `bun run src/server/db/migrate-test.ts` | Apply unapplied SQL migrations to a PGlite test database through the same ledger runner. |
 | `bun run db:seed:test` | `bun run src/server/db/seed-test.ts` | Seed Siargao taxonomy and source profiles into a PGlite test database. |
 | `bun run privacy:closure-worker` | `bun run src/server/privacy/run-account-closure-worker.ts` | Process a bounded batch of due Account Closure steps with database leases. Requires production database, Clerk, Stripe, closure-key, and policy configuration; logs only a redacted attempt count. |
@@ -37,7 +37,7 @@ Scripts are defined in `package.json`.
 | `bun run lint` | `biome check .` | Run the non-mutating Biome check used by CI. |
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
 | `bun run verify` | `bun run lint && bun run typecheck --incremental false && bun test` | Run the fast non-mutating local verification gate. |
-| `bun run verify:ci` | `bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e && bun run test:e2e:production-perf` | Run the full CI-equivalent release gate locally, including functional Playwright and the production-performance lane. |
+| `bun run verify:ci` | `bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e && bun run test:e2e:production-perf` | Run the local aggregate through functional Playwright and the production-performance lane. Despite its current name, it omits the real PostgreSQL and Redis lanes and is not a complete CI-equivalent Foundation Gate. |
 | `bun test` | `bun test` | Run Bun unit and integration tests. |
 | `bun run test:e2e` | `playwright test` | Run Playwright browser tests. |
 | `bun run test:e2e:production-perf` | `PLAYWRIGHT_PRODUCTION_PERF=1 playwright test` | Run the tagged production-performance Playwright lane against a built `next start` server. |
@@ -49,14 +49,17 @@ Scripts are defined in `package.json`.
 | `bun run qa:provider-rc-evidence` | `bun run src/server/qa/run-provider-release-candidate-evidence.ts` | After a protected provider lane passes, write a SHA- and migration-qualified redacted evidence manifest. Pass `-- --lane clerk` or `-- --lane stripe`. |
 | `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
 
-The release-candidate gate is:
+There is currently no single complete Foundation Gate script. For a Prospective Candidate, run:
 
 ```sh
 bun run verify:ci
+bun run test:integration:postgres
+bun run test:integration:redis
 ```
 
 `bun run format` is a fix command, not a verification gate. `bun run verify` and `bun run
-verify:ci` are non-mutating verification commands.
+verify:ci` are non-mutating verification commands. The real-service lanes require the disposable
+services and scoped environment configuration documented below.
 
 The provider commands are not normal local or pull-request gates. Dispatch the protected workflow
 from the default branch after its requested full SHA is present in `main`; GitHub environment
