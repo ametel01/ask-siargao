@@ -764,6 +764,23 @@ test("shows the trip context rail at normal desktop browser width", async ({ pag
   await expect.poll(() => rightRailFitsViewport(page)).toBe(true);
 });
 
+test("starts the desktop chat heading outline with its page heading", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mockChatApi(page, {
+    message: "Mocked desktop answer.",
+  });
+  await page.goto("/chat");
+
+  const headingOutline = await page.locator("main h1, main h2").evaluateAll((headings) =>
+    headings.map((heading) => ({
+      level: heading.tagName,
+      text: heading.textContent?.trim(),
+    })),
+  );
+  expect(headingOutline[0]).toEqual({ level: "H1", text: "Ask Siargao" });
+  expect(headingOutline.filter(({ level }) => level === "H1")).toHaveLength(1);
+});
+
 test("renders the field desk workspace across desktop visual fixtures", async ({
   page,
 }, testInfo) => {

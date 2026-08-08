@@ -1381,14 +1381,16 @@ function PrivacyControlsPanel({
 
       <MarketingConsentControl onProfileUpdated={onProfileUpdated} profile={profile} />
 
-      <div className="grid min-w-0 gap-3 rounded-md border border-red-200 bg-red-50 p-3">
-        <h3 className="m-0 text-sm font-semibold text-red-950">Delete active product data</h3>
-        <p className="m-0 text-sm font-bold leading-6 text-red-950">
+      <div className="grid min-w-0 gap-3 rounded-md border border-risk-high/25 bg-risk-high-soft p-3">
+        <h3 className="m-0 text-sm font-semibold text-risk-high-foreground">
+          Delete active product data
+        </h3>
+        <p className="m-0 text-sm font-bold leading-6 text-risk-high-foreground">
           Each action is separate and must be confirmed exactly.
         </p>
         <div className="grid min-w-0 gap-2">
           <Button
-            className="h-auto min-h-11 w-fit rounded-md border-red-300 bg-white px-3 py-2 text-left text-red-950 whitespace-normal hover:bg-red-100 focus-visible:ring-3 focus-visible:ring-red-500/20"
+            className="h-auto min-h-11 w-fit rounded-md border-risk-high/35 bg-white px-3 py-2 text-left text-risk-high-foreground whitespace-normal hover:bg-risk-high-soft focus-visible:ring-3 focus-visible:ring-risk-high/20"
             ref={chatTriggerRef}
             type="button"
             variant="outline"
@@ -1398,7 +1400,7 @@ function PrivacyControlsPanel({
             Delete all chat history
           </Button>
           <Button
-            className="h-auto min-h-11 w-fit rounded-md border-red-300 bg-white px-3 py-2 text-left text-red-950 whitespace-normal hover:bg-red-100 focus-visible:ring-3 focus-visible:ring-red-500/20"
+            className="h-auto min-h-11 w-fit rounded-md border-risk-high/35 bg-white px-3 py-2 text-left text-risk-high-foreground whitespace-normal hover:bg-risk-high-soft focus-visible:ring-3 focus-visible:ring-risk-high/20"
             ref={savedTriggerRef}
             type="button"
             variant="outline"
@@ -1416,8 +1418,8 @@ function PrivacyControlsPanel({
         <p
           className={`m-0 flex items-start gap-2 text-sm font-bold ${
             actionStatus.kind === "success" || actionStatus.kind === "already_empty"
-              ? "text-green-800"
-              : "text-red-800"
+              ? "text-confidence-high-foreground"
+              : "text-risk-high-foreground"
           }`}
           role="status"
         >
@@ -1487,15 +1489,17 @@ function AccountClosureControl() {
   }
 
   return (
-    <div className="grid min-w-0 gap-3 rounded-md border border-red-300 bg-red-50 p-3">
-      <h3 className="m-0 text-sm font-semibold text-red-950">Close Account permanently</h3>
-      <ul className="m-0 grid gap-1 pl-5 text-sm font-bold leading-6 text-red-950">
+    <div className="grid min-w-0 gap-3 rounded-md border border-risk-high/35 bg-risk-high-soft p-3">
+      <h3 className="m-0 text-sm font-semibold text-risk-high-foreground">
+        Close Account permanently
+      </h3>
+      <ul className="m-0 grid gap-1 pl-5 text-sm font-bold leading-6 text-risk-high-foreground">
         {accountClosureWarnings.map((warning) => (
           <li key={warning}>{warning}</li>
         ))}
       </ul>
       <Button
-        className="h-auto min-h-11 w-fit rounded-md border-red-400 bg-white px-3 py-2 text-red-950 hover:bg-red-100"
+        className="h-auto min-h-11 w-fit rounded-md border-risk-high/45 bg-white px-3 py-2 text-risk-high-foreground hover:bg-risk-high-soft"
         type="button"
         variant="outline"
         onClick={() => {
@@ -1510,15 +1514,15 @@ function AccountClosureControl() {
       {isOpen ? (
         <section
           aria-labelledby="account-closure-confirmation-title"
-          className="grid gap-3 rounded-md border border-red-300 bg-white p-4"
+          className="grid gap-3 rounded-md border border-risk-high/35 bg-white p-4"
         >
           <h4
-            className="m-0 text-base font-semibold text-red-950"
+            className="m-0 text-base font-semibold text-risk-high-foreground"
             id="account-closure-confirmation-title"
           >
             Confirm terminal Account Closure
           </h4>
-          <p className="m-0 text-sm leading-6 text-red-950">
+          <p className="m-0 text-sm leading-6 text-risk-high-foreground">
             Type <strong>{accountClosureConfirmation}</strong>. Clerk will ask you to verify your
             credentials if your last verification is more than five minutes old.
           </p>
@@ -1530,18 +1534,18 @@ function AccountClosureControl() {
             onChange={(event) => setConfirmation(event.target.value)}
           />
           {status === "request_failed" ? (
-            <p className="m-0 text-sm font-bold text-red-800" role="alert">
+            <p className="m-0 text-sm font-bold text-risk-high-foreground" role="alert">
               {accountClosureStatusMessages.request_failed}
             </p>
           ) : null}
           {status === "committed" || status === "committed_cleanup_failed" ? (
-            <p className="m-0 text-sm font-bold text-red-800" role="status">
+            <p className="m-0 text-sm font-bold text-risk-high-foreground" role="status">
               {accountClosureStatusMessages[status]}
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
-              className="min-h-11 bg-red-700 text-white hover:bg-red-800"
+              className="min-h-11 bg-risk-high-foreground text-text-on-dark hover:bg-risk-high-strong"
               disabled={
                 confirmation !== accountClosureConfirmation ||
                 status === "submitting" ||
@@ -1793,7 +1797,7 @@ function PrivacyConfirmationDialog({
             Cancel
           </Button>
           <Button
-            className="min-h-11 rounded-md bg-red-700 text-white hover:bg-red-800"
+            className="min-h-11 rounded-md bg-risk-high-foreground text-text-on-dark hover:bg-risk-high-strong"
             disabled={isPending || confirmationValue !== action.confirmation}
             type="button"
             onClick={onConfirm}
@@ -2379,7 +2383,7 @@ function MultiOptionField({
               {option.label}
               {itemError ? (
                 <span
-                  className="col-start-2 text-xs font-bold text-red-700"
+                  className="col-start-2 text-xs font-bold text-risk-high-foreground"
                   id={itemErrorId}
                   role="alert"
                 >
@@ -2492,7 +2496,7 @@ function MultiValueField({
                 </button>
                 {itemError ? (
                   <span
-                    className="col-span-2 pb-2 text-xs font-bold text-red-700"
+                    className="col-span-2 pb-2 text-xs font-bold text-risk-high-foreground"
                     id={itemErrorId}
                     role="alert"
                   >
@@ -2613,7 +2617,7 @@ function TextAreaField({
 
 function FieldError({ id, message }: { id: string; message?: string }) {
   return message ? (
-    <span className="text-sm font-bold text-red-700" id={id} role="alert">
+    <span className="text-sm font-bold text-risk-high-foreground" id={id} role="alert">
       {message}
     </span>
   ) : null;

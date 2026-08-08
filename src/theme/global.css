@@ -48,6 +48,7 @@
   --confidence-medium-foreground: #6b4c00;
   --confidence-medium-soft: #fff4cf;
   --risk-high-foreground: #8b2635;
+  --risk-high-strong: #701d2a;
   --risk-high-soft: #fff0ed;
   --trip-pass-cta-foreground: var(--brand-navy-980);
   --trip-pass-cta-hover-foreground: var(--text-on-dark);
@@ -306,6 +307,7 @@ summary::-webkit-details-marker {
   --color-risk-medium: var(--risk-medium);
   --color-risk-high: var(--risk-high);
   --color-risk-high-foreground: var(--risk-high-foreground);
+  --color-risk-high-strong: var(--risk-high-strong);
   --color-risk-high-soft: var(--risk-high-soft);
   --color-trip-pass-cta-foreground: var(--trip-pass-cta-foreground);
   --color-trip-pass-cta-hover-foreground: var(--trip-pass-cta-hover-foreground);

@@ -31,7 +31,7 @@ function ClerkUnavailable({ actionLabel }: { actionLabel: string }) {
     <AppBackdrop className="grid place-items-center px-4 py-10">
       <section className={`${appNightPanelClass} grid max-w-md gap-4`}>
         <BrandLockup />
-        <h1 className="m-0 font-heading text-3xl leading-none font-semibold text-[#fff9e9]">
+        <h1 className="m-0 font-heading text-3xl leading-none font-semibold text-text-on-dark">
           {actionLabel} unavailable
         </h1>
         <p className="m-0 text-sm leading-6 text-text-on-dark-muted">

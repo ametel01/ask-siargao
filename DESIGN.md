@@ -23,6 +23,9 @@ colors:
   text-on-night-muted: "#d8d5f4"
   border-soft: "#ddd8ef"
   risk-high: "#d84b55"
+  risk-high-foreground: "#8b2635"
+  risk-high-strong: "#701d2a"
+  risk-high-soft: "#fff0ed"
   confidence-high: "#1e9f63"
   confidence-medium: "#d99b23"
 typography:

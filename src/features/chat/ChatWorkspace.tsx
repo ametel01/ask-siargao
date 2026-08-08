@@ -1852,6 +1852,7 @@ function ChatWorkspaceView({
       aria-label="Ask Siargao chat workspace"
       className="fixed inset-0 isolate h-dvh overflow-hidden bg-brand-paper-100 text-text-strong before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:-z-10 before:w-[42vw] before:bg-[radial-gradient(circle_at_18%_16%,rgba(20,184,166,0.18),transparent_34%),linear-gradient(150deg,rgba(6,47,53,0.18),transparent_58%)] after:pointer-events-none after:absolute after:right-0 after:bottom-0 after:-z-10 after:h-44 after:w-[48vw] after:bg-[radial-gradient(circle_at_bottom_right,rgba(255,155,131,0.16),transparent_58%)]"
     >
+      <h1 className="sr-only">Ask Siargao</h1>
       <section className="grid h-full min-h-0 w-full grid-cols-1 min-[1180px]:grid-cols-[12.25rem_minmax(0,1fr)_23rem] xl:grid-cols-[14rem_minmax(0,1fr)_24rem] 2xl:grid-cols-[16rem_minmax(0,1fr)_25rem]">
         <ChatTravelRail
           historyStatus={historyStatus}
@@ -2278,7 +2279,7 @@ function ChatTopBar({
       <div className="pointer-events-none absolute left-1/2 flex min-w-0 -translate-x-1/2 items-center gap-2 md:pointer-events-auto md:static md:translate-x-0 md:gap-2.5">
         {hasMobileIdentity ? <PalmMark className="size-7 md:size-8" /> : null}
         <div className="grid min-w-0 gap-1">
-          <h1
+          <p
             className={cn(
               "m-0 min-w-0 truncate font-semibold text-text-strong",
               hasMobileIdentity
@@ -2287,7 +2288,7 @@ function ChatTopBar({
             )}
           >
             Ask Siargao
-          </h1>
+          </p>
           <p className="m-0 hidden min-w-0 items-center gap-2 text-sm font-extrabold text-text-muted sm:inline-flex">
             <WavesHorizontal
               aria-hidden="true"
@@ -2669,7 +2670,7 @@ function CompactChatActionsMenu({
                   Archive chat
                 </Button>
                 <Button
-                  className="min-h-11 justify-start border-red-200 text-red-700 hover:bg-red-50"
+                  className="min-h-11 justify-start border-risk-high/25 text-risk-high-foreground hover:bg-risk-high-soft"
                   disabled={disabled}
                   onClick={() => runAction(onDelete)}
                   type="button"
@@ -2730,7 +2731,7 @@ function ThreadActionControls({
       </Button>
       <Button
         aria-label="Delete selected chat"
-        className="size-11 rounded-md border-red-200 bg-white text-red-700 hover:bg-red-50"
+        className="size-11 rounded-md border-risk-high/25 bg-white text-risk-high-foreground hover:bg-risk-high-soft"
         disabled={disabled}
         onClick={onDelete}
         size="icon"
@@ -2849,7 +2850,7 @@ function ThreadDeleteDialog({
         <Dialog.Content
           className={cn(
             appSurfaceOverlayClass,
-            "fixed top-1/2 left-1/2 z-50 grid w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 border-red-200 p-5 text-text-strong focus:outline-none",
+            "fixed top-1/2 left-1/2 z-50 grid w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 border-risk-high/25 p-5 text-text-strong focus:outline-none",
           )}
           data-testid="thread-delete-dialog"
         >
@@ -2862,7 +2863,7 @@ function ThreadDeleteDialog({
           <label className="grid gap-2 text-sm font-extrabold" htmlFor="thread-delete-confirmation">
             Type {confirmation} to delete this chat
             <input
-              className="min-h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+              className="min-h-11 rounded-md border border-border-default bg-white px-3 text-sm font-bold outline-none focus-visible:ring-2 focus-visible:ring-risk-high"
               disabled={isPending}
               id="thread-delete-confirmation"
               value={value}
@@ -2886,7 +2887,7 @@ function ThreadDeleteDialog({
               </Button>
             </Dialog.Close>
             <Button
-              className="min-h-11 rounded-md bg-red-700 text-white hover:bg-red-800"
+              className="min-h-11 rounded-md bg-risk-high-foreground text-text-on-dark hover:bg-risk-high-strong"
               disabled={isPending || value !== confirmation}
               type="button"
               onClick={() => {
@@ -6307,12 +6308,6 @@ function ChatComposer({
   onTurnOffLocation,
   onSubmitPrompt,
 }: ChatComposerProps) {
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  useEffect(() => {
-    resizeComposerTextarea(textareaRef.current);
-  });
-
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (locationState.status === "requesting") {
@@ -6347,20 +6342,12 @@ function ChatComposer({
           <textarea
             data-slot="input-group-control"
             aria-label="Ask anything about Siargao"
-            className="min-w-0 max-h-32 min-h-11 basis-full resize-none overflow-hidden rounded-none border-0 bg-transparent px-3 py-2 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-lagoon-700 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-muted focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted md:flex-1 md:basis-auto md:py-2.5 md:placeholder:text-text-soft"
+            className="min-w-0 max-h-32 min-h-11 basis-full resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2 text-base leading-6 whitespace-pre-wrap text-text-strong caret-brand-lagoon-700 shadow-none outline-none [field-sizing:content] [overflow-wrap:anywhere] placeholder:text-text-muted focus-visible:ring-0 disabled:bg-transparent disabled:text-text-muted md:flex-1 md:basis-auto md:py-2.5 md:placeholder:text-text-soft"
             data-testid="chat-composer-input"
             disabled={isSending}
-            onChange={(event) => {
-              resizeComposerTextarea(event.currentTarget);
-              onInputValueChange(event.currentTarget.value);
-            }}
-            onInput={(event) => {
-              resizeComposerTextarea(event.currentTarget);
-              onInputValueChange(event.currentTarget.value);
-            }}
+            onChange={(event) => onInputValueChange(event.currentTarget.value)}
             onKeyDown={handleComposerKeyDown}
             placeholder="Reality-check a Siargao plan…"
-            ref={textareaRef}
             rows={1}
             value={inputValue}
           />
@@ -6541,15 +6528,6 @@ function LocationSharingControl({
       </Dialog.Portal>
     </Dialog.Root>
   );
-}
-
-function resizeComposerTextarea(textarea: HTMLTextAreaElement | null) {
-  if (!textarea) {
-    return;
-  }
-
-  textarea.style.height = "auto";
-  textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
 }
 
 function locationSummaryText(locationState: LocationSharingState) {

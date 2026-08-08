@@ -65,17 +65,23 @@ test("keeps Clerk client chunks off the unconfigured public landing route", asyn
   expect(clerkChunkSources).toEqual([]);
 });
 
-test("does not preload the CSS-hidden desktop hero on mobile", async ({ page }) => {
+test("uses one eager responsive hero image across mobile and desktop", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
   const heroPreloads = page.locator('head link[rel="preload"][as="image"]');
-  await expect(heroPreloads).toHaveCount(1);
-  await expect(heroPreloads).toHaveAttribute("imagesizes", "(min-width: 1024px) 0px, 100vw");
-  await expect(page.getByTestId("mobile-hero-image")).toHaveAttribute("loading", "eager");
-  await expect(page.getByTestId("mobile-hero-image")).toBeVisible();
-  await expect(page.getByTestId("desktop-hero-image")).toBeHidden();
-  await expect(page.getByTestId("desktop-hero-image")).toHaveAttribute("loading", "lazy");
+  expect(await heroPreloads.count()).toBeLessThanOrEqual(1);
+  const heroImage = page.getByTestId("responsive-hero-image");
+  await expect(heroImage).toHaveCount(1);
+  await expect(heroImage).toHaveAttribute("loading", "eager");
+  await expect(heroImage).toHaveAttribute(
+    "sizes",
+    "(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 100vw",
+  );
+  await expect(heroImage).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(heroImage).toBeVisible();
 });
 
 test("keeps every primary landing action on one contrast-stable color role", async ({ page }) => {
@@ -500,6 +506,9 @@ test("shows processing state after checkout return", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByText(/does not unlock the report/i)).toBeVisible();
   await expect(page.getByText(/Verified Stripe webhook marks the audit paid/i)).toBeVisible();
+  await expect(page.locator("main h1, main h2").first()).toHaveText(
+    "Waiting for Stripe confirmation",
+  );
 });
 
 test("renders final report with evidence and limitations", async ({ page }) => {

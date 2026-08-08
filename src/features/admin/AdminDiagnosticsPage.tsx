@@ -336,12 +336,12 @@ export function AdminDiagnosticsPage({
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <Card className="rounded-md border border-white/14 bg-white/12 p-4 text-text-on-dark shadow-[0_18px_48px_rgba(0,0,0,0.16)] backdrop-blur-md">
+    <Card className="rounded-md border border-white/14 bg-white/12 p-4 text-text-on-dark shadow-surface-panel backdrop-blur-md">
       <CardContent className={appCardContentClass}>
         <p className="m-0 text-xs font-extrabold tracking-[0.1em] text-brand-lagoon-300 uppercase">
           {label}
         </p>
-        <p className="m-0 text-3xl font-extrabold text-[#fff9e9]">{value}</p>
+        <p className="m-0 text-3xl font-extrabold text-text-on-dark">{value}</p>
       </CardContent>
     </Card>
   );

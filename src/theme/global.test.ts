@@ -11,6 +11,8 @@ describe("theme foreground contrast", () => {
     ["high-confidence status", "--confidence-high-foreground", "--confidence-high-soft"],
     ["medium-confidence status", "--confidence-medium-foreground", "--confidence-medium-soft"],
     ["high-risk status", "--risk-high-foreground", "--risk-high-soft"],
+    ["destructive action", "--text-on-dark", "--risk-high-foreground"],
+    ["destructive action hover", "--text-on-dark", "--risk-high-strong"],
     ["soft supporting text", "--text-soft", "--surface-default"],
     ["user message timestamp", "--text-on-dark", "--brand-lagoon-700"],
     ["Trip Pass CTA", "--trip-pass-cta-foreground", "--brand-lagoon-600"],

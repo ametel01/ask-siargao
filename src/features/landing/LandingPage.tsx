@@ -124,23 +124,9 @@ export function LandingPage() {
         aria-label="Ask Siargao landing page"
         className="relative isolate overflow-hidden bg-brand-navy-980"
       >
-        <div className="pointer-events-none absolute inset-0 z-0 lg:hidden">
-          <Image
-            alt=""
-            aria-hidden="true"
-            className="object-cover object-[72%_34%]"
-            data-testid="mobile-hero-image"
-            fill
-            loading="eager"
-            sizes="(min-width: 1024px) 0px, 100vw"
-            src="/images/ask-siargao-mobile-hero-bg.png"
-          />
-          <div className="absolute inset-0 bg-[image:var(--gradient-landing-coastal-overlay)]" />
-        </div>
-
         <div className="relative z-10 mx-auto grid w-full max-w-[112rem] gap-6 px-5 pt-5 pb-0 sm:px-8 md:gap-10 md:px-10 md:pt-7 lg:px-12 lg:pt-8 xl:px-16 2xl:px-20">
           <Header />
-          <div className="grid min-w-0 gap-7 md:gap-10 lg:grid-cols-[minmax(0,1.08fr)_minmax(25rem,0.92fr)] lg:items-stretch lg:gap-10 xl:gap-16">
+          <div className="relative isolate grid min-w-0 gap-7 md:gap-10 lg:grid-cols-[minmax(0,1.08fr)_minmax(25rem,0.92fr)] lg:items-stretch lg:gap-10 xl:gap-16">
             <Hero />
             <CoastalFrame />
           </div>
@@ -344,20 +330,21 @@ function CoastalFrame() {
   return (
     <aside
       aria-label="A coastal view from Siargao"
-      className="relative hidden min-h-[39rem] overflow-hidden rounded-[2.25rem] border border-border-on-dark shadow-coastal-frame lg:block"
+      className="pointer-events-none absolute -inset-x-5 -top-5 bottom-0 -z-10 overflow-hidden sm:-inset-x-8 md:-inset-x-10 lg:pointer-events-auto lg:relative lg:inset-auto lg:z-auto lg:min-h-[39rem] lg:rounded-[2.25rem] lg:border lg:border-border-on-dark lg:shadow-coastal-frame"
     >
       <Image
         alt=""
         aria-hidden="true"
-        className="object-cover object-[58%_42%]"
-        data-testid="desktop-hero-image"
+        className="object-cover object-[72%_34%] lg:object-[58%_42%]"
+        data-testid="responsive-hero-image"
         fill
-        fetchPriority="high"
-        sizes="(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 0px"
+        loading="eager"
+        sizes="(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 100vw"
         src="/images/ask-siargao-mobile-hero-bg.png"
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-brand-navy-980/90 via-transparent to-brand-navy-980/10" />
-      <div className="absolute right-6 bottom-6 left-6 rounded-2xl border border-border-on-dark bg-surface-dark-glass p-5 shadow-surface-panel backdrop-blur-md xl:right-8 xl:bottom-8 xl:left-8 xl:p-6">
+      <div className="absolute inset-0 bg-[image:var(--gradient-landing-coastal-overlay)] lg:hidden" />
+      <div className="absolute inset-0 hidden bg-gradient-to-t from-brand-navy-980/90 via-transparent to-brand-navy-980/10 lg:block" />
+      <div className="absolute right-6 bottom-6 left-6 hidden rounded-2xl border border-border-on-dark bg-surface-dark-glass p-5 shadow-surface-panel backdrop-blur-md lg:block xl:right-8 xl:bottom-8 xl:left-8 xl:p-6">
         <p className="m-0 max-w-[31ch] text-balance font-heading text-2xl leading-tight font-semibold text-text-on-dark xl:text-3xl">
           One request, one evidence-backed call, one workable fallback at a time.
         </p>

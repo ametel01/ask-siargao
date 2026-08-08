@@ -4,12 +4,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { AuditJobState } from "@/server/audit/enums";
-import {
-  AppBackdrop,
-  appPanelClass,
-  BrandHeader,
-  SectionHeading,
-} from "@/ui/components/ask-siargao";
+import { AppBackdrop, appPanelClass, BrandHeader } from "@/ui/components/ask-siargao";
 
 const statusCopy: Record<
   AuditJobState,
@@ -100,7 +95,14 @@ export function AuditStatusPage({
         <BrandHeader label="Audit status" />
         <Card className={`${appPanelClass} grid gap-5 md:p-8`}>
           <CardContent className="grid gap-5 p-0">
-            <SectionHeading icon={Icon} title={`Audit ${auditRequestId}`} />
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700">
+                <Icon aria-hidden="true" size={20} />
+              </span>
+              <p className="m-0 min-w-0 text-xl leading-tight font-extrabold text-text-strong">
+                Audit {auditRequestId}
+              </p>
+            </div>
             <h1 className="m-0 text-2xl leading-[1.15] font-extrabold text-text-strong md:text-3xl">
               {copy.title}
             </h1>
