@@ -41,6 +41,11 @@ import {
   googlePlaces,
   llmRuns,
   llmToolCalls,
+  operationalAlertDeliveries,
+  operationalFindings,
+  operationalReconciliationRuns,
+  operationalWorkerTasks,
+  operatorRepairActions,
   paidAnswerReservations,
   paymentEvents,
   payments,
@@ -107,6 +112,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0013_trip_pass_payment_lifecycle.sql");
     expect(migrationNames).toContain("0014_durable_paid_answer_reservations.sql");
     expect(migrationNames).toContain("0015_paid_answer_retention_retry.sql");
+    expect(migrationNames).toContain("0016_operational_findings_and_repair.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -351,6 +357,137 @@ describe("Step 3 database migration", () => {
     await db.close();
   });
 
+  test("upgrades an immutable 0015 ledger through additive operations 0016 only", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const through0015 = migrationFiles.filter(
+      (migration) => migration.name <= "0015_paid_answer_retention_retry.sql",
+    );
+    expect(through0015.at(-1)).toMatchObject({
+      checksum: "41b4aca3e7d211ec29a5a091ec7706a1d2af6c36fe5c3ef33be251f72a8ce222",
+      name: "0015_paid_answer_retention_retry.sql",
+    });
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), through0015);
+    const upgrade = await runLedgerBackedMigrations(
+      createPgliteMigrationDatabase(db),
+      migrationFiles,
+    );
+    expect(upgrade.applied).toEqual(["0016_operational_findings_and_repair.sql"]);
+    const tables = await db.query<{ table_name: string }>(
+      `select table_name from information_schema.tables
+       where table_schema = 'public' and table_name like 'operational_%'
+          or table_schema = 'public' and table_name = 'operator_repair_actions'
+       order by table_name`,
+    );
+    expect(tables.rows.map((row) => row.table_name)).toEqual([
+      "operational_alert_deliveries",
+      "operational_findings",
+      "operational_reconciliation_runs",
+      "operational_worker_tasks",
+      "operator_repair_actions",
+    ]);
+    await db.close();
+  });
+
+  test("keeps operations migration columns and indexes in exact parity", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    await runInitialMigration(db);
+    const expectedColumns: Record<string, string[]> = {
+      operational_alert_deliveries: [
+        "alert_key",
+        "attempted_at",
+        "delivered_at",
+        "delivery_token",
+        "destination",
+        "finding_id",
+        "id",
+        "impact",
+        "status",
+      ],
+      operational_findings: [
+        "detected_at",
+        "id",
+        "impact",
+        "kind",
+        "local_entity_ref",
+        "local_entity_type",
+        "resolved_at",
+        "run_id",
+        "status",
+        "summary_code",
+      ],
+      operational_reconciliation_runs: [
+        "checked_count",
+        "completed_at",
+        "finding_count",
+        "id",
+        "source",
+        "started_at",
+        "status",
+      ],
+      operational_worker_tasks: [
+        "attempts",
+        "completed_at",
+        "created_at",
+        "id",
+        "last_error_code",
+        "lease_expires_at",
+        "lease_token",
+        "next_attempt_at",
+        "resource_ref",
+        "status",
+        "task_type",
+        "updated_at",
+      ],
+      operator_repair_actions: [
+        "action_type",
+        "after_state",
+        "before_state",
+        "command_hash",
+        "created_at",
+        "finding_id",
+        "id",
+        "idempotency_key_hash",
+        "operator_account_id",
+        "reason_code",
+      ],
+    };
+    for (const [tableName, columns] of Object.entries(expectedColumns)) {
+      const migrated = await db.query<{ column_name: string }>(
+        `select column_name from information_schema.columns
+         where table_schema = 'public' and table_name = $1 order by column_name`,
+        [tableName],
+      );
+      expect(migrated.rows.map((row) => row.column_name)).toEqual(columns);
+    }
+    const indexes = await db.query<{ indexname: string }>(
+      `select indexname from pg_indexes where schemaname = 'public'
+       and tablename in (
+         'operational_reconciliation_runs', 'operational_findings',
+         'operator_repair_actions', 'operational_alert_deliveries', 'operational_worker_tasks'
+       ) order by indexname`,
+    );
+    expect(indexes.rows.map((row) => row.indexname)).toEqual([
+      "operational_alert_deliveries_alert_key_key",
+      "operational_alert_deliveries_finding_id_idx",
+      "operational_alert_deliveries_pkey",
+      "operational_findings_open_idx",
+      "operational_findings_pkey",
+      "operational_findings_run_entity_key",
+      "operational_findings_run_id_idx",
+      "operational_reconciliation_runs_pkey",
+      "operational_worker_tasks_due_idx",
+      "operational_worker_tasks_pkey",
+      "operational_worker_tasks_resource_key",
+      "operator_repair_actions_finding_id_idx",
+      "operator_repair_actions_idempotency_key",
+      "operator_repair_actions_pkey",
+    ]);
+    await db.close();
+  });
+
   test("does not rerun the saved trip item primary key rewrite after bootstrap is applied", async () => {
     await resetTestDatabase();
     const db = await openTestDatabase();
@@ -498,7 +635,7 @@ describe("Step 3 database migration", () => {
       )
     ).join("\n");
     const migratedTables = [
-      ...migrationSql.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z_]+)/g),
+      ...migrationSql.matchAll(/CREATE TABLE(?: IF NOT EXISTS)?\s+([a-z_]+)/gi),
     ].map((match) => match[1]);
 
     const schemaTables = [
@@ -528,6 +665,11 @@ describe("Step 3 database migration", () => {
       tripPassStripeEvents,
       tripUsageEvents,
       paidAnswerReservations,
+      operationalReconciliationRuns,
+      operationalFindings,
+      operatorRepairActions,
+      operationalAlertDeliveries,
+      operationalWorkerTasks,
       areas,
       routes,
       providers,

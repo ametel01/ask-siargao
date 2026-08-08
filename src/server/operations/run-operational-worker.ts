@@ -1,0 +1,76 @@
+import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import { type OperationalTaskType, operationalTaskTypes } from "@/server/operations/contracts";
+import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
+import {
+  createSentryHttpSink,
+  deliverOperationalAlertOnce,
+} from "@/server/operations/sentry-alerts";
+import { runOperationalWorker } from "@/server/operations/worker-runner";
+
+if (import.meta.main) await main();
+
+async function main() {
+  const db = getDefaultDatabaseQueryClient();
+  const options = parseOperationalWorkerArguments(process.argv.slice(2));
+  const sentry = process.env.SENTRY_DSN
+    ? createSentryHttpSink({ dsn: process.env.SENTRY_DSN })
+    : null;
+  const result = await runOperationalWorker(
+    {
+      batchSize: options.batchSize,
+      leaseSeconds: options.leaseSeconds,
+      taskTypes: options.taskTypes,
+    },
+    {
+      db,
+      handlers: createProductionOperationalTaskHandlers({ db }),
+      onRepeatedFailure: sentry
+        ? async ({ attempts, taskType }) => {
+            await deliverOperationalAlertOnce(
+              {
+                alertKey: `worker:${taskType}:attempt:${attempts}`,
+                errorCode: "operational_worker_repeated_failure",
+                impact: attempts >= 5 ? "high" : "warning",
+                operation: operationForTask(taskType),
+              },
+              { db, sink: sentry },
+            );
+          }
+        : undefined,
+    },
+  );
+
+  console.info(JSON.stringify({ checked: "operational-worker", ...result }));
+}
+
+export function parseOperationalWorkerArguments(arguments_: string[]) {
+  let batchSize = 100;
+  let leaseSeconds = 60;
+  let taskTypes: OperationalTaskType[] | undefined;
+  for (const argument of arguments_) {
+    if (argument.startsWith("--batch=")) batchSize = positiveInteger(argument.slice(8));
+    else if (argument.startsWith("--lease-seconds=")) {
+      leaseSeconds = positiveInteger(argument.slice(16));
+    } else if (argument.startsWith("--task=")) {
+      const task = argument.slice(7);
+      if (task === "all") taskTypes = undefined;
+      else if (operationalTaskTypes.includes(task as OperationalTaskType)) {
+        taskTypes = [task as OperationalTaskType];
+      } else throw new Error("invalid_operational_task_type");
+    } else throw new Error("invalid_operational_worker_argument");
+  }
+  return { batchSize, leaseSeconds, taskTypes };
+}
+
+function positiveInteger(raw: string) {
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) throw new Error("invalid_positive_integer");
+  return value;
+}
+
+function operationForTask(taskType: OperationalTaskType) {
+  if (taskType === "account_closure") return "account_closure" as const;
+  if (taskType === "pending_stripe_event") return "stripe_application" as const;
+  if (taskType === "paid_after_closure_refund") return "paid_after_closure_refund" as const;
+  return "live_reconciliation" as const;
+}

@@ -18,11 +18,13 @@ import {
   type LocalRepairExecutor,
   previewRepairAction,
 } from "@/server/operations/repair-actions";
+import { parseOperationalWorkerArguments } from "@/server/operations/run-operational-worker";
 import {
   classifyOperationalCondition,
   createSentryHttpSink,
   deliverOperationalAlertOnce,
 } from "@/server/operations/sentry-alerts";
+import { tripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
 import { enqueueOperationalTask, runOperationalWorker } from "@/server/operations/worker-runner";
 
 describe("Operator authorization", () => {
@@ -169,6 +171,12 @@ describe("audited Repair Actions", () => {
         after: { state: "after" },
         status: "replayed",
       });
+      await expect(
+        executeRepairAction(
+          { ...common, reasonCode: "different_verified_reason" },
+          { allowlist: new Set(["account_operator"]), db, executor },
+        ),
+      ).rejects.toThrow("repair_idempotency_mismatch");
       const audit = await db.query<{
         operator_account_id: string;
         idempotency_key_hash: string;
@@ -179,7 +187,126 @@ describe("audited Repair Actions", () => {
       expect(audit.rows[0]?.operator_account_id).toBe("account_operator");
       expect(audit.rows[0]?.idempotency_key_hash).not.toContain("repair-idempotency");
       expect(audit.rows[0]?.before_state).toEqual({ state: "before" });
+      const auditCount = await db.query<{ count: string }>(
+        "select count(*)::text as count from operator_repair_actions",
+      );
+      expect(auditCount.rows[0]?.count).toBe("1");
     });
+  });
+
+  test("uses strict production executors for sensitive commerce and recovery classes", async () => {
+    await withTestDb(async (db) => {
+      await seedOrder(db, "order_manual_transition");
+      await seedFindingFor(
+        db,
+        "finding_manual_transition",
+        "payment_state_mismatch",
+        "trip_pass_order",
+        "order_manual_transition",
+        "authoritative_payment_terms_mismatch",
+      );
+      const manualPreview = await previewRepairAction(
+        { actionType: "manual_commerce_transition", findingId: "finding_manual_transition" },
+        { db, executor: tripPassLocalRepairExecutor },
+      );
+      await expect(
+        executeRepairAction(
+          commandFor(
+            "manual_commerce_transition",
+            "finding_manual_transition",
+            manualPreview.digest,
+          ),
+          {
+            allowlist: new Set(["account_operator"]),
+            createId: () => "repair_manual_transition",
+            db,
+            executor: tripPassLocalRepairExecutor,
+          },
+        ),
+      ).resolves.toMatchObject({ status: "applied", after: { status: "failed" } });
+
+      await seedOrder(db, "order_goodwill");
+      await db.query("update trip_pass_orders set status = 'paid' where id = 'order_goodwill'");
+      await seedFindingFor(
+        db,
+        "finding_goodwill",
+        "provider_application_failed",
+        "trip_pass_order",
+        "order_goodwill",
+        "provider_application_failed",
+      );
+      const goodwillPreview = await previewRepairAction(
+        { actionType: "goodwill_grant", findingId: "finding_goodwill" },
+        { db, executor: tripPassLocalRepairExecutor },
+      );
+      await expect(
+        executeRepairAction(
+          commandFor("goodwill_grant", "finding_goodwill", goodwillPreview.digest),
+          {
+            allowlist: new Set(["account_operator"]),
+            createId: () => "repair_goodwill",
+            db,
+            executor: tripPassLocalRepairExecutor,
+          },
+        ),
+      ).resolves.toMatchObject({ status: "applied", after: { grantCount: 1 } });
+
+      await db.query(
+        `insert into account_closure_tombstones (
+           id, subject_hash, subject_hash_version, subject_type, closure_policy_version
+         ) values ('tombstone_recovery', 'subject_recovery', 1, 'clerk_user_id', 'closure-v1')`,
+      );
+      await db.query(
+        `insert into account_closure_operations (
+           id, tombstone_id, operation_type, status, attempts, last_error_code,
+           phase_one_committed_at
+         ) values (
+           'closure_recovery', 'tombstone_recovery', 'traveler_requested_closure', 'failed', 1,
+           'cleanup_failed', clock_timestamp()
+         )`,
+      );
+      await seedFindingFor(
+        db,
+        "finding_recovery",
+        "privacy_cleanup_failed",
+        "closure_operation",
+        "closure_recovery",
+        "privacy_cleanup_failed",
+      );
+      const recoveryPreview = await previewRepairAction(
+        { actionType: "account_recovery", findingId: "finding_recovery" },
+        { db, executor: tripPassLocalRepairExecutor },
+      );
+      await expect(
+        executeRepairAction(
+          commandFor("account_recovery", "finding_recovery", recoveryPreview.digest),
+          {
+            allowlist: new Set(["account_operator"]),
+            createId: () => "repair_recovery",
+            db,
+            executor: tripPassLocalRepairExecutor,
+          },
+        ),
+      ).resolves.toMatchObject({ status: "applied", after: { status: "pending" } });
+    });
+  });
+});
+
+describe("operational worker CLI", () => {
+  test("selects one or every production task type with bounded controls", () => {
+    expect(parseOperationalWorkerArguments(["--task=pending_stripe_event", "--batch=3"])).toEqual({
+      batchSize: 3,
+      leaseSeconds: 60,
+      taskTypes: ["pending_stripe_event"],
+    });
+    expect(parseOperationalWorkerArguments(["--task=all", "--lease-seconds=30"])).toEqual({
+      batchSize: 100,
+      leaseSeconds: 30,
+      taskTypes: undefined,
+    });
+    expect(() => parseOperationalWorkerArguments(["--task=unknown"])).toThrow(
+      "invalid_operational_task_type",
+    );
   });
 });
 
@@ -344,7 +471,9 @@ function createPgliteQueryClient(
 }
 
 async function seedOrder(db: DatabaseQueryClient, id: string) {
-  await db.query("insert into users (id, email) values ('account_reconcile', null)");
+  await db.query(
+    "insert into users (id, email) values ('account_reconcile', null) on conflict (id) do nothing",
+  );
   await db.query(
     `insert into trip_pass_orders (
        id, user_id, status, product_code, product_version, stripe_price_id,
@@ -352,10 +481,9 @@ async function seedOrder(db: DatabaseQueryClient, id: string) {
        stripe_checkout_session_id, stripe_payment_intent_id, created_at, updated_at
      ) values (
        $1, 'account_reconcile', 'pending', 'siargao_trip_pass_14d_v2', 2, 'price_test',
-       999, 'usd', 'checkout_key', 'cs_live_reconciliation_secret',
-       'pi_live_reconciliation_secret', clock_timestamp() - interval '1 hour', clock_timestamp()
+       999, 'usd', $2, $3, $4, clock_timestamp() - interval '1 hour', clock_timestamp()
      )`,
-    [id],
+    [id, `checkout_key_${id}`, `cs_${id}`, `pi_${id}`],
   );
 }
 
@@ -372,6 +500,45 @@ async function seedFinding(db: DatabaseQueryClient, findingId: string) {
        'trip_pass_order', 'order_private', 'payment_state_mismatch')`,
     [findingId],
   );
+}
+
+async function seedFindingFor(
+  db: DatabaseQueryClient,
+  findingId: string,
+  kind: string,
+  entityType: string,
+  entityRef: string,
+  summaryCode: string,
+) {
+  const runId = `run_${findingId}`;
+  await db.query(
+    `insert into operational_reconciliation_runs (
+       id, source, status, checked_count, finding_count, started_at, completed_at
+     ) values ($1, 'cli', 'succeeded', 1, 1, clock_timestamp(), clock_timestamp())`,
+    [runId],
+  );
+  await db.query(
+    `insert into operational_findings (
+       id, run_id, kind, impact, local_entity_type, local_entity_ref, summary_code
+     ) values ($1, $2, $3, 'high', $4, $5, $6)`,
+    [findingId, runId, kind, entityType, entityRef, summaryCode],
+  );
+}
+
+function commandFor(
+  actionType: "account_recovery" | "goodwill_grant" | "manual_commerce_transition",
+  findingId: string,
+  previewDigest: string,
+) {
+  return {
+    actionType,
+    auth: { accountId: "account_operator", mfaFresh: true },
+    confirmation: "APPLY REPAIR",
+    findingId,
+    idempotencyKey: `idempotency-${findingId}`,
+    previewDigest,
+    reasonCode: "verified_operator_action",
+  };
 }
 
 function sequenceIds() {

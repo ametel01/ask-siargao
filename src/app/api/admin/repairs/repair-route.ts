@@ -78,11 +78,15 @@ export async function postRepairResponse(request: Request, dependencies: RepairR
     const safe = new Set([
       "repair_finding_unavailable",
       "repair_preview_changed",
+      "repair_idempotency_mismatch",
       "unsupported_repair_action_for_finding",
     ]).has(code)
       ? code
       : "repair_failed";
-    return json({ error: safe }, safe === "repair_preview_changed" ? 409 : 400);
+    return json(
+      { error: safe },
+      safe === "repair_preview_changed" || safe === "repair_idempotency_mismatch" ? 409 : 400,
+    );
   }
 }
 

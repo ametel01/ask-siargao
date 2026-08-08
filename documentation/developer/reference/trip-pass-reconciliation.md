@@ -43,7 +43,17 @@ Use `previewRepairAction()` before `executeRepairAction()`. Execution requires a
 The transaction locks the Finding, rechecks the preview, applies one provider-neutral local repair,
 stores the Operator Account ID, hashed idempotency key, reason, sanitized before/after states and
 database time, and resolves the Finding. Repeating the key returns the original audited result.
-Provider calls are not permitted inside a Repair Action transaction.
+The audit also stores a canonical command hash over Finding, action, reason, and preview digest.
+An exact replay returns the original result; reuse of the same Operator/key for a different command
+fails with `repair_idempotency_mismatch` before target mutation. Provider calls are not permitted
+inside a Repair Action transaction.
+
+Sensitive action classes are closed allowlists, not patch requests. A manual commerce transition
+can only fail an ungranted pending Order whose finding proves authoritative payment terms mismatch.
+A goodwill recovery can only restore the missing grant for a paid, owned, ungranted Order with a
+provider-application-failure Finding and still obeys Family → Account locking/no stacking. Account
+recovery only requeues a failed Account Closure cleanup operation; it never clears a tombstone or
+resurrects identity.
 
 ## Durable workers
 
@@ -52,8 +62,9 @@ Provider calls are not permitted inside a Repair Action transaction.
 success/retry updates by lease token. Crashes leave work reclaimable after lease expiry. Repeated
 failures remain visible and can invoke a scrubbed Sentry warning/page callback. Supported task kinds
 are Account Closure, Pending Stripe Event, Paid After Closure refund, retention purge, and commerce
-reconciliation. Existing CLI entrypoints and thin authenticated adapters inject their provider
-clients; no scheduler vendor or cadence is selected by engineering.
+reconciliation. `bun run operations:worker -- --task=<kind-or-all>` wires every kind to its concrete
+production path while retaining provider-client injection for protected tests. `--batch` and
+`--lease-seconds` bound one invocation. No scheduler vendor or cadence is selected by engineering.
 
 ## Alert ownership
 

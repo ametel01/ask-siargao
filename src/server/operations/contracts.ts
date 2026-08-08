@@ -23,12 +23,15 @@ export function createOperationTrace(recorder?: OperationEventRecorder): Operati
   };
 }
 
-export type OperationalTaskType =
-  | "account_closure"
-  | "pending_stripe_event"
-  | "paid_after_closure_refund"
-  | "retention_purge"
-  | "commerce_reconciliation";
+export const operationalTaskTypes = [
+  "account_closure",
+  "pending_stripe_event",
+  "paid_after_closure_refund",
+  "retention_purge",
+  "commerce_reconciliation",
+] as const;
+
+export type OperationalTaskType = (typeof operationalTaskTypes)[number];
 
 export type OperationalTaskHandler = (input: {
   resourceRef: string;

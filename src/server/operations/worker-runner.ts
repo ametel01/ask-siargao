@@ -29,7 +29,11 @@ export async function enqueueOperationalTask(
 }
 
 export async function runOperationalWorker(
-  input: { batchSize: number; leaseSeconds: number },
+  input: {
+    batchSize: number;
+    leaseSeconds: number;
+    taskTypes?: readonly OperationalTaskType[];
+  },
   dependencies: {
     createLeaseToken?: () => string;
     db: DatabaseQueryClient;
@@ -53,6 +57,7 @@ export async function runOperationalWorker(
       dependencies.db,
       input.leaseSeconds,
       dependencies.createLeaseToken?.() ?? randomUUID(),
+      input.taskTypes,
     );
     if (!task) break;
     results.claimed += 1;
@@ -94,7 +99,12 @@ export async function runOperationalWorker(
   return results;
 }
 
-async function claimTask(db: DatabaseQueryClient, leaseSeconds: number, leaseToken: string) {
+async function claimTask(
+  db: DatabaseQueryClient,
+  leaseSeconds: number,
+  leaseToken: string,
+  taskTypes?: readonly OperationalTaskType[],
+) {
   if (!db.transaction) throw new Error("database_transactions_required");
   return db.transaction(async (transaction) => {
     const result = await transaction.query<ClaimedTask>(
@@ -105,6 +115,7 @@ async function claimTask(db: DatabaseQueryClient, leaseSeconds: number, leaseTok
          ) or (
            status = 'running' and lease_expires_at <= clock_timestamp()
          )
+         and ($3::text[] is null or task_type = any($3::text[]))
          order by next_attempt_at, id
          for update skip locked
          limit 1
@@ -115,7 +126,7 @@ async function claimTask(db: DatabaseQueryClient, leaseSeconds: number, leaseTok
          updated_at = clock_timestamp()
        from due where task.id = due.id
        returning task.id, task.task_type, task.resource_ref, task.attempts, task.lease_token`,
-      [leaseToken, leaseSeconds],
+      [leaseToken, leaseSeconds, taskTypes ? [...taskTypes] : null],
     );
     return result.rows[0] ?? null;
   });

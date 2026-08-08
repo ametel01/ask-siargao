@@ -383,6 +383,7 @@ export async function releasePaidAnswer(input: {
 export async function purgeExpiredPaidAnswerDetails(
   db: DatabaseQueryClient,
   limit = 100,
+  reservationId?: string,
 ): Promise<number> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) {
     throw new Error("paid answer purge limit must be between 1 and 1000");
@@ -395,11 +396,12 @@ export async function purgeExpiredPaidAnswerDetails(
     `select id, account_id
      from paid_answer_reservations
      where details_purged_at is null and details_purge_at <= clock_timestamp()
+       and ($2::text is null or id = $2)
        and status <> 'open'
        and (purge_retry_at is null or purge_retry_at <= clock_timestamp())
      order by coalesce(purge_retry_at, details_purge_at), account_id, details_purge_at, id
      limit $1`,
-    [limit],
+    [limit, reservationId ?? null],
   );
   let purged = 0;
   const failures: PaidAnswerPurgeFailure[] = [];
