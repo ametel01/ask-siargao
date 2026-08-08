@@ -110,6 +110,7 @@ type PaidAnswerPurgeRow = PaidAnswerPurgeCandidateRow & {
 
 const reservationLeaseMinutes = 10;
 const defaultDetailRetentionDays = 30;
+const maximumPurgeFailureCount = 31;
 
 export async function reservePaidAnswer(input: {
   accountId: string;
@@ -513,14 +514,17 @@ async function schedulePaidAnswerPurgeRetry(
            when purge_failure_count >= 8 then interval '4 hours'
            else interval '1 minute' * power(2, purge_failure_count)
          end,
-         purge_failure_count = purge_failure_count + 1,
+         purge_failure_count = case
+           when purge_failure_count >= $4 then $4
+           else purge_failure_count + 1
+         end,
          purge_last_error = $3,
          updated_at = clock_timestamp()
        where id = $1 and account_id = $2 and details_purged_at is null
          and details_purge_at <= clock_timestamp() and status <> 'open'
          and (purge_retry_at is null or purge_retry_at <= clock_timestamp())
        returning id`,
-      [candidate.id, candidate.account_id, classifyPurgeFailure(cause)],
+      [candidate.id, candidate.account_id, classifyPurgeFailure(cause), maximumPurgeFailureCount],
     );
     return result.rows.length === 1;
   });

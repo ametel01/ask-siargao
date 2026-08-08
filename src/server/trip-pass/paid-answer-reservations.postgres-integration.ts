@@ -321,6 +321,16 @@ async function runConcurrentCorruptPurgeRetryScheduling(harness: PostgresHarness
         `trip_usage_event_${settled.reservationId}`,
       ]);
     }
+    await setup.query(
+      `update paid_answer_reservations
+       set purge_failure_count = case id when $1 then 30 when $2 then 31 else 0 end
+       where id = any($3::text[])`,
+      [
+        corrupt[0]?.reservationId,
+        corrupt[1]?.reservationId,
+        corrupt.map((settled) => settled.reservationId),
+      ],
+    );
 
     const workers = [
       purgeExpiredPaidAnswerDetails(gateAfterCandidateRead(first, firstRead, releaseReads), 3),
@@ -363,8 +373,8 @@ async function runConcurrentCorruptPurgeRetryScheduling(harness: PostgresHarness
         retryIsFuture: row.retry_is_future,
       })),
       corrupt
-        .map((settled) => ({
-          failureCount: 1,
+        .map((settled, index) => ({
+          failureCount: index < 2 ? 31 : 1,
           id: settled.reservationId,
           purged: false,
           retryIsFuture: true,

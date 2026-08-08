@@ -36,6 +36,8 @@ back, a separate Family → Account → reservation transaction records a databa
 bounded failure count, and redacted failure category. Due retries remain eligible, while the
 backoff ordering lets later unattempted rows progress through bounded batches. The reservation is
 marked purged only when its one exact settled usage event is scrubbed in the same transaction.
+The failure counter saturates at 31; retry delay already saturates after eight failures, so corrupt
+or legacy maximum-count rows cannot overflow the counter or block later retention work.
 
 The service does not transfer ownership, create grants for ownerless paid
 orders, merge duplicate grants, change refunded or disputed state, reprice

@@ -890,7 +890,7 @@ export const paidAnswerReservations = pgTable(
     ),
     check(
       "paid_answer_reservations_purge_failure_count_check",
-      sql`${table.purgeFailureCount} >= 0`,
+      sql`${table.purgeFailureCount} between 0 and 31`,
     ),
     check(
       "paid_answer_reservations_purge_last_error_check",

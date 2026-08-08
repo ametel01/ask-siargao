@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS paid_answer_reservations (
     reserved_at < details_purge_at
   ),
   CONSTRAINT paid_answer_reservations_purge_failure_count_check CHECK (
-    purge_failure_count >= 0
+    purge_failure_count BETWEEN 0 AND 31
   ),
   CONSTRAINT paid_answer_reservations_purge_last_error_check CHECK (
     purge_last_error IS NULL OR purge_last_error IN ('usage_event_integrity', 'purge_failed')

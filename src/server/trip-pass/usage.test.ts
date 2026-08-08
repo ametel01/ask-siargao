@@ -755,6 +755,72 @@ describe("paid Trip Pass chat usage", () => {
     });
   });
 
+  test("saturates purge retry failures without starving later retained details", async () => {
+    await withTestDb(async (db) => {
+      const nearMaximum = await createSettledPurgeFixture(db, "0_near_maximum", []);
+      const maximum = await createSettledPurgeFixture(db, "1_maximum", []);
+      const valid = await createSettledPurgeFixture(db, "9_after_maximum", ["provider_valid"]);
+      for (const fixture of [nearMaximum, maximum]) {
+        await db.query(`delete from trip_usage_events where id = $1`, [
+          `trip_usage_event_${fixture.reservationId}`,
+        ]);
+      }
+      await db.query(
+        `update paid_answer_reservations
+         set purge_failure_count = case id when $1 then 30 else 31 end
+         where id in ($1, $2)`,
+        [nearMaximum.reservationId, maximum.reservationId],
+      );
+
+      const failure = await capturePurgeFailure(db, 2);
+      expect(failure).toMatchObject({
+        purgedCount: 0,
+        failures: [
+          { reservationId: nearMaximum.reservationId, retryScheduled: true },
+          { reservationId: maximum.reservationId, retryScheduled: true },
+        ],
+      });
+      const scheduled = await db.query<{
+        id: string;
+        purge_failure_count: number;
+        retry_scheduled: boolean;
+      }>(
+        `select id, purge_failure_count, purge_retry_at > purge_attempted_at as retry_scheduled
+         from paid_answer_reservations where id = any($1::text[]) order by account_id`,
+        [[nearMaximum.reservationId, maximum.reservationId]],
+      );
+      expect(scheduled.rows).toEqual([
+        { id: nearMaximum.reservationId, purge_failure_count: 31, retry_scheduled: true },
+        { id: maximum.reservationId, purge_failure_count: 31, retry_scheduled: true },
+      ]);
+      await expect(purgeExpiredPaidAnswerDetails(db, 2)).resolves.toBe(1);
+      expect(await loadPurgeMarkers(db, [valid.reservationId])).toEqual([
+        { id: valid.reservationId, purged: true },
+      ]);
+
+      for (const fixture of [nearMaximum, maximum]) {
+        await db.query(
+          `insert into trip_usage_events (
+             id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+             idempotency_key, request_id, request_hash, provider_request_ids_json,
+             occurred_at, created_at
+           ) select 'trip_usage_event_' || id, trip_pass_id, usage_meter_id, account_id,
+             'settled', 'chat_message', 1, 'paid-answer:' || id, request_id,
+             request_body_hash, '[]'::jsonb, clock_timestamp(), clock_timestamp()
+           from paid_answer_reservations where id = $1`,
+          [fixture.reservationId],
+        );
+      }
+      await db.query(
+        `update paid_answer_reservations
+         set purge_retry_at = clock_timestamp() - interval '1 second'
+         where id = any($1::text[])`,
+        [[nearMaximum.reservationId, maximum.reservationId]],
+      );
+      await expect(purgeExpiredPaidAnswerDetails(db, 2)).resolves.toBe(2);
+    });
+  });
+
   test("treats expired and other-owner passes as not paid-applicable", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_expired", "trip_pass_paid_expired", {
