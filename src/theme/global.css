@@ -443,6 +443,14 @@ summary::-webkit-details-marker {
   background-color: var(--brand-lagoon-500);
 }
 
+.trip-pass-primary-action {
+  color: var(--trip-pass-cta-foreground);
+}
+
+.trip-pass-primary-action:hover {
+  color: var(--trip-pass-cta-hover-foreground);
+}
+
 .decision-strip-sequence-cue {
   position: absolute;
   top: 0.75rem;

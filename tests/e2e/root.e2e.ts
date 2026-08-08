@@ -404,6 +404,12 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
   const legalBackLink = page.getByRole("link", { name: "Back to Ask Siargao" });
   const legalBackLinkBox = await legalBackLink.boundingBox();
   expect(legalBackLinkBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+  const legalPrimaryAction = page.getByRole("link", { name: "Start in chat" });
+  await expect(legalPrimaryAction).toHaveCSS("background-color", "rgb(15, 143, 129)");
+  await expect(legalPrimaryAction).toHaveCSS("color", "rgb(5, 8, 42)");
+  await legalPrimaryAction.hover();
+  await expect(legalPrimaryAction).toHaveCSS("background-color", "rgb(10, 111, 103)");
+  await expect(legalPrimaryAction).toHaveCSS("color", "rgb(255, 249, 233)");
   await expect(page.getByText("verified Stripe payment event")).toBeVisible();
   await expect(page.getByText("Full refunds revoke remaining pass access.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Provider availability" })).toBeVisible();

@@ -2418,6 +2418,15 @@ test("opens and manages exact chat and saved planning selections", async ({ page
   await expect(page).toHaveURL(/threadId=thread_manage/);
   await expect(page.getByText("Can I stay near Cloud 9?")).toBeVisible();
   await expect(page.getByText("Yes, but pick a quiet street off the main road.")).toBeVisible();
+  for (const actionName of [
+    "Rename selected chat",
+    "Archive selected chat",
+    "Delete selected chat",
+  ]) {
+    const actionBox = await page.getByRole("button", { name: actionName }).boundingBox();
+    expect(actionBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(actionBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+  }
 
   await page.getByRole("button", { name: "Rename selected chat" }).click();
   const renameDialog = page.getByRole("dialog", { name: "Rename chat" });

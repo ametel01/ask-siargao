@@ -2706,7 +2706,7 @@ function ThreadActionControls({
       <legend className="sr-only">Selected thread actions</legend>
       <Button
         aria-label="Rename selected chat"
-        className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+        className="size-11 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
         disabled={disabled}
         onClick={onRename}
         size="icon"
@@ -2717,7 +2717,7 @@ function ThreadActionControls({
       </Button>
       <Button
         aria-label="Archive selected chat"
-        className="size-10 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
+        className="size-11 rounded-md border-border-default bg-white text-brand-violet-650 hover:bg-brand-lavender-100"
         disabled={disabled}
         onClick={onArchive}
         size="icon"
@@ -2728,7 +2728,7 @@ function ThreadActionControls({
       </Button>
       <Button
         aria-label="Delete selected chat"
-        className="size-10 rounded-md border-red-200 bg-white text-red-700 hover:bg-red-50"
+        className="size-11 rounded-md border-red-200 bg-white text-red-700 hover:bg-red-50"
         disabled={disabled}
         onClick={onDelete}
         size="icon"

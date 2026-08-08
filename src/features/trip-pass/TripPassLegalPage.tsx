@@ -97,7 +97,7 @@ export function TripPassLegalPage() {
           <div className="flex flex-wrap gap-3">
             <Button
               asChild
-              className="min-h-11 rounded-md bg-brand-lagoon-600 px-4 text-sm font-extrabold text-white hover:bg-brand-lagoon-700 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+              className="trip-pass-primary-action min-h-11 rounded-md bg-brand-lagoon-600 px-4 text-sm font-extrabold hover:bg-brand-lagoon-700 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
             >
               <Link href={tripPassPublicOffer.links.chat}>
                 <MessageCircle aria-hidden="true" size={18} />
