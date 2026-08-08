@@ -387,6 +387,37 @@ describe("Sentry operational paging", () => {
 });
 
 describe("durable provider-neutral workers", () => {
+  test("claims only the task kinds selected by the thin CLI adapter", async () => {
+    await withTestDb(async (db) => {
+      await enqueueOperationalTask(
+        { id: "task_closure_selected", resourceRef: "closure", taskType: "account_closure" },
+        db,
+      );
+      await enqueueOperationalTask(
+        { id: "task_retention_selected", resourceRef: "retention", taskType: "retention_purge" },
+        db,
+      );
+      const handled: string[] = [];
+      const result = await runOperationalWorker(
+        { batchSize: 2, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+        {
+          db,
+          handlers: {
+            retention_purge: async ({ resourceRef }) => {
+              handled.push(resourceRef);
+            },
+          },
+        },
+      );
+      expect(result).toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      expect(handled).toEqual(["retention"]);
+      const closure = await db.query<{ status: string }>(
+        "select status from operational_worker_tasks where id = 'task_closure_selected'",
+      );
+      expect(closure.rows[0]?.status).toBe("pending");
+    });
+  });
+
   test("retries crashes durably and fences a stale successful worker", async () => {
     await withTestDb(async (db) => {
       await enqueueOperationalTask(

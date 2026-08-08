@@ -81,6 +81,36 @@ export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) 
   const firstResult = await first;
   assert(firstResult.succeeded === 1, "native worker did not commit its fenced success");
 
+  await enqueueOperationalTask(
+    {
+      id: "native_operations_selected_closure",
+      resourceRef: "native_closure_resource",
+      taskType: "account_closure",
+    },
+    db,
+  );
+  await enqueueOperationalTask(
+    {
+      id: "native_operations_selected_retention",
+      resourceRef: "native_retention_resource",
+      taskType: "retention_purge",
+    },
+    db,
+  );
+  const selected = await runOperationalWorker(
+    { batchSize: 2, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+    {
+      createLeaseToken: () => "native_operations_selected_lease",
+      db,
+      handlers: { retention_purge: async () => undefined },
+    },
+  );
+  assert(selected.claimed === 1, "native worker claimed a task outside its selected task kinds");
+  const unselected = await db.query<{ status: string }>(
+    "select status from operational_worker_tasks where id = 'native_operations_selected_closure'",
+  );
+  assert(unselected.rows[0]?.status === "pending", "native worker mutated an unselected task");
+
   let sent = 0;
   const alert = {
     alertKey: "native_operations_once",

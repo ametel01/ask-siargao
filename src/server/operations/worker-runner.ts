@@ -110,11 +110,11 @@ async function claimTask(
     const result = await transaction.query<ClaimedTask>(
       `with due as (
          select id from operational_worker_tasks
-         where (
+         where ((
            status = 'pending' and next_attempt_at <= clock_timestamp()
          ) or (
            status = 'running' and lease_expires_at <= clock_timestamp()
-         )
+         ))
          and ($3::text[] is null or task_type = any($3::text[]))
          order by next_attempt_at, id
          for update skip locked
