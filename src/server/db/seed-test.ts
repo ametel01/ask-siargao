@@ -1,21 +1,16 @@
 import { seedSiargaoBaseline } from "@/server/db/seed";
-import { openTestDatabase } from "@/server/db/test-database";
+import {
+  createPgliteSeedQueryRunner,
+  runInitialMigration,
+  withTestDatabase,
+} from "@/server/db/test-database";
 
-const db = await openTestDatabase();
+await withTestDatabase(async (db) => {
+  await runInitialMigration(db);
 
-const counts = await seedSiargaoBaseline(async (query, ...params) => {
-  const text = query.reduce(
-    (statement, part, index) =>
-      `${statement}${part}${index < params.length ? `$${index + 1}` : ""}`,
-    "",
+  const counts = await seedSiargaoBaseline(createPgliteSeedQueryRunner(db));
+
+  console.log(
+    `Seeded ${counts.areas} areas, ${counts.routes} routes, and ${counts.sources} source profiles in the Step 3 test database.`,
   );
-
-  const result = await db.query(text, params);
-  return result.rows as Record<string, unknown>[];
 });
-
-await db.close();
-
-console.log(
-  `Seeded ${counts.areas} areas, ${counts.routes} routes, and ${counts.sources} source profiles in the Step 3 test database.`,
-);
