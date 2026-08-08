@@ -4,7 +4,7 @@ import type Stripe from "stripe";
 import type { MigrationFile } from "@/server/db/migration-files";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 
-export const providerReleaseCandidateSchemaVersion = "provider-release-candidate/v1";
+export const providerReleaseCandidateSchemaVersion = "provider-release-candidate/v2";
 export const providerReleaseCandidateEnvironment = "provider-release-candidate";
 
 export type ProviderReleaseCandidateLane = "clerk" | "stripe";
@@ -66,6 +66,10 @@ export type ProviderReleaseCandidateEnv = Partial<
     | "PROVIDER_RC_CLERK_GOOGLE_EMAIL"
     | "PROVIDER_RC_CLERK_GOOGLE_PASSWORD"
     | "PROVIDER_RC_EXPECTED_SHA"
+    | "PROVIDER_RC_DATABASE_ENVIRONMENT"
+    | "PROVIDER_RC_DATABASE_EXPECTED_HOST"
+    | "PROVIDER_RC_DATABASE_EXPECTED_NAME"
+    | "PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT"
     | "PROVIDER_RC_PRODUCTION_ORIGIN"
     | "PROVIDER_RC_STRIPE_ACTIVE_USER"
     | "PROVIDER_RC_STRIPE_CLOSURE_USER"
@@ -85,6 +89,7 @@ export type ProviderReleaseCandidateValidation = {
 
 export type ProviderReleaseCandidateEvidence = {
   codeAndMigrationFingerprint: string;
+  deployedMigrationLedgerFingerprint: string;
   lane: ProviderReleaseCandidateLane;
   migrations: Array<{ checksum: string; filename: string }>;
   protectedEnvironment: typeof providerReleaseCandidateEnvironment;
@@ -97,13 +102,16 @@ export type ProviderReleaseCandidateEvidence = {
 };
 
 const fullSha = /^[0-9a-f]{40}$/;
+const nonProductionDatabaseMarker =
+  /(test|testing|staging|stage|qa|sandbox|nonprod|provider[-_]?rc)/i;
+const productionDatabaseMarker = /(prod(uction)?|live|main)/i;
 
 export function validateProviderReleaseCandidateContext(input: {
   checkedOutCommitSha: string;
   env?: ProviderReleaseCandidateEnv;
   lane: ProviderReleaseCandidateLane;
 }): ProviderReleaseCandidateValidation {
-  const env = input.env ?? process.env;
+  const env = input.env ?? (process.env as ProviderReleaseCandidateEnv);
   const errors: string[] = [];
   const expectedSha = env.PROVIDER_RC_EXPECTED_SHA ?? "";
 
@@ -124,15 +132,21 @@ export function validateProviderReleaseCandidateContext(input: {
   if (appOrigin && productionOrigin && appOrigin === productionOrigin) {
     errors.push("production_origin_forbidden");
   }
-  if (!env.DATABASE_URL) errors.push("dedicated_database_required");
+  validateProtectedDatabaseConfiguration(env, errors);
+
+  const stripeKey = env.STRIPE_RESTRICTED_KEY ?? env.STRIPE_SECRET_KEY;
+  if (!stripeKey || (!stripeKey.startsWith("rk_test_") && !stripeKey.startsWith("sk_test_"))) {
+    errors.push("stripe_test_mode_key_required");
+  }
+
+  if (!env.CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_")) {
+    errors.push("clerk_test_publishable_key_required");
+  }
+  if (!env.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
+    errors.push("clerk_test_secret_key_required");
+  }
 
   if (input.lane === "clerk") {
-    if (!env.CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_")) {
-      errors.push("clerk_test_publishable_key_required");
-    }
-    if (!env.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
-      errors.push("clerk_test_secret_key_required");
-    }
     if (!env.CLERK_WEBHOOK_SIGNING_SECRET?.startsWith("whsec_")) {
       errors.push("clerk_test_webhook_secret_required");
     }
@@ -140,21 +154,11 @@ export function validateProviderReleaseCandidateContext(input: {
       errors.push("clerk_google_oauth_credentials_required");
     }
   } else {
-    const stripeKey = env.STRIPE_RESTRICTED_KEY ?? env.STRIPE_SECRET_KEY;
-    if (!stripeKey || (!stripeKey.startsWith("rk_test_") && !stripeKey.startsWith("sk_test_"))) {
-      errors.push("stripe_test_mode_key_required");
-    }
     if (!env.STRIPE_TRIP_PASS_PRICE_ID?.startsWith("price_")) {
       errors.push("stripe_test_price_required");
     }
     if (!env.STRIPE_WEBHOOK_SECRET?.startsWith("whsec_")) {
       errors.push("stripe_test_webhook_secret_required");
-    }
-    if (!env.CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_")) {
-      errors.push("clerk_test_publishable_key_required");
-    }
-    if (!env.CLERK_SECRET_KEY?.startsWith("sk_test_")) {
-      errors.push("clerk_test_secret_key_required");
     }
     for (const name of [
       "PROVIDER_RC_STRIPE_ACTIVE_USER",
@@ -210,8 +214,10 @@ export function assertProviderBeforeApplication(events: readonly string[]) {
 
 export function buildProviderReleaseCandidateEvidence(input: {
   checkedOutCommitSha: string;
+  deployedMigrationLedgerFingerprint: string;
   lane: ProviderReleaseCandidateLane;
   migrations: readonly Pick<MigrationFile, "checksum" | "name">[];
+  scenarios: readonly string[];
 }): ProviderReleaseCandidateEvidence {
   const migrations = input.migrations.map((migration) => ({
     checksum: migration.checksum,
@@ -223,20 +229,101 @@ export function buildProviderReleaseCandidateEvidence(input: {
     .update(input.lane)
     .update("\0")
     .update(JSON.stringify(migrations))
+    .update("\0")
+    .update(input.deployedMigrationLedgerFingerprint)
     .digest("hex");
+
+  const expectedScenarios = providerReleaseCandidateScenarios[input.lane];
+  const scenarios = [...new Set(input.scenarios)];
+  if (
+    scenarios.length !== expectedScenarios.length ||
+    expectedScenarios.some((scenario) => !scenarios.includes(scenario))
+  ) {
+    throw new Error("Protected evidence requires every scenario to have an executed receipt.");
+  }
 
   return {
     codeAndMigrationFingerprint: fingerprint,
+    deployedMigrationLedgerFingerprint: input.deployedMigrationLedgerFingerprint,
     lane: input.lane,
     migrations,
     protectedEnvironment: providerReleaseCandidateEnvironment,
-    scenarios: providerReleaseCandidateScenarios[input.lane],
+    scenarios,
     schemaVersion: providerReleaseCandidateSchemaVersion,
     source: {
       checkedOutCommitSha: input.checkedOutCommitSha,
       repository: "ametel01/ask-siargao",
     },
   };
+}
+
+export function verifyProviderReleaseCandidateDatabase(input: {
+  expectedMigrations: readonly Pick<MigrationFile, "checksum" | "name">[];
+  ledgerRows: readonly { checksum: string; name: string }[];
+  sentinel: { environment: string; fingerprint: string } | undefined;
+  expectedSentinelFingerprint: string;
+}) {
+  if (
+    input.sentinel?.environment !== "protected-test" ||
+    input.sentinel.fingerprint !== input.expectedSentinelFingerprint
+  ) {
+    throw new Error("Protected database sentinel mismatch.");
+  }
+  if (input.ledgerRows.length !== input.expectedMigrations.length) {
+    throw new Error("Protected database migration ledger count mismatch.");
+  }
+  for (const [index, expected] of input.expectedMigrations.entries()) {
+    const actual = input.ledgerRows[index];
+    if (actual?.name !== expected.name || actual.checksum !== expected.checksum) {
+      throw new Error("Protected database migration ledger content mismatch.");
+    }
+  }
+  return createHash("sha256").update(JSON.stringify(input.ledgerRows)).digest("hex");
+}
+
+function validateProtectedDatabaseConfiguration(
+  env: ProviderReleaseCandidateEnv,
+  errors: string[],
+) {
+  if (env.PROVIDER_RC_DATABASE_ENVIRONMENT !== "protected-test") {
+    errors.push("protected_test_database_marker_required");
+  }
+  if (!env.PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT) {
+    errors.push("protected_database_sentinel_required");
+  }
+  const expectedHost = env.PROVIDER_RC_DATABASE_EXPECTED_HOST ?? "";
+  const expectedName = env.PROVIDER_RC_DATABASE_EXPECTED_NAME ?? "";
+  if (
+    !nonProductionDatabaseMarker.test(expectedHost) ||
+    productionDatabaseMarker.test(expectedHost)
+  ) {
+    errors.push("protected_test_database_host_required");
+  }
+  if (
+    !nonProductionDatabaseMarker.test(expectedName) ||
+    productionDatabaseMarker.test(expectedName)
+  ) {
+    errors.push("protected_test_database_name_required");
+  }
+  if (!env.DATABASE_URL) {
+    errors.push("dedicated_database_required");
+    return;
+  }
+  try {
+    const databaseUrl = new URL(env.DATABASE_URL);
+    const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
+    if (!databaseUrl.protocol.startsWith("postgres")) throw new Error("protocol");
+    if (databaseUrl.hostname !== expectedHost) errors.push("protected_database_host_mismatch");
+    if (databaseName !== expectedName) errors.push("protected_database_name_mismatch");
+    if (
+      productionDatabaseMarker.test(databaseUrl.hostname) ||
+      productionDatabaseMarker.test(databaseName)
+    ) {
+      errors.push("production_database_forbidden");
+    }
+  } catch {
+    errors.push("dedicated_database_url_invalid");
+  }
 }
 
 function readHttpsOrigin(value: string | undefined) {

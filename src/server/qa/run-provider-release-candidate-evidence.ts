@@ -6,15 +6,32 @@ import {
   buildProviderReleaseCandidateEvidence,
   type ProviderReleaseCandidateLane,
 } from "@/server/qa/provider-release-candidate";
+import {
+  readExecutedProviderScenarios,
+  readProviderDatabaseReceipt,
+} from "@/server/qa/provider-release-candidate-receipts";
 
 const lane = readLane();
 const checkedOutCommitSha = await readHeadSha();
 assertProviderReleaseCandidateContext({ checkedOutCommitSha, lane });
+const migrations = await loadMigrationFiles();
+const databaseReceipt = await readProviderDatabaseReceipt(lane, checkedOutCommitSha);
+if (
+  databaseReceipt.checkedOutCommitSha !== checkedOutCommitSha ||
+  databaseReceipt.lane !== lane ||
+  databaseReceipt.protectedDatabaseEnvironment !== "protected-test" ||
+  databaseReceipt.migrationCount !== migrations.length ||
+  !/^[0-9a-f]{64}$/.test(databaseReceipt.deployedMigrationLedgerFingerprint)
+) {
+  throw new Error("Protected database receipt does not match this exact lane and SHA.");
+}
 
 const evidence = buildProviderReleaseCandidateEvidence({
   checkedOutCommitSha,
+  deployedMigrationLedgerFingerprint: databaseReceipt.deployedMigrationLedgerFingerprint,
   lane,
-  migrations: await loadMigrationFiles(),
+  migrations,
+  scenarios: await readExecutedProviderScenarios(lane, checkedOutCommitSha),
 });
 const directory = ".tmp/provider-release-candidate";
 const path = `${directory}/${lane}-${checkedOutCommitSha}.json`;

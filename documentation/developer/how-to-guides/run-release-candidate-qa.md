@@ -172,13 +172,26 @@ the dedicated Clerk test instance, protected-staging deployment, and Stripe test
 selected. The workflow rejects a SHA not already contained in `main`.
 
 The protected environment owns the stable app and production origins, dedicated account fixture
-identifiers, policy versions, and retention durations. Its secret inventory contains only the test
+identifiers, policy versions, retention durations, and the exact dedicated test-database host and
+database name. `PROVIDER_RC_DATABASE_ENVIRONMENT` must be `protected-test`; both the configured
+host and database name must contain an explicit test/staging/QA marker and must not contain a
+production/live/main marker. Its secret inventory contains only the test
 Clerk keys/identities and webhook signing secret, a least-privilege Stripe test restricted key,
 Price, and webhook secret, the dedicated staging database credential, and the same Closure
 Tombstone/provider-subject keys used by that staging deployment. Every secret is scoped to the one
 provider-lane step after checkout, repository/event/environment, exact-HEAD, and `main` ancestry
 checks pass. No secret is available to checkout or trust-proof steps. Do not copy these values into
 repository variables, pull-request secrets, artifacts, or operator notes.
+
+Before the first protected run, provision a staging-only
+`provider_release_candidate_sentinel` table with one `id = 'provider-release-candidate'` row,
+`environment = 'protected-test'`, and an unguessable fingerprint stored separately as the
+`PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT` environment secret. Grant the protected QA database
+role read access to that row and `schema_migrations`; do not add either grant to the production
+runtime role. At the beginning of each lane, the preflight checks the URL host/name allow and deny
+rules, sentinel fingerprint, and the complete ordered migration filename/checksum ledger against
+the checked-out files. Missing, extra, reordered, or changed ledger rows stop the lane before any
+fixture or provider mutation.
 
 The Clerk lane uses Clerk's project-based Playwright setup (`clerkSetup`) and injects a testing token
 per browser flow (`setupClerkTestingToken`). It covers email-code and a real configured Google OAuth
@@ -195,6 +208,11 @@ the staging origin is serving the requested Vercel commit SHA. The closure ident
 and must be recreated by the eligible human before a subsequent run. Traces, screenshots, videos,
 cookies, raw webhook bodies, identities, and provider payloads are not uploaded.
 
+The workflow has one SHA-independent concurrency group with cancellation disabled, and the Stripe
+job depends on Clerk. Different dispatches and provider lanes therefore cannot overlap or cancel a
+worker halfway through shared protected-test state. Every third-party action is pinned to a reviewed
+full commit SHA, and the workflow token has read-only repository contents permission.
+
 The Stripe lane signs into disposable Clerk test users at the protected app origin, verifies the
 origin's exact deployed SHA, and starts Checkout through the authenticated app endpoint. It covers
 an ambiguous retry, return-before-event, authenticated expiry, hosted test-card payment, signed
@@ -209,8 +227,15 @@ worker then cleans up the disposable users, test-mode commerce
 resources, and closure refund work. Raw webhook bodies and provider identifiers are never written to
 evidence or logs.
 
-Each passing lane writes a redacted artifact named for the exact SHA. The artifact contains the
-migration filenames and checksums plus a SHA/lane/migration fingerprint. Any code commit or
+The ambiguous retry proof uses a controlled HTTP client that lets Stripe accept a one-unit test-mode
+refund and then drops the first response. The retry uses the identical idempotency key and asserts
+one matching provider refund plus one app-visible cumulative refund effect before proceeding.
+
+Each scenario appends its receipt only after its protected assertion completes. Evidence generation
+requires the exact complete scenario set, so an omitted or failed scenario cannot be represented by
+an unconditional list. Each passing lane writes a redacted artifact named for the exact SHA. The
+artifact contains the migration filenames and checksums, the verified deployed-ledger fingerprint,
+and a SHA/lane/migration fingerprint. Any code commit or
 migration-content change therefore requires a new protected run; copying evidence from another SHA
 does not satisfy the release gate. Protected credentials unavailable to an agent are an expected
 administrative boundary: record the pending human environment approval/run instead of substituting

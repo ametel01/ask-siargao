@@ -4,6 +4,8 @@ import { expect, test } from "@playwright/test";
 import postgres from "postgres";
 import { Webhook } from "standardwebhooks";
 
+import { recordExecutedProviderScenario } from "@/server/qa/provider-release-candidate-receipts";
+
 test.describe.configure({ mode: "serial" });
 
 const emailCodeUser = requiredTestEmail("PROVIDER_RC_CLERK_EMAIL_CODE_USER");
@@ -72,6 +74,14 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
 
   await clerk.signOut({ page });
   expect((await page.request.get("/api/me/profile")).status()).toBe(401);
+  await recordScenarios([
+    "email_code_sign_in",
+    "verified_email",
+    "session_persistence_and_policy",
+    "route_and_api_denial",
+    "sign_out",
+    "webhook_convergence",
+  ]);
 });
 
 test("Google OAuth is offered by the dedicated Clerk test instance", async ({ page }) => {
@@ -92,6 +102,7 @@ test("Google OAuth is offered by the dedicated Clerk test instance", async ({ pa
   expect(verifiedGoogleAccount).toBe(true);
   await clerk.signOut({ page });
   expect((await page.request.get("/api/me/profile")).status()).toBe(401);
+  await recordScenarios(["google_sign_in"]);
 });
 
 async function completeGoogleOAuth(page: Page) {
@@ -137,6 +148,7 @@ test("single-session policy invalidates the older browser session", async ({ bro
 
   await secondContext.close();
   await firstContext.close();
+  await recordScenarios(["single_session"]);
 });
 
 test("ownership denial precedes terminal step-up closure and provider deletion convergence", async ({
@@ -166,7 +178,18 @@ test("ownership denial precedes terminal step-up closure and provider deletion c
     data: { id: closingUserId, deleted: true, object: "user" },
   });
   await assertClerkUserConverged(closingUserId, true);
+  await recordScenarios(["ownership_denial", "step_up_account_closure"]);
 });
+
+async function recordScenarios(scenarios: string[]) {
+  for (const scenario of scenarios) {
+    await recordExecutedProviderScenario({
+      checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
+      lane: "clerk",
+      scenario,
+    });
+  }
+}
 
 async function assertExactProtectedDeployment(request: APIRequestContext) {
   const response = await request.get("/api/me/provider-release-candidate");

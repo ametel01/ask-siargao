@@ -27,6 +27,25 @@ test("provider credentials are reachable only from manually approved protected j
   expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_PASSWORD/g)).toHaveLength(1);
 });
 
+test("protected dispatches and lanes cannot overlap or cancel mid-mutation", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  expect(workflow).toContain(
+    "concurrency:\n  group: provider-release-candidate\n  cancel-in-progress: false",
+  );
+  expect(workflow).not.toContain("group: provider-release-candidate-${{");
+  expect(jobBlock(workflow, "stripe-test-mode")).toContain("needs: clerk-test-instance");
+});
+
+test("every third-party action is pinned to an immutable reviewed commit", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const actionReferences = [...workflow.matchAll(/uses:\s+([^\s#]+)/g)].map((match) => match[1]);
+  expect(actionReferences.length).toBeGreaterThan(0);
+  for (const action of actionReferences) {
+    expect(action).toMatch(/@[0-9a-f]{40}$/);
+  }
+  expect(workflow).toContain("permissions:\n  contents: read");
+});
+
 test("secrets are step-scoped and unreachable until repository trust is proved", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const workflowPreamble = workflow.slice(0, workflow.indexOf("jobs:"));
@@ -107,6 +126,9 @@ test("protected evidence is emitted only after its semantic provider lane", asyn
   expect(workflow.indexOf("bun run test:e2e:clerk")).toBeLessThan(
     workflow.indexOf("bun run privacy:closure-worker"),
   );
+  expect(workflow.indexOf("bun run qa:provider-rc-preflight -- --lane clerk")).toBeLessThan(
+    workflow.indexOf("bun run test:e2e:clerk"),
+  );
   expect(workflow.indexOf("bun run privacy:closure-worker")).toBeLessThan(
     workflow.indexOf("bun run test:e2e:clerk:verify-deletion"),
   );
@@ -116,10 +138,26 @@ test("protected evidence is emitted only after its semantic provider lane", asyn
   expect(workflow.indexOf("bun run test:smoke:trip-pass-stripe")).toBeLessThan(
     workflow.lastIndexOf("bun run privacy:closure-worker"),
   );
+  expect(workflow.indexOf("bun run qa:provider-rc-preflight -- --lane stripe")).toBeLessThan(
+    workflow.indexOf("bun run test:smoke:trip-pass-stripe"),
+  );
   expect(workflow.lastIndexOf("bun run privacy:closure-worker")).toBeLessThan(
     workflow.indexOf("bun run payments:closure-refund-worker"),
   );
   expect(workflow.indexOf("bun run payments:closure-refund-worker")).toBeLessThan(
     workflow.indexOf("bun run qa:provider-rc-evidence -- --lane stripe"),
   );
+});
+
+test("protected evidence consumes deployed-ledger and executed-scenario receipts", async () => {
+  const [evidenceRunner, stripeTest] = await Promise.all([
+    readFile("src/server/qa/run-provider-release-candidate-evidence.ts", "utf8"),
+    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
+  ]);
+  expect(evidenceRunner).toContain("readProviderDatabaseReceipt");
+  expect(evidenceRunner).toContain("readExecutedProviderScenarios");
+  expect(stripeTest).toContain("proveAmbiguousRefundRetry");
+  expect(stripeTest).toContain("maxNetworkRetries: 0");
+  expect(stripeTest).toContain("idempotencyKey");
+  expect(stripeTest).toContain('"ambiguous_retry"');
 });

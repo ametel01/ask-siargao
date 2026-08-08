@@ -33,6 +33,7 @@
     "eval:reality-check": "bun run src/server/evaluations/run-reality-check-matrix.ts",
     "qa:trip-pass-launch": "bun run src/server/qa/run-trip-pass-launch-proof.ts",
     "qa:provider-rc-evidence": "bun run src/server/qa/run-provider-release-candidate-evidence.ts",
+    "qa:provider-rc-preflight": "bun run src/server/qa/run-provider-release-candidate-preflight.ts",
     "db:migrate:test": "bun run src/server/db/migrate-test.ts",
     "db:seed:test": "bun run src/server/db/seed-test.ts",
     "test:integration:postgres": "bun run src/server/integration/postgres-entrypoint.ts",

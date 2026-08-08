@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: provider-release-candidate-${{ inputs.release_candidate_sha }}
+  group: provider-release-candidate
   cancel-in-progress: false
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           ref: ${{ inputs.release_candidate_sha }}
@@ -43,7 +43,7 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$RELEASE_CANDIDATE_SHA" origin/main
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.13
 
@@ -69,6 +69,10 @@ jobs:
           PROVIDER_RC_CLERK_CLOSURE_USER: ${{ secrets.PROVIDER_RC_CLERK_CLOSURE_USER }}
           PROVIDER_RC_FOREIGN_SAVED_ITEM_ID: ${{ secrets.PROVIDER_RC_FOREIGN_SAVED_ITEM_ID }}
           DATABASE_URL: ${{ secrets.PROVIDER_RC_DATABASE_URL }}
+          PROVIDER_RC_DATABASE_ENVIRONMENT: ${{ vars.PROVIDER_RC_DATABASE_ENVIRONMENT }}
+          PROVIDER_RC_DATABASE_EXPECTED_HOST: ${{ vars.PROVIDER_RC_DATABASE_EXPECTED_HOST }}
+          PROVIDER_RC_DATABASE_EXPECTED_NAME: ${{ vars.PROVIDER_RC_DATABASE_EXPECTED_NAME }}
+          PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT: ${{ secrets.PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT }}
           ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY: ${{ secrets.PROVIDER_RC_ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY }}
           ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION: ${{ vars.PROVIDER_RC_ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION }}
           ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY: ${{ secrets.PROVIDER_RC_ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY }}
@@ -79,6 +83,7 @@ jobs:
           COMMERCE_RETENTION_DAYS: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_DAYS }}
           STRIPE_RESTRICTED_KEY: ${{ secrets.PROVIDER_RC_STRIPE_RESTRICTED_KEY }}
         run: |
+          bun run qa:provider-rc-preflight -- --lane clerk
           bun run test:e2e:clerk
           bun run privacy:closure-worker
           bun run test:e2e:clerk:verify-deletion
@@ -95,11 +100,12 @@ jobs:
           retention-days: 14
 
   stripe-test-mode:
+    needs: clerk-test-instance
     environment: provider-release-candidate
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
           ref: ${{ inputs.release_candidate_sha }}
@@ -121,7 +127,7 @@ jobs:
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$RELEASE_CANDIDATE_SHA" origin/main
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.13
 
@@ -143,6 +149,10 @@ jobs:
           PROVIDER_RC_STRIPE_REVERSED_USER: ${{ secrets.PROVIDER_RC_STRIPE_REVERSED_USER }}
           PROVIDER_RC_STRIPE_CLOSURE_USER: ${{ secrets.PROVIDER_RC_STRIPE_CLOSURE_USER }}
           DATABASE_URL: ${{ secrets.PROVIDER_RC_DATABASE_URL }}
+          PROVIDER_RC_DATABASE_ENVIRONMENT: ${{ vars.PROVIDER_RC_DATABASE_ENVIRONMENT }}
+          PROVIDER_RC_DATABASE_EXPECTED_HOST: ${{ vars.PROVIDER_RC_DATABASE_EXPECTED_HOST }}
+          PROVIDER_RC_DATABASE_EXPECTED_NAME: ${{ vars.PROVIDER_RC_DATABASE_EXPECTED_NAME }}
+          PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT: ${{ secrets.PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT }}
           ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY: ${{ secrets.PROVIDER_RC_ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY }}
           ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION: ${{ vars.PROVIDER_RC_ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION }}
           ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY: ${{ secrets.PROVIDER_RC_ACCOUNT_CLOSURE_PROVIDER_SUBJECT_KEY }}
@@ -155,6 +165,7 @@ jobs:
           STRIPE_TRIP_PASS_PRICE_ID: ${{ secrets.PROVIDER_RC_STRIPE_TRIP_PASS_PRICE_ID }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.PROVIDER_RC_STRIPE_WEBHOOK_SECRET }}
         run: |
+          bun run qa:provider-rc-preflight -- --lane stripe
           bun run test:smoke:trip-pass-stripe
           bun run privacy:closure-worker
           bun run payments:closure-refund-worker

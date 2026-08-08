@@ -51,6 +51,10 @@ The app reads these environment variables.
 | `PROVIDER_RC_STRIPE_REVERSED_USER` | Protected CI secret | Stripe lane | Disposable `+clerk_test` user for reversed dispute delivery and retry. |
 | `PROVIDER_RC_STRIPE_CLOSURE_USER` | Protected CI secret | Stripe lane | Disposable `+clerk_test` user for the in-flight Checkout/Account Closure race and Paid After Closure refund. |
 | `DATABASE_URL` | Server only | Production database client | Required by app database clients and Postgres-backed CLI/job scripts. In deployed app runtimes, use a credential mapped to the `ask_siargao_runtime` role from the database authorization reference. Test migration and seed commands use PGlite. |
+| `PROVIDER_RC_DATABASE_ENVIRONMENT` | Protected environment variable | Protected provider QA only | Must equal `protected-test`; normal CI and production must not set it. |
+| `PROVIDER_RC_DATABASE_EXPECTED_HOST` | Protected environment variable | Protected provider QA only | Exact dedicated staging/test database hostname. It must include a non-production marker and cannot include production/live/main markers. |
+| `PROVIDER_RC_DATABASE_EXPECTED_NAME` | Protected environment variable | Protected provider QA only | Exact dedicated staging/test database name with the same fail-closed marker rules. |
+| `PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT` | Protected environment secret | Protected provider QA only | Unguessable value matching the staging-only sentinel row. It is step-scoped after trust proof and must never be logged or copied to artifacts. |
 | `DATABASE_POOL_SIZE` | Server only | App/shared Postgres clients | Optional. Positive integer. Defaults to `10` for long-lived app clients. |
 | `DATABASE_CLI_POOL_SIZE` | Server only | CLI/job Postgres clients | Optional. Positive integer. Defaults to `1` so one-off scripts do not fan out database connections. |
 | `DATABASE_CONNECT_TIMEOUT_SECONDS` | Server only | Postgres clients | Optional. Positive integer seconds. Defaults to `10`. |

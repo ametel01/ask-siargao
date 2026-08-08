@@ -1,6 +1,7 @@
 import { createClerkClient } from "@clerk/backend";
 
 import { assertProviderReleaseCandidateContext } from "@/server/qa/provider-release-candidate";
+import { recordExecutedProviderScenario } from "@/server/qa/provider-release-candidate-receipts";
 
 const checkedOutCommitSha = await readHeadSha();
 assertProviderReleaseCandidateContext({ checkedOutCommitSha, lane: "clerk" });
@@ -20,6 +21,11 @@ try {
 if (remainingUsers !== 0) {
   throw new Error("The dedicated Clerk closure identity still exists after cleanup.");
 }
+await recordExecutedProviderScenario({
+  checkedOutCommitSha,
+  lane: "clerk",
+  scenario: "provider_user_deletion",
+});
 
 console.log(JSON.stringify({ checkedOutCommitSha, deletionConverged: true, lane: "clerk" }));
 

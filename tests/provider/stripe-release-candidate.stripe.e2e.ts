@@ -5,6 +5,7 @@ import Stripe from "stripe";
 
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import { buildProviderReleaseCandidateStripeEvent } from "@/server/qa/provider-release-candidate";
+import { recordExecutedProviderScenario } from "@/server/qa/provider-release-candidate-receipts";
 
 test.describe.configure({ mode: "serial" });
 
@@ -63,9 +64,11 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
     expand: ["latest_charge"],
   });
   const amount = paymentIntent.amount_received;
-  if (amount < 2) throw new Error("Protected Price cannot exercise cumulative refunds.");
+  if (amount < 3) throw new Error("Protected Price cannot exercise ambiguous cumulative refunds.");
+  await proveAmbiguousRefundRetry(page, paymentIntentId);
+  const refundableAmount = amount - 1;
   const partial = await stripe.refunds.create({
-    amount: Math.floor(amount / 2),
+    amount: Math.floor(refundableAmount / 2),
     payment_intent: paymentIntentId,
   });
   expect(
@@ -76,7 +79,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   });
   await expectTripPassStatus(page, "refund_review");
   const remainder = await stripe.refunds.create({
-    amount: amount - Math.floor(amount / 2),
+    amount: refundableAmount - Math.floor(refundableAmount / 2),
     payment_intent: paymentIntentId,
   });
   expect(
@@ -87,6 +90,17 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   });
   await expectTripPassStatus(page, "revoked");
   await closeAccount(page);
+  await recordScenarios([
+    "card_checkout",
+    "explicit_expiry",
+    "return_before_event",
+    "verified_activation",
+    "duplicate_delivery",
+    "ambiguous_retry",
+    "authenticated_cancellation",
+    "cumulative_refunds",
+    "paid_answer_settlement",
+  ]);
 });
 
 test("reversed delivery retries authoritative dispute lookup before app suspension", async ({
@@ -127,6 +141,7 @@ test("reversed delivery retries authoritative dispute lookup before app suspensi
   });
   await expectTripPassStatus(page, "dispute_suspended");
   await closeAccount(page);
+  await recordScenarios(["reversed_delivery", "dispute"]);
 });
 
 test("closure race records Paid After Closure without access and leaves durable refund work", async ({
@@ -145,7 +160,83 @@ test("closure race records Paid After Closure without access and leaves durable 
   const session = await retrieveCheckoutForClosedAccount();
   await deliverSignedStripeEvent(paymentPage, stripeEvent("checkout.session.completed", session));
   await assertPaidAfterClosure(session.id);
+  await recordScenarios(["closure_race", "paid_after_closure"]);
 });
+
+async function proveAmbiguousRefundRetry(page: Page, paymentIntentId: string) {
+  const idempotencyKey = `provider-rc-ambiguous-${crypto.randomUUID()}`;
+  const marker = crypto.randomUUID();
+  const params: Stripe.RefundCreateParams = {
+    amount: 1,
+    metadata: { provider_rc_ambiguity: marker },
+    payment_intent: paymentIntentId,
+  };
+  const upstreamClient = Stripe.createNodeHttpClient();
+  let responseDropped = false;
+  const ambiguityClient = {
+    getClientName: () => "provider-rc-fault-proxy",
+    async makeRequest(...args: Parameters<typeof upstreamClient.makeRequest>) {
+      const response = await upstreamClient.makeRequest(...args);
+      const [, , path, method] = args;
+      if (!responseDropped && method === "POST" && path === "/v1/refunds") {
+        responseDropped = true;
+        const error = new Error("Controlled response loss after provider acceptance.");
+        Object.assign(error, { code: "ECONNRESET" });
+        throw error;
+      }
+      return response;
+    },
+  };
+  const faultStripe = new Stripe(required("STRIPE_RESTRICTED_KEY"), {
+    apiVersion: STRIPE_API_VERSION,
+    httpClient: ambiguityClient,
+    maxNetworkRetries: 0,
+  });
+
+  await expect(faultStripe.refunds.create(params, { idempotencyKey })).rejects.toThrow();
+  expect(responseDropped).toBe(true);
+  const retried = await stripe.refunds.create(params, { idempotencyKey });
+  const providerRefunds = await stripe.refunds.list({
+    payment_intent: paymentIntentId,
+    limit: 100,
+  });
+  const matching = providerRefunds.data.filter(
+    (refund) => refund.metadata?.provider_rc_ambiguity === marker,
+  );
+  expect(matching).toHaveLength(1);
+  expect(matching[0]?.id).toBe(retried.id);
+  await deliverSignedStripeEvent(page, stripeEvent("refund.created", retried));
+  await expectTripPassRefundedAmount(page, 1);
+}
+
+async function expectTripPassRefundedAmount(page: Page, amount: number) {
+  const userId = await page.evaluate(() => window.Clerk.user?.id ?? null);
+  if (!userId) throw new Error("The protected session has no authenticated user.");
+  await withDatabase(async (sql) => {
+    await expect
+      .poll(async () => {
+        const rows = await sql<{ successful_refund_amount_minor: number }[]>`
+          select successful_refund_amount_minor
+          from trip_pass_orders
+          where user_id = ${userId}
+          order by created_at desc
+          limit 1
+        `;
+        return rows[0]?.successful_refund_amount_minor;
+      })
+      .toBe(amount);
+  });
+}
+
+async function recordScenarios(scenarios: string[]) {
+  for (const scenario of scenarios) {
+    await recordExecutedProviderScenario({
+      checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
+      lane: "stripe",
+      scenario,
+    });
+  }
+}
 
 async function signIn(page: Page, emailName: string) {
   await setupClerkTestingToken({ page });
