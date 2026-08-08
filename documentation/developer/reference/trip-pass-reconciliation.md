@@ -9,6 +9,12 @@ Trip Pass, changes a Usage Meter, or calls a provider mutation. Historical `mode
 `confirmMutation` inputs to `reconcileTripPassState()` remain accepted for rolling-deployment
 compatibility but are ignored; every flag combination is detect-only.
 
+Each mismatch has a canonical opaque incident key derived from constrained mismatch fields and its
+local record identity, never from the reconciliation run. An unchanged mismatch updates the same
+Finding and lifecycle. A clean comparison resolves it; recurrence reopens the same opaque Finding
+with the next lifecycle number. Sentry delivery keys include that opaque incident plus lifecycle, so
+retries do not repage while a genuine recurrence can page again.
+
 ## Provider-neutral adapter contract
 
 Protected provider lanes inject `AuthoritativeCommerceReader`. The reader receives transient
@@ -48,6 +54,13 @@ An exact replay returns the original result; reuse of the same Operator/key for 
 fails with `repair_idempotency_mismatch` before target mutation. Provider calls are not permitted
 inside a Repair Action transaction.
 
+Payment/access repairs add a prepare phase immediately before the transaction. It retrieves the
+current authoritative Payment Intent fact outside database locks, including refund/dispute state,
+then carries a bounded proof into the transaction. After locking, execution recomputes the local
+preview and verifies the provider/local identity, amount, currency, and allowed payment state still
+match. Refunded, disputed, reversed, mismatched, or stale proof aborts without target mutation or an
+applied audit row.
+
 Sensitive action classes are closed allowlists, not patch requests. A manual commerce transition
 can only fail an ungranted pending Order whose finding proves authoritative payment terms mismatch.
 A goodwill recovery can only restore the missing grant for a paid, owned, ungranted Order with a
@@ -66,10 +79,16 @@ reconciliation. `bun run operations:worker -- --task=<kind-or-all>` wires every 
 production path while retaining provider-client injection for protected tests. `--batch` and
 `--lease-seconds` bound one invocation. No scheduler vendor or cadence is selected by engineering.
 
+Both success and retry transitions require the matching token and an unexpired database-time lease;
+an expired worker can neither complete nor reschedule work after takeover becomes eligible. Repeated
+failure alerts use a one-way opaque task key, stable across attempts but distinct across tasks.
+
 ## Alert ownership
 
 Sentry owns operational delivery. `deliverOperationalAlertOnce()` uses a durable unique alert key,
-retryable failed delivery, and a strictly allowlisted payload of Finding ID, impact, operation, and
-error code. Confirmed high-impact payment/access/privacy/Redis mismatches page once. Lower-impact
-conditions warn or create tickets. PostHog remains timeout-bounded analytics only; its success or
-failure cannot change commerce, access, closure, reconciliation, repair, or worker state.
+database-time delivery lease, expired-claim recovery, and a strictly allowlisted payload of Finding
+ID, impact, operation, and error code. Provider delivery happens outside database transactions;
+success and failure updates are fenced by the delivery token and unexpired lease. Confirmed
+high-impact payment/access/privacy/Redis mismatches page once. Lower-impact conditions warn or
+create tickets. PostHog remains timeout-bounded analytics only; its success or failure cannot change
+commerce, access, closure, reconciliation, repair, or worker state.

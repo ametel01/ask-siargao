@@ -147,6 +147,22 @@ describe("admin diagnostics", () => {
     expect(serialized).toContain("[redacted-secret]");
   });
 
+  test("redacts full Stripe and Clerk identifiers from neutral free text", () => {
+    const identifiers = [
+      "pi_3QzAbCdEfGhIjKlM",
+      "evt_1QzAbCdEfGhIjKlM",
+      "ch_3QzAbCdEfGhIjKlM",
+      "cus_QzAbCdEfGhIjKlM",
+      "user_2QzAbCdEfGhIjKlM",
+      "org_2QzAbCdEfGhIjKlM",
+    ];
+    const serialized = JSON.stringify(
+      redactDiagnosticValue({ note: `provider references ${identifiers.join(" ")}` }),
+    );
+    for (const identifier of identifiers) expect(serialized).not.toContain(identifier);
+    expect(serialized.match(/\[redacted-provider-id\]/g)).toHaveLength(identifiers.length);
+  });
+
   test("structured logging hooks redact payloads before emission", () => {
     const apiToken = underscoreCredential("sk", "test", "should", "not", "render");
     const event = createDiagnosticLogEvent({

@@ -2,7 +2,10 @@ import Stripe from "stripe";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import type { OperationalTaskHandlers } from "@/server/operations/contracts";
-import type { AuthoritativeCommerceReader } from "@/server/operations/live-reconciliation";
+import type {
+  AuthoritativeCommerceReader,
+  OperationalFindingView,
+} from "@/server/operations/live-reconciliation";
 import { reconcileLiveCommerce } from "@/server/operations/live-reconciliation";
 import { createStripeCommerceReader } from "@/server/operations/stripe-commerce-reader";
 import type { StripeRefundClient } from "@/server/payments/stripe";
@@ -21,6 +24,7 @@ type ClosureProviders = {
 };
 
 export function createProductionOperationalTaskHandlers(dependencies: {
+  alertFinding?: (finding: OperationalFindingView) => Promise<void>;
   closureProviders?: ClosureProviders;
   commerceReader?: AuthoritativeCommerceReader;
   db: DatabaseQueryClient;
@@ -107,6 +111,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
           commerceReader: dependencies.commerceReader ?? createDefaultCommerceReader(),
           db,
           recordEvent: trace.record,
+          alertFinding: dependencies.alertFinding,
         },
       );
       await trace.record({ index: 0, operation: "commerce_reconciliation", result: "succeeded" });

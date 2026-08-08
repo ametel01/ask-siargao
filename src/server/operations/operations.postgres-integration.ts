@@ -1,11 +1,15 @@
 import type { DatabaseQueryClient } from "@/server/db/query-client";
-import { reconcileLiveCommerce } from "@/server/operations/live-reconciliation";
+import {
+  reconcileLiveCommerce,
+  reconciliationAlertKey,
+} from "@/server/operations/live-reconciliation";
 import {
   executeRepairAction,
   type LocalRepairExecutor,
   previewRepairAction,
 } from "@/server/operations/repair-actions";
 import { deliverOperationalAlertOnce } from "@/server/operations/sentry-alerts";
+import { createTripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
 import { enqueueOperationalTask, runOperationalWorker } from "@/server/operations/worker-runner";
 
 export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) {
@@ -22,21 +26,63 @@ export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) 
      )`,
   );
   let providerLookupOutsideTransaction = false;
-  const reconciliation = await reconcileLiveCommerce(
-    { orderId: "native_operations_order", source: "worker" },
-    {
-      commerceReader: {
-        async readPaymentFact() {
-          providerLookupOutsideTransaction = db.inTransaction !== true;
-          return { amountMinor: 999, currency: "usd", paymentState: "paid" };
+  let paymentState: "paid" | "unpaid" = "paid";
+  let incidentPages = 0;
+  const incidentSink = {
+    async send() {
+      assert(db.inTransaction !== true, "Sentry provider call ran inside a PostgreSQL transaction");
+      incidentPages += 1;
+    },
+  };
+  const createId = nativeIds();
+  const reconcile = () =>
+    reconcileLiveCommerce(
+      { orderId: "native_operations_order", source: "worker" },
+      {
+        commerceReader: {
+          async readPaymentFact() {
+            providerLookupOutsideTransaction = db.inTransaction !== true;
+            return { amountMinor: 999, currency: "usd", paymentState };
+          },
+        },
+        createId,
+        db,
+        alertFinding: async (finding) => {
+          await deliverOperationalAlertOnce(
+            {
+              alertKey: reconciliationAlertKey(finding),
+              errorCode: finding.summaryCode,
+              findingId: finding.findingId,
+              impact: finding.impact,
+              operation: "paid_without_pass",
+            },
+            { createId, db, sink: incidentSink },
+          );
         },
       },
-      createId: nativeIds(),
-      db,
-    },
-  );
+    );
+  const reconciliation = await reconcile();
   assert(providerLookupOutsideTransaction, "provider lookup ran inside a PostgreSQL transaction");
   assert(reconciliation.findings.length === 1, "native reconciliation did not record its finding");
+  const repeated = await reconcile();
+  assert(
+    repeated.findings[0]?.findingId === reconciliation.findings[0]?.findingId &&
+      repeated.findings[0]?.lifecycle === 1,
+    "native repeat created a different incident lifecycle",
+  );
+  paymentState = "unpaid";
+  assert(
+    (await reconcile()).findings.length === 0,
+    "native reconciliation did not resolve incident",
+  );
+  paymentState = "paid";
+  const recurred = await reconcile();
+  assert(
+    recurred.findings[0]?.findingId === reconciliation.findings[0]?.findingId &&
+      recurred.findings[0]?.lifecycle === 2,
+    "native recurrence did not reopen the stable incident",
+  );
+  assert(incidentPages === 2, "native incident paging did not deliver once per lifecycle");
   const unchanged = await db.query<{ status: string }>(
     "select status from trip_pass_orders where id = 'native_operations_order'",
   );
@@ -111,6 +157,42 @@ export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) 
   );
   assert(unselected.rows[0]?.status === "pending", "native worker mutated an unselected task");
 
+  await enqueueOperationalTask(
+    {
+      id: "native_operations_expired_retry",
+      resourceRef: "native_expired_retry_resource",
+      taskType: "retention_purge",
+    },
+    db,
+  );
+  const expiredRetry = await runOperationalWorker(
+    { batchSize: 1, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+    {
+      createLeaseToken: () => "native_operations_expired_retry_lease",
+      db,
+      handlers: {
+        retention_purge: async () => {
+          await db.query(
+            `update operational_worker_tasks
+             set lease_expires_at = clock_timestamp() - interval '1 second'
+             where id = 'native_operations_expired_retry'`,
+          );
+          throw new Error("native_expired_retry_crash");
+        },
+      },
+    },
+  );
+  assert(expiredRetry.stale === 1, "expired native worker rescheduled after losing its lease");
+  const retryTakeover = await runOperationalWorker(
+    { batchSize: 1, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+    {
+      createLeaseToken: () => "native_operations_retry_takeover_lease",
+      db,
+      handlers: { retention_purge: async () => undefined },
+    },
+  );
+  assert(retryTakeover.succeeded === 1, "native takeover did not converge expired retry");
+
   let sent = 0;
   const alert = {
     alertKey: "native_operations_once",
@@ -139,9 +221,108 @@ export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) 
     }),
   ]);
   assert(sent === 1, "concurrent high-impact alert delivery paged more than once");
+
+  await db.query(
+    `insert into operational_alert_deliveries (
+       id, alert_key, finding_id, impact, destination, status, delivery_token,
+       lease_expires_at, attempted_at
+     ) values (
+       'native_alert_crashed', 'native_alert_crash_reclaim', $1, 'high', 'sentry',
+       'sending', 'native_crashed_token', clock_timestamp() - interval '1 second',
+       clock_timestamp() - interval '2 minutes'
+     )`,
+    [reconciliation.findings[0]?.findingId],
+  );
+  const reclaimed = await deliverOperationalAlertOnce(
+    { ...alert, alertKey: "native_alert_crash_reclaim" },
+    {
+      createId: () => "native_alert_reclaimed",
+      createToken: () => "native_alert_reclaimed_token",
+      db,
+      sink: {
+        async send() {
+          assert(db.inTransaction !== true, "native alert reclaim called provider under a lock");
+        },
+      },
+    },
+  );
+  assert(reclaimed.status === "sent", "native alert crash lease was not reclaimed");
+  const staleDelivery = await deliverOperationalAlertOnce(
+    { ...alert, alertKey: "native_alert_stale_completion" },
+    {
+      createId: () => "native_alert_stale",
+      createToken: () => "native_alert_stale_token",
+      db,
+      sink: {
+        async send() {
+          assert(db.inTransaction !== true, "native alert provider ran under a database lock");
+          await db.query(
+            `update operational_alert_deliveries
+             set lease_expires_at = clock_timestamp() - interval '1 second'
+             where alert_key = 'native_alert_stale_completion'`,
+          );
+        },
+      },
+    },
+  );
+  assert(staleDelivery.status === "stale_delivery", "native stale alert completion was accepted");
 }
 
 async function runRepairActionRegressions(db: DatabaseQueryClient) {
+  const highImpactFinding = await db.query<{ id: string }>(
+    `select id from operational_findings
+     where local_entity_ref = 'native_operations_order' and kind = 'paid_without_pass'`,
+  );
+  const highImpactFindingId = highImpactFinding.rows[0]?.id;
+  assert(highImpactFindingId, "native high-impact reconciliation finding unavailable");
+  let repairProviderOutsideTransaction = false;
+  const authoritativeExecutor = createTripPassLocalRepairExecutor({
+    commerceReader: {
+      async readPaymentFact() {
+        repairProviderOutsideTransaction = db.inTransaction !== true;
+        return { amountMinor: 999, currency: "usd", paymentState: "refunded" };
+      },
+    },
+  });
+  const highImpactPreview = await previewRepairAction(
+    { actionType: "grant_missing_trip_pass", findingId: highImpactFindingId },
+    { db, executor: authoritativeExecutor },
+  );
+  let reversedRepair: unknown;
+  try {
+    await executeRepairAction(
+      {
+        actionType: "grant_missing_trip_pass",
+        auth: { accountId: "native_operator", mfaFresh: true },
+        confirmation: "APPLY REPAIR",
+        findingId: highImpactFindingId,
+        idempotencyKey: "native-authoritative-reversal",
+        previewDigest: highImpactPreview.digest,
+        reasonCode: "verified_provider_reversal",
+      },
+      { allowlist: new Set(["native_operator"]), db, executor: authoritativeExecutor },
+    );
+  } catch (error) {
+    reversedRepair = error;
+  }
+  assert(repairProviderOutsideTransaction, "repair provider proof ran inside native transaction");
+  assert(
+    reversedRepair instanceof Error &&
+      reversedRepair.message === "repair_authoritative_state_changed",
+    "native reversed provider fact did not abort repair",
+  );
+  const highImpactUnchanged = await db.query<{ audits: string; grants: string }>(
+    `select
+       (select count(*)::text from operator_repair_actions where finding_id = $1) as audits,
+       (select count(*)::text from trip_pass_grants
+        where order_id = 'native_operations_order') as grants`,
+    [highImpactFindingId],
+  );
+  assert(
+    highImpactUnchanged.rows[0]?.audits === "0" && highImpactUnchanged.rows[0]?.grants === "0",
+    "native reversed provider proof left repair audit or access mutation",
+  );
+
   await db.query("create table native_repair_probe (id text primary key, state text not null)");
   await db.query("insert into native_repair_probe (id, state) values ('race', 'before')");
   await seedNativeFinding(db, "native_finding_race", "native_order_race");
@@ -270,10 +451,11 @@ async function seedNativeFinding(db: DatabaseQueryClient, findingId: string, loc
   );
   await db.query(
     `insert into operational_findings (
-       id, run_id, kind, impact, local_entity_type, local_entity_ref, summary_code
+       id, run_id, kind, impact, local_entity_type, local_entity_ref, summary_code,
+       incident_key, last_detected_at
      ) values ($1, $2, 'payment_state_mismatch', 'high', 'trip_pass_order', $3,
-       'authoritative_payment_terms_mismatch')`,
-    [findingId, runId, localRef],
+       'authoritative_payment_terms_mismatch', $4, clock_timestamp())`,
+    [findingId, runId, localRef, `incident_${findingId}`],
   );
 }
 

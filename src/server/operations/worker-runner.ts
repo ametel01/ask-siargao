@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import {
@@ -41,6 +41,7 @@ export async function runOperationalWorker(
     onRepeatedFailure?: (input: {
       attempts: number;
       resourceRef: string;
+      taskKey: string;
       taskType: OperationalTaskType;
     }) => Promise<void>;
     recordEvent?: OperationEventRecorder;
@@ -88,6 +89,7 @@ export async function runOperationalWorker(
           await dependencies.onRepeatedFailure?.({
             attempts: task.attempts,
             resourceRef: task.resource_ref,
+            taskKey: opaqueTaskKey(task.id),
             taskType: task.task_type,
           });
         }
@@ -152,8 +154,13 @@ async function retryTask(task: ClaimedTask, errorCode: string, db: DatabaseQuery
          (least(300, (power(2, least(attempts, 8))::integer))::text || ' seconds')::interval,
        updated_at = clock_timestamp()
      where id = $1 and status = 'running' and lease_token = $2
+       and lease_expires_at > clock_timestamp()
      returning id`,
     [task.id, task.lease_token, errorCode],
   );
   return Boolean(result.rows[0]);
+}
+
+export function opaqueTaskKey(taskId: string) {
+  return `worker_task_${createHash("sha256").update(taskId).digest("hex").slice(0, 32)}`;
 }

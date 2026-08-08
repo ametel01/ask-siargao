@@ -1,7 +1,10 @@
 import Stripe from "stripe";
 
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
-import { reconcileLiveCommerce } from "@/server/operations/live-reconciliation";
+import {
+  reconcileLiveCommerce,
+  reconciliationAlertKey,
+} from "@/server/operations/live-reconciliation";
 import {
   createSentryHttpSink,
   deliverOperationalAlertOnce,
@@ -26,7 +29,7 @@ const result = await reconcileLiveCommerce(
       ? async (finding) => {
           await deliverOperationalAlertOnce(
             {
-              alertKey: `reconciliation:${finding.findingId}`,
+              alertKey: reconciliationAlertKey(finding),
               errorCode: finding.summaryCode,
               findingId: finding.findingId,
               impact: finding.impact,

@@ -7,7 +7,10 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
-import { reconcileLiveCommerce } from "@/server/operations/live-reconciliation";
+import {
+  reconcileLiveCommerce,
+  reconciliationAlertKey,
+} from "@/server/operations/live-reconciliation";
 import {
   authorizeOperator,
   operatorMutationVerificationConfig,
@@ -24,8 +27,12 @@ import {
   createSentryHttpSink,
   deliverOperationalAlertOnce,
 } from "@/server/operations/sentry-alerts";
-import { tripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
-import { enqueueOperationalTask, runOperationalWorker } from "@/server/operations/worker-runner";
+import { createTripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
+import {
+  enqueueOperationalTask,
+  opaqueTaskKey,
+  runOperationalWorker,
+} from "@/server/operations/worker-runner";
 
 describe("Operator authorization", () => {
   test("requires an immutable Account allowlist and inclusive five-minute Clerk MFA", () => {
@@ -90,7 +97,9 @@ describe("live Stripe reconciliation", () => {
         {
           findingId: "finding_2",
           impact: "high",
+          incidentKey: expect.stringMatching(/^incident_[a-f0-9]{32}$/),
           kind: "paid_without_pass",
+          lifecycle: 1,
           status: "open",
           summaryCode: "authoritative_payment_has_no_local_access",
         },
@@ -110,6 +119,75 @@ describe("live Stripe reconciliation", () => {
       expect(order.rows).toEqual([{ status: "pending" }]);
       expect(JSON.stringify(result)).not.toContain("cs_live_reconciliation_secret");
       expect(JSON.stringify(result)).not.toContain("pi_live_reconciliation_secret");
+    });
+  });
+
+  test("converges repeat, resolve, and recurrence on one incident and one page per lifecycle", async () => {
+    await withTestDb(async (db) => {
+      await seedOrder(db, "order_incident_lifecycle");
+      let paymentState: "paid" | "unpaid" = "paid";
+      const sent: string[] = [];
+      const createId = sequenceIds();
+      const reconcile = () =>
+        reconcileLiveCommerce(
+          { orderId: "order_incident_lifecycle", source: "worker" },
+          {
+            commerceReader: {
+              async readPaymentFact() {
+                return { amountMinor: 999, currency: "usd", paymentState };
+              },
+            },
+            createId,
+            db,
+            alertFinding: async (finding) => {
+              await deliverOperationalAlertOnce(
+                {
+                  alertKey: reconciliationAlertKey(finding),
+                  errorCode: finding.summaryCode,
+                  findingId: finding.findingId,
+                  impact: finding.impact,
+                  operation: "paid_without_pass",
+                },
+                {
+                  createId,
+                  createToken: () => `delivery_token_${sent.length + 1}`,
+                  db,
+                  sink: {
+                    async send() {
+                      sent.push(reconciliationAlertKey(finding));
+                    },
+                  },
+                },
+              );
+            },
+          },
+        );
+
+      const first = await reconcile();
+      const repeated = await reconcile();
+      expect(repeated.findings[0]).toMatchObject({
+        findingId: first.findings[0]?.findingId,
+        incidentKey: first.findings[0]?.incidentKey,
+        lifecycle: 1,
+      });
+      paymentState = "unpaid";
+      expect((await reconcile()).findings).toEqual([]);
+      paymentState = "paid";
+      const recurred = await reconcile();
+      expect(recurred.findings[0]).toMatchObject({
+        findingId: first.findings[0]?.findingId,
+        incidentKey: first.findings[0]?.incidentKey,
+        lifecycle: 2,
+      });
+      expect(sent).toEqual([
+        `reconciliation:${first.findings[0]?.incidentKey}:lifecycle:1`,
+        `reconciliation:${first.findings[0]?.incidentKey}:lifecycle:2`,
+      ]);
+      const incidents = await db.query<{ count: string; lifecycle: number; status: string }>(
+        `select count(*) over ()::text as count, lifecycle, status
+         from operational_findings where local_entity_ref = 'order_incident_lifecycle'`,
+      );
+      expect(incidents.rows).toEqual([{ count: "1", lifecycle: 2, status: "open" }]);
     });
   });
 });
@@ -195,7 +273,19 @@ describe("audited Repair Actions", () => {
   });
 
   test("uses strict production executors for sensitive commerce and recovery classes", async () => {
-    await withTestDb(async (db) => {
+    await withTestDb(async (db, state) => {
+      const executor = createTripPassLocalRepairExecutor({
+        commerceReader: {
+          async readPaymentFact({ checkoutSessionId }) {
+            expect(state.inTransaction).toBe(false);
+            return {
+              amountMinor: 999,
+              currency: "usd",
+              paymentState: checkoutSessionId?.includes("manual_transition") ? "unpaid" : "paid",
+            };
+          },
+        },
+      });
       await seedOrder(db, "order_manual_transition");
       await seedFindingFor(
         db,
@@ -207,7 +297,7 @@ describe("audited Repair Actions", () => {
       );
       const manualPreview = await previewRepairAction(
         { actionType: "manual_commerce_transition", findingId: "finding_manual_transition" },
-        { db, executor: tripPassLocalRepairExecutor },
+        { db, executor },
       );
       await expect(
         executeRepairAction(
@@ -220,7 +310,7 @@ describe("audited Repair Actions", () => {
             allowlist: new Set(["account_operator"]),
             createId: () => "repair_manual_transition",
             db,
-            executor: tripPassLocalRepairExecutor,
+            executor,
           },
         ),
       ).resolves.toMatchObject({ status: "applied", after: { status: "failed" } });
@@ -237,7 +327,7 @@ describe("audited Repair Actions", () => {
       );
       const goodwillPreview = await previewRepairAction(
         { actionType: "goodwill_grant", findingId: "finding_goodwill" },
-        { db, executor: tripPassLocalRepairExecutor },
+        { db, executor },
       );
       await expect(
         executeRepairAction(
@@ -246,7 +336,7 @@ describe("audited Repair Actions", () => {
             allowlist: new Set(["account_operator"]),
             createId: () => "repair_goodwill",
             db,
-            executor: tripPassLocalRepairExecutor,
+            executor,
           },
         ),
       ).resolves.toMatchObject({ status: "applied", after: { grantCount: 1 } });
@@ -275,7 +365,7 @@ describe("audited Repair Actions", () => {
       );
       const recoveryPreview = await previewRepairAction(
         { actionType: "account_recovery", findingId: "finding_recovery" },
-        { db, executor: tripPassLocalRepairExecutor },
+        { db, executor },
       );
       await expect(
         executeRepairAction(
@@ -284,10 +374,62 @@ describe("audited Repair Actions", () => {
             allowlist: new Set(["account_operator"]),
             createId: () => "repair_recovery",
             db,
-            executor: tripPassLocalRepairExecutor,
+            executor,
           },
         ),
       ).resolves.toMatchObject({ status: "applied", after: { status: "pending" } });
+    });
+  });
+
+  test("prepares authoritative payment proof outside locks and aborts a reversed grant", async () => {
+    await withTestDb(async (db, state) => {
+      await seedOrder(db, "order_reversed_before_lock");
+      await db.query(
+        "update trip_pass_orders set status = 'paid' where id = 'order_reversed_before_lock'",
+      );
+      await seedFindingFor(
+        db,
+        "finding_reversed_before_lock",
+        "provider_application_failed",
+        "trip_pass_order",
+        "order_reversed_before_lock",
+        "provider_application_failed",
+      );
+      const ordering: string[] = [];
+      const executor = createTripPassLocalRepairExecutor({
+        commerceReader: {
+          async readPaymentFact() {
+            expect(state.inTransaction).toBe(false);
+            ordering.push("provider_lookup");
+            return { amountMinor: 999, currency: "usd", paymentState: "refunded" };
+          },
+        },
+      });
+      const preview = await previewRepairAction(
+        { actionType: "goodwill_grant", findingId: "finding_reversed_before_lock" },
+        { db, executor },
+      );
+      await expect(
+        executeRepairAction(
+          commandFor("goodwill_grant", "finding_reversed_before_lock", preview.digest),
+          {
+            allowlist: new Set(["account_operator"]),
+            db,
+            executor,
+          },
+        ),
+      ).rejects.toThrow("repair_authoritative_state_changed");
+      expect(ordering).toEqual(["provider_lookup"]);
+      const unchanged = await db.query<{ audits: string; grants: string; status: string }>(
+        `select
+           (select count(*)::text from operator_repair_actions
+            where finding_id = 'finding_reversed_before_lock') as audits,
+           (select count(*)::text from trip_pass_grants
+            where order_id = 'order_reversed_before_lock') as grants,
+           (select status from operational_findings
+            where id = 'finding_reversed_before_lock') as status`,
+      );
+      expect(unchanged.rows).toEqual([{ audits: "0", grants: "0", status: "open" }]);
     });
   });
 });
@@ -384,6 +526,85 @@ describe("Sentry operational paging", () => {
       expect(sent[0]).toContain("operational_failure");
     });
   });
+
+  test("reclaims crashed alert leases and fences stale provider completions", async () => {
+    await withTestDb(async (db, state) => {
+      await seedFinding(db, "finding_alert_lease");
+      await db.query(
+        `insert into operational_alert_deliveries (
+           id, alert_key, finding_id, impact, destination, status, delivery_token,
+           lease_expires_at, attempted_at
+         ) values (
+           'delivery_crashed', 'alert_crashed', 'finding_alert_lease', 'high', 'sentry',
+           'sending', 'crashed_token', clock_timestamp() - interval '1 second',
+           clock_timestamp() - interval '2 minutes'
+         )`,
+      );
+      let sends = 0;
+      const baseAlert = {
+        errorCode: "paid_without_pass",
+        findingId: "finding_alert_lease",
+        impact: "high" as const,
+        operation: "paid_without_pass" as const,
+      };
+      await expect(
+        deliverOperationalAlertOnce(
+          { ...baseAlert, alertKey: "alert_crashed" },
+          {
+            createId: () => "delivery_reclaimed",
+            createToken: () => "reclaimed_token",
+            db,
+            sink: {
+              async send() {
+                expect(state.inTransaction).toBe(false);
+                sends += 1;
+              },
+            },
+          },
+        ),
+      ).resolves.toEqual({ status: "sent" });
+
+      await expect(
+        deliverOperationalAlertOnce(
+          { ...baseAlert, alertKey: "alert_stale_completion" },
+          {
+            createId: () => "delivery_stale",
+            createToken: () => "stale_token",
+            db,
+            leaseSeconds: 60,
+            sink: {
+              async send() {
+                expect(state.inTransaction).toBe(false);
+                sends += 1;
+                await db.query(
+                  `update operational_alert_deliveries
+                   set lease_expires_at = clock_timestamp() - interval '1 second'
+                   where alert_key = 'alert_stale_completion'`,
+                );
+              },
+            },
+          },
+        ),
+      ).resolves.toEqual({ status: "stale_delivery" });
+      await expect(
+        deliverOperationalAlertOnce(
+          { ...baseAlert, alertKey: "alert_stale_completion" },
+          {
+            createId: () => "delivery_takeover",
+            createToken: () => "takeover_token",
+            db,
+            sink: {
+              async send() {
+                expect(state.inTransaction).toBe(false);
+                sends += 1;
+              },
+            },
+          },
+        ),
+      ).resolves.toEqual({ status: "sent" });
+      expect(sends).toBe(3);
+    });
+  });
 });
 
 describe("durable provider-neutral workers", () => {
@@ -459,6 +680,85 @@ describe("durable provider-neutral workers", () => {
       expect(stale).toEqual({ claimed: 1, failed: 0, stale: 1, succeeded: 0 });
     });
   });
+
+  test("fences an expired retry before takeover convergence", async () => {
+    await withTestDb(async (db) => {
+      await enqueueOperationalTask(
+        { id: "worker_expired_retry", resourceRef: "expired", taskType: "retention_purge" },
+        db,
+      );
+      const expired = await runOperationalWorker(
+        { batchSize: 1, leaseSeconds: 60 },
+        {
+          createLeaseToken: () => "expired_retry_token",
+          db,
+          handlers: {
+            retention_purge: async () => {
+              await db.query(
+                `update operational_worker_tasks
+                 set lease_expires_at = clock_timestamp() - interval '1 second'
+                 where id = 'worker_expired_retry'`,
+              );
+              throw new Error("expired_worker_crash");
+            },
+          },
+        },
+      );
+      expect(expired).toEqual({ claimed: 1, failed: 0, stale: 1, succeeded: 0 });
+      const takeover = await runOperationalWorker(
+        { batchSize: 1, leaseSeconds: 60 },
+        {
+          createLeaseToken: () => "takeover_retry_token",
+          db,
+          handlers: { retention_purge: async () => undefined },
+        },
+      );
+      expect(takeover).toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+    });
+  });
+
+  test("uses one opaque alert key per task across retries without cross-task suppression", async () => {
+    await withTestDb(async (db) => {
+      for (const id of ["raw_task_alpha", "raw_task_beta"]) {
+        await enqueueOperationalTask({ id, resourceRef: id, taskType: "retention_purge" }, db);
+        await db.query("update operational_worker_tasks set attempts = 2 where id = $1", [id]);
+      }
+      await db.query(
+        `update operational_worker_tasks
+         set next_attempt_at = clock_timestamp() + interval '1 day'
+         where id = 'raw_task_beta'`,
+      );
+      const taskKeys: string[] = [];
+      const failOne = () =>
+        runOperationalWorker(
+          { batchSize: 1, leaseSeconds: 60 },
+          {
+            db,
+            handlers: { retention_purge: async () => Promise.reject(new Error("retry")) },
+            onRepeatedFailure: async ({ taskKey }) => {
+              taskKeys.push(taskKey);
+            },
+          },
+        );
+      await failOne();
+      await db.query(
+        "update operational_worker_tasks set next_attempt_at = clock_timestamp() where id = 'raw_task_alpha'",
+      );
+      await failOne();
+      await db.query(
+        "update operational_worker_tasks set next_attempt_at = clock_timestamp() where id = 'raw_task_beta'",
+      );
+      await failOne();
+      expect(taskKeys[0]).toBe(taskKeys[1]);
+      expect(taskKeys[2]).not.toBe(taskKeys[0]);
+      expect(taskKeys).toEqual([
+        opaqueTaskKey("raw_task_alpha"),
+        opaqueTaskKey("raw_task_alpha"),
+        opaqueTaskKey("raw_task_beta"),
+      ]);
+      expect(taskKeys.join(" ")).not.toContain("raw_task_");
+    });
+  });
 });
 
 async function withTestDb(
@@ -526,10 +826,11 @@ async function seedFinding(db: DatabaseQueryClient, findingId: string) {
   );
   await db.query(
     `insert into operational_findings (
-       id, run_id, kind, impact, local_entity_type, local_entity_ref, summary_code
+       id, run_id, kind, impact, local_entity_type, local_entity_ref, summary_code,
+       incident_key, last_detected_at
      ) values ($1, 'run_repair', 'payment_state_mismatch', 'high',
-       'trip_pass_order', 'order_private', 'payment_state_mismatch')`,
-    [findingId],
+       'trip_pass_order', 'order_private', 'payment_state_mismatch', $2, clock_timestamp())`,
+    [findingId, `incident_${findingId}`],
   );
 }
 
@@ -550,9 +851,10 @@ async function seedFindingFor(
   );
   await db.query(
     `insert into operational_findings (
-       id, run_id, kind, impact, local_entity_type, local_entity_ref, summary_code
-     ) values ($1, $2, $3, 'high', $4, $5, $6)`,
-    [findingId, runId, kind, entityType, entityRef, summaryCode],
+       id, run_id, kind, impact, local_entity_type, local_entity_ref, summary_code,
+       incident_key, last_detected_at
+     ) values ($1, $2, $3, 'high', $4, $5, $6, $7, clock_timestamp())`,
+    [findingId, runId, kind, entityType, entityRef, summaryCode, `incident_${findingId}`],
   );
 }
 

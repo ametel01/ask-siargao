@@ -1,5 +1,6 @@
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { type OperationalTaskType, operationalTaskTypes } from "@/server/operations/contracts";
+import { reconciliationAlertKey } from "@/server/operations/live-reconciliation";
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   createSentryHttpSink,
@@ -23,12 +24,31 @@ async function main() {
     },
     {
       db,
-      handlers: createProductionOperationalTaskHandlers({ db }),
+      handlers: createProductionOperationalTaskHandlers({
+        alertFinding: sentry
+          ? async (finding) => {
+              await deliverOperationalAlertOnce(
+                {
+                  alertKey: reconciliationAlertKey(finding),
+                  errorCode: finding.summaryCode,
+                  findingId: finding.findingId,
+                  impact: finding.impact,
+                  operation:
+                    finding.kind === "paid_without_pass"
+                      ? "paid_without_pass"
+                      : "live_reconciliation",
+                },
+                { db, sink: sentry },
+              );
+            }
+          : undefined,
+        db,
+      }),
       onRepeatedFailure: sentry
-        ? async ({ attempts, taskType }) => {
+        ? async ({ attempts, taskKey, taskType }) => {
             await deliverOperationalAlertOnce(
               {
-                alertKey: `worker:${taskType}:attempt:${attempts}`,
+                alertKey: `worker:${taskKey}`,
                 errorCode: "operational_worker_repeated_failure",
                 impact: attempts >= 5 ? "high" : "warning",
                 operation: operationForTask(taskType),

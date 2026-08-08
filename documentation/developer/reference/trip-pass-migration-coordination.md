@@ -18,10 +18,11 @@ file. Operations findings, repair audit, paging delivery, and generic worker lea
 | `0014` | #153 | Paid Answer Reservation and retention-expiry state. |
 | `0015` | #153 | Paid Answer retention retry scheduling metadata, constraints, and due-work index. |
 | `0016` | #154 | Opaque operations findings, Repair Action audit, Sentry delivery, and durable provider-neutral worker leases. |
+| `0017` | #154 | Stable incident lifecycles and database-time Sentry delivery leases, added without rewriting `0016`. |
 
 Issues #155-#156 must not reuse migration `0016`. Any newly discovered schema need is
 coordinator-assigned after this reserved sequence instead of being folded into an applied or
-already-reserved file. The next available coordinator-assigned number is `0017`.
+already-reserved file. The next available coordinator-assigned number is `0018`.
 
 ## Expand-First Rules
 

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { createOperationTrace, type OperationEventRecorder } from "@/server/operations/contracts";
@@ -19,11 +19,13 @@ export type AuthoritativeCommerceReader = {
 export type OperationalFindingView = {
   findingId: string;
   impact: "warning" | "high";
+  incidentKey: string;
   kind:
     | "paid_without_pass"
     | "access_without_payment"
     | "payment_state_mismatch"
     | "pending_payment_stale";
+  lifecycle: number;
   status: "open";
   summaryCode: string;
 };
@@ -46,7 +48,10 @@ type LocalCommerceSnapshot = {
   pass_count: string | number;
 };
 
-type FindingCandidate = Omit<OperationalFindingView, "findingId" | "status"> & {
+type FindingCandidate = Omit<
+  OperationalFindingView,
+  "findingId" | "incidentKey" | "lifecycle" | "status"
+> & {
   localRef: string;
 };
 
@@ -100,11 +105,34 @@ export async function reconcileLiveCommerce(
     const recorded: OperationalFindingView[] = [];
     for (const candidate of candidates) {
       const findingId = createId("finding");
-      await transaction.query(
+      const incidentKey = createIncidentKey(candidate);
+      const result = await transaction.query<{
+        id: string;
+        incident_key: string;
+        lifecycle: number;
+      }>(
         `insert into operational_findings (
            id, run_id, kind, impact, status, local_entity_type, local_entity_ref,
-           summary_code, detected_at
-         ) values ($1, $2, $3, $4, 'open', 'trip_pass_order', $5, $6, $7)`,
+           summary_code, incident_key, lifecycle, detected_at, last_detected_at
+         ) values (
+           $1, $2, $3, $4, 'open', 'trip_pass_order', $5, $6, $7, 1, $8, $8
+         )
+         on conflict (incident_key) do update set
+           run_id = excluded.run_id,
+           impact = excluded.impact,
+           status = 'open',
+           lifecycle = case
+             when operational_findings.status = 'resolved'
+             then operational_findings.lifecycle + 1
+             else operational_findings.lifecycle
+           end,
+           detected_at = case
+             when operational_findings.status = 'resolved' then excluded.detected_at
+             else operational_findings.detected_at
+           end,
+           last_detected_at = excluded.last_detected_at,
+           resolved_at = null
+         returning id, incident_key, lifecycle`,
         [
           findingId,
           runId,
@@ -112,16 +140,43 @@ export async function reconcileLiveCommerce(
           candidate.impact,
           candidate.localRef,
           candidate.summaryCode,
+          incidentKey,
           at,
         ],
       );
+      const current = result.rows[0];
+      if (!current) throw new Error("reconciliation_finding_upsert_failed");
       recorded.push({
-        findingId,
+        findingId: current.id,
         impact: candidate.impact,
+        incidentKey: current.incident_key,
         kind: candidate.kind,
+        lifecycle: current.lifecycle,
         status: "open",
         summaryCode: candidate.summaryCode,
       });
+    }
+    const localRefs = localRows.map((row) => row.id);
+    if (localRefs.length > 0) {
+      await transaction.query(
+        `update operational_findings set status = 'resolved', resolved_at = $3
+         where status = 'open'
+           and local_entity_type = 'trip_pass_order'
+           and local_entity_ref = any($1::text[])
+           and kind = any($2::text[])
+           and not (incident_key = any($4::text[]))`,
+        [
+          localRefs,
+          [
+            "paid_without_pass",
+            "access_without_payment",
+            "payment_state_mismatch",
+            "pending_payment_stale",
+          ],
+          at,
+          recorded.map((finding) => finding.incidentKey),
+        ],
+      );
     }
     return recorded;
   });
@@ -130,10 +185,20 @@ export async function reconcileLiveCommerce(
     operation: "record_reconciliation_findings",
     result: "succeeded",
   });
-  for (const finding of findings) {
-    if (finding.impact === "high") await dependencies.alertFinding?.(finding);
-  }
+  for (const finding of findings) await dependencies.alertFinding?.(finding);
   return { checkedCount: localRows.length, findings, runId, trace: trace.events };
+}
+
+export function reconciliationAlertKey(finding: OperationalFindingView) {
+  return `reconciliation:${finding.incidentKey}:lifecycle:${finding.lifecycle}`;
+}
+
+function createIncidentKey(candidate: FindingCandidate) {
+  return `incident_${createHash("md5")
+    .update(
+      [candidate.kind, "trip_pass_order", candidate.localRef, candidate.summaryCode].join("\u001f"),
+    )
+    .digest("hex")}`;
 }
 
 async function loadLocalCommerce(db: DatabaseQueryClient, orderId?: string) {

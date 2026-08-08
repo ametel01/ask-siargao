@@ -124,7 +124,11 @@ async function runHistoricalPaidAnswerMigrationUpgrade() {
       const upgrade = await harness.migrate();
       assertDeepEqual(
         upgrade.applied,
-        ["0015_paid_answer_retention_retry.sql", "0016_operational_findings_and_repair.sql"],
+        [
+          "0015_paid_answer_retention_retry.sql",
+          "0016_operational_findings_and_repair.sql",
+          "0017_operational_incident_leases.sql",
+        ],
         "historical native ledger must advance through the additive operations migration",
       );
       const upgraded = await client.query<{

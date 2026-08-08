@@ -10,20 +10,22 @@ export function createStripeCommerceReader(
 ): AuthoritativeCommerceReader {
   return {
     async readPaymentFact(input) {
+      if (input.paymentIntentId) {
+        const intent = await stripe.paymentIntents.retrieve(input.paymentIntentId, {
+          expand: ["latest_charge"],
+        });
+        return {
+          amountMinor: intent.amount_received || intent.amount,
+          currency: intent.currency,
+          paymentState: paymentIntentState(intent),
+        };
+      }
       if (input.checkoutSessionId) {
         const session = await stripe.checkout.sessions.retrieve(input.checkoutSessionId);
         return {
           amountMinor: session.amount_total,
           currency: session.currency,
           paymentState: checkoutPaymentState(session.payment_status),
-        };
-      }
-      if (input.paymentIntentId) {
-        const intent = await stripe.paymentIntents.retrieve(input.paymentIntentId);
-        return {
-          amountMinor: intent.amount_received || intent.amount,
-          currency: intent.currency,
-          paymentState: paymentIntentState(intent.status),
         };
       }
       return { amountMinor: null, currency: null, paymentState: "unpaid" };
@@ -39,9 +41,12 @@ function checkoutPaymentState(
 }
 
 function paymentIntentState(
-  status: Stripe.PaymentIntent.Status,
+  intent: Stripe.PaymentIntent,
 ): AuthoritativePaymentFact["paymentState"] {
-  if (status === "succeeded") return "paid";
-  if (status === "canceled") return "unpaid";
+  const charge = typeof intent.latest_charge === "object" ? intent.latest_charge : null;
+  if (charge?.disputed) return "disputed";
+  if (charge?.refunded) return "refunded";
+  if (intent.status === "succeeded") return "paid";
+  if (intent.status === "canceled") return "unpaid";
   return "pending";
 }

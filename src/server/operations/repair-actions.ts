@@ -21,19 +21,26 @@ export type RepairPreview = {
 };
 
 export type LocalRepairExecutor = {
+  prepare?(input: {
+    actionType: RepairActionType;
+    finding: RepairFinding;
+    db: DatabaseQueryClient;
+  }): Promise<unknown>;
   preview(input: {
     actionType: RepairActionType;
     finding: RepairFinding;
     db: DatabaseQueryClient;
+    preparedProof?: unknown;
   }): Promise<{ before: Record<string, unknown>; after: Record<string, unknown> }>;
   apply(input: {
     actionType: RepairActionType;
     finding: RepairFinding;
     db: DatabaseQueryClient;
+    preparedProof?: unknown;
   }): Promise<Record<string, unknown>>;
 };
 
-type RepairFinding = {
+export type RepairFinding = {
   id: string;
   kind: string;
   local_entity_type: string;
@@ -99,6 +106,32 @@ export async function executeRepairAction(
   const idempotencyHash = createHash("sha256").update(input.idempotencyKey).digest("hex");
   const commandHash = repairCommandHash(input);
   const createId = dependencies.createId ?? ((prefix: string) => `${prefix}_${randomUUID()}`);
+  const existing = await db.query<{
+    id: string;
+    after_state: Record<string, unknown>;
+    command_hash: string;
+  }>(
+    `select id, after_state, command_hash from operator_repair_actions
+     where operator_account_id = $1 and idempotency_key_hash = $2`,
+    [authorization.accountId, idempotencyHash],
+  );
+  if (existing.rows[0]) {
+    if (existing.rows[0].command_hash !== commandHash) {
+      throw new Error("repair_idempotency_mismatch");
+    }
+    return {
+      actionId: existing.rows[0].id,
+      after: existing.rows[0].after_state,
+      status: "replayed" as const,
+    };
+  }
+  const preparedFinding = await loadFinding(input.findingId, db);
+  if (preparedFinding?.status !== "open") throw new Error("repair_finding_unavailable");
+  const preparedProof = await dependencies.executor.prepare?.({
+    actionType: input.actionType,
+    db,
+    finding: preparedFinding,
+  });
   return db.transaction(async (transaction) => {
     const replay = await transaction.query<{
       id: string;
@@ -150,6 +183,7 @@ export async function executeRepairAction(
         actionType: input.actionType,
         db: transaction,
         finding,
+        preparedProof,
       }),
     );
     if (previewDigest(finding.id, input.actionType, preview) !== input.previewDigest) {
@@ -200,7 +234,12 @@ export async function executeRepairAction(
       };
     }
     const after = sanitizeState(
-      await dependencies.executor.apply({ actionType: input.actionType, db: transaction, finding }),
+      await dependencies.executor.apply({
+        actionType: input.actionType,
+        db: transaction,
+        finding,
+        preparedProof,
+      }),
     );
     await transaction.query(
       "update operator_repair_actions set after_state = $2::jsonb where id = $1",

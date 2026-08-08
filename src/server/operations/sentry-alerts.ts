@@ -66,21 +66,41 @@ export async function deliverOperationalAlertOnce(
     createId?: (prefix: string) => string;
     createToken?: () => string;
     db: DatabaseQueryClient;
+    leaseSeconds?: number;
     sink: SentryOperationalSink;
   },
 ) {
   const createId = dependencies.createId ?? ((prefix: string) => `${prefix}_${randomUUID()}`);
   const token = dependencies.createToken?.() ?? randomUUID();
+  const leaseSeconds = dependencies.leaseSeconds ?? 60;
+  if (!Number.isInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 300) {
+    throw new Error("invalid_alert_lease_seconds");
+  }
   const claimed = await dependencies.db.query<{ id: string }>(
     `insert into operational_alert_deliveries (
-       id, alert_key, finding_id, impact, destination, status, delivery_token, attempted_at
-     ) values ($1, $2, $3, $4, 'sentry', 'sending', $5, clock_timestamp())
+       id, alert_key, finding_id, impact, destination, status, delivery_token,
+       lease_expires_at, attempted_at
+     ) values (
+       $1, $2, $3, $4, 'sentry', 'sending', $5,
+       clock_timestamp() + ($6::text || ' seconds')::interval, clock_timestamp()
+     )
      on conflict (alert_key) do update set
        status = 'sending', delivery_token = excluded.delivery_token,
-       attempted_at = clock_timestamp()
+       lease_expires_at = excluded.lease_expires_at, attempted_at = clock_timestamp()
      where operational_alert_deliveries.status = 'failed'
+        or (
+          operational_alert_deliveries.status = 'sending'
+          and operational_alert_deliveries.lease_expires_at <= clock_timestamp()
+        )
      returning id`,
-    [createId("alert_delivery"), alert.alertKey, alert.findingId ?? null, alert.impact, token],
+    [
+      createId("alert_delivery"),
+      alert.alertKey,
+      alert.findingId ?? null,
+      alert.impact,
+      token,
+      leaseSeconds,
+    ],
   );
   if (!claimed.rows[0]) return { status: "already_delivered_or_in_flight" as const };
 
@@ -92,18 +112,23 @@ export async function deliverOperationalAlertOnce(
       operation: alert.operation,
     });
     const updated = await dependencies.db.query<{ id: string }>(
-      `update operational_alert_deliveries set status = 'sent', delivered_at = clock_timestamp()
-       where alert_key = $1 and status = 'sending' and delivery_token = $2 returning id`,
+      `update operational_alert_deliveries set status = 'sent', delivered_at = clock_timestamp(),
+         lease_expires_at = null
+       where alert_key = $1 and status = 'sending' and delivery_token = $2
+         and lease_expires_at > clock_timestamp()
+       returning id`,
       [alert.alertKey, token],
     );
     return updated.rows[0] ? { status: "sent" as const } : { status: "stale_delivery" as const };
   } catch {
-    await dependencies.db.query(
-      `update operational_alert_deliveries set status = 'failed'
-       where alert_key = $1 and status = 'sending' and delivery_token = $2`,
+    const updated = await dependencies.db.query<{ id: string }>(
+      `update operational_alert_deliveries set status = 'failed', lease_expires_at = null
+       where alert_key = $1 and status = 'sending' and delivery_token = $2
+         and lease_expires_at > clock_timestamp()
+       returning id`,
       [alert.alertKey, token],
     );
-    return { status: "failed" as const };
+    return updated.rows[0] ? { status: "failed" as const } : { status: "stale_delivery" as const };
   }
 }
 

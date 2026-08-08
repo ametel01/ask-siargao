@@ -2111,7 +2111,10 @@ export const operationalFindings = pgTable(
     localEntityType: text("local_entity_type").notNull(),
     localEntityRef: text("local_entity_ref").notNull(),
     summaryCode: text("summary_code").notNull(),
+    incidentKey: text("incident_key").notNull(),
+    lifecycle: integer("lifecycle").notNull().default(1),
     detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastDetectedAt: timestamp("last_detected_at", { withTimezone: true }).notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   },
   (table) => [
@@ -2122,6 +2125,7 @@ export const operationalFindings = pgTable(
       table.id,
     ),
     index("operational_findings_run_id_idx").on(table.runId),
+    uniqueIndex("operational_findings_incident_key_key").on(table.incidentKey),
     uniqueIndex("operational_findings_run_entity_key").on(
       table.runId,
       table.kind,
@@ -2134,6 +2138,7 @@ export const operationalFindings = pgTable(
     ),
     check("operational_findings_impact_check", sql`${table.impact} in ('warning', 'high')`),
     check("operational_findings_status_check", sql`${table.status} in ('open', 'resolved')`),
+    check("operational_findings_lifecycle_check", sql`${table.lifecycle} >= 1`),
     check(
       "operational_findings_entity_type_check",
       sql`${table.localEntityType} in ('trip_pass_order', 'trip_pass', 'closure_operation', 'service')`,
@@ -2184,11 +2189,17 @@ export const operationalAlertDeliveries = pgTable(
     destination: text("destination").notNull(),
     status: text("status").notNull(),
     deliveryToken: text("delivery_token").notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   },
   (table) => [
     index("operational_alert_deliveries_finding_id_idx").on(table.findingId),
+    index("operational_alert_deliveries_lease_idx").on(
+      table.status,
+      table.leaseExpiresAt,
+      table.alertKey,
+    ),
     check("operational_alert_deliveries_impact_check", sql`${table.impact} in ('warning', 'high')`),
     check(
       "operational_alert_deliveries_destination_check",
@@ -2197,6 +2208,10 @@ export const operationalAlertDeliveries = pgTable(
     check(
       "operational_alert_deliveries_status_check",
       sql`${table.status} in ('sending', 'sent', 'failed')`,
+    ),
+    check(
+      "operational_alert_deliveries_lease_check",
+      sql`(${table.status} = 'sending' and ${table.leaseExpiresAt} is not null) or (${table.status} <> 'sending' and ${table.leaseExpiresAt} is null)`,
     ),
   ],
 );
