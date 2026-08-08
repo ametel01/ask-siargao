@@ -42,13 +42,13 @@ export function createProductionOperationalTaskHandlers(dependencies: {
         policy: readAccountClosurePolicy(),
         providers: dependencies.closureProviders ?? createDefaultClosureProviders(),
       });
-      if (result.retrying > 0) throw new Error("closure_task_retryable");
-      if (result.attempted === 0) {
-        const operation = await db.query<{ status: string }>(
-          "select status from account_closure_operations where id = $1",
-          [resourceRef],
-        );
-        if (operation.rows[0]?.status !== "succeeded") throw new Error("closure_task_not_due");
+      const operation = await db.query<{ status: string }>(
+        "select status from account_closure_operations where id = $1",
+        [resourceRef],
+      );
+      if (!operation.rows[0]) throw new Error("closure_task_unavailable");
+      if (operation.rows[0].status !== "succeeded") {
+        throw new Error(result.retrying > 0 ? "closure_task_retryable" : "closure_task_incomplete");
       }
       await trace.record({ index: 0, operation: "account_closure_cleanup", result: "succeeded" });
     },

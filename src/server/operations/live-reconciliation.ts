@@ -2,6 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { createOperationTrace, type OperationEventRecorder } from "@/server/operations/contracts";
+import {
+  lockTripPassAccountFamily,
+  lockTripPassAccountWrites,
+} from "@/server/trip-pass/payment-lifecycle";
 
 export type AuthoritativePaymentFact = {
   paymentState: "pending" | "paid" | "refunded" | "disputed" | "unpaid";
@@ -26,6 +30,7 @@ export type OperationalFindingView = {
     | "payment_state_mismatch"
     | "pending_payment_stale";
   lifecycle: number;
+  observationSequence: string;
   status: "open";
   summaryCode: string;
 };
@@ -39,7 +44,9 @@ export type LiveReconciliationResult = {
 
 type LocalCommerceSnapshot = {
   id: string;
+  product_family: string;
   status: string;
+  user_id: string | null;
   amount_total_minor: number;
   currency: string;
   stripe_checkout_session_id: string | null;
@@ -50,14 +57,15 @@ type LocalCommerceSnapshot = {
 
 type FindingCandidate = Omit<
   OperationalFindingView,
-  "findingId" | "incidentKey" | "lifecycle" | "status"
+  "findingId" | "incidentKey" | "lifecycle" | "observationSequence" | "status"
 > & {
   localRef: string;
 };
 
 type CommerceObservation = {
-  candidates: FindingCandidate[];
   local: LocalCommerceSnapshot;
+  observedAt: Date;
+  provider: AuthoritativePaymentFact;
   sequence: string;
 };
 
@@ -107,7 +115,7 @@ export async function reconcileLiveCommerce(
       operation: "allocate_reconciliation_observation",
       result: "succeeded",
     });
-    observations.push({ candidates: compareCommerce(local, provider, now()), local, sequence });
+    observations.push({ local, observedAt: now(), provider, sequence });
   }
 
   await trace.record({ index: 0, operation: "record_reconciliation_findings", result: "started" });
@@ -121,6 +129,14 @@ export async function reconcileLiveCommerce(
     );
     const recorded: OperationalFindingView[] = [];
     for (const observation of observations) {
+      if (observation.local.user_id) {
+        await lockTripPassAccountFamily(
+          observation.local.user_id,
+          observation.local.product_family,
+          transaction,
+        );
+        await lockTripPassAccountWrites(observation.local.user_id, transaction);
+      }
       await transaction.query("select id from trip_pass_orders where id = $1 for update", [
         observation.local.id,
       ]);
@@ -138,8 +154,14 @@ export async function reconcileLiveCommerce(
       );
       if (!freshness.rows[0]) continue;
 
+      const currentLocal = (await loadLocalCommerce(transaction, observation.local.id))[0];
+      if (!currentLocal) continue;
       const observationFindings: OperationalFindingView[] = [];
-      for (const candidate of observation.candidates) {
+      for (const candidate of compareCommerce(
+        currentLocal,
+        observation.provider,
+        observation.observedAt,
+      )) {
         const findingId = createId("finding");
         const incidentKey = createIncidentKey(candidate);
         const result = await transaction.query<{
@@ -149,9 +171,10 @@ export async function reconcileLiveCommerce(
         }>(
           `insert into operational_findings (
              id, run_id, kind, impact, status, local_entity_type, local_entity_ref,
-             summary_code, incident_key, lifecycle, detected_at, last_detected_at
+             summary_code, incident_key, lifecycle, last_observation_sequence,
+             detected_at, last_detected_at
            ) values (
-             $1, $2, $3, $4, 'open', 'trip_pass_order', $5, $6, $7, 1, $8, $8
+             $1, $2, $3, $4, 'open', 'trip_pass_order', $5, $6, $7, 1, $8, $9, $9
            )
            on conflict (incident_key) do update set
              run_id = excluded.run_id,
@@ -167,6 +190,7 @@ export async function reconcileLiveCommerce(
                else operational_findings.detected_at
              end,
              last_detected_at = excluded.last_detected_at,
+             last_observation_sequence = excluded.last_observation_sequence,
              resolved_at = null
            returning id, incident_key, lifecycle`,
           [
@@ -177,6 +201,7 @@ export async function reconcileLiveCommerce(
             candidate.localRef,
             candidate.summaryCode,
             incidentKey,
+            observation.sequence,
             at,
           ],
         );
@@ -188,6 +213,7 @@ export async function reconcileLiveCommerce(
           incidentKey: current.incident_key,
           kind: candidate.kind,
           lifecycle: current.lifecycle,
+          observationSequence: observation.sequence,
           status: "open",
           summaryCode: candidate.summaryCode,
         });
@@ -253,7 +279,7 @@ async function loadLocalCommerce(db: DatabaseQueryClient, orderId?: string) {
   const params = orderId ? [orderId] : [];
   const filter = orderId ? "where o.id = $1" : "";
   const result = await db.query<LocalCommerceSnapshot>(
-    `select o.id, o.status, o.amount_total_minor, o.currency,
+    `select o.id, o.user_id, o.product_family, o.status, o.amount_total_minor, o.currency,
        o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.created_at,
        count(distinct p.id)::text as pass_count
      from trip_pass_orders o

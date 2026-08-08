@@ -2135,6 +2135,7 @@ export const operationalFindings = pgTable(
     summaryCode: text("summary_code").notNull(),
     incidentKey: text("incident_key").notNull(),
     lifecycle: integer("lifecycle").notNull().default(1),
+    lastObservationSequence: bigint("last_observation_sequence", { mode: "bigint" }),
     detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
     lastDetectedAt: timestamp("last_detected_at", { withTimezone: true }).notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
@@ -2161,6 +2162,10 @@ export const operationalFindings = pgTable(
     check("operational_findings_impact_check", sql`${table.impact} in ('warning', 'high')`),
     check("operational_findings_status_check", sql`${table.status} in ('open', 'resolved')`),
     check("operational_findings_lifecycle_check", sql`${table.lifecycle} >= 1`),
+    check(
+      "operational_findings_observation_sequence_check",
+      sql`${table.lastObservationSequence} is null or ${table.lastObservationSequence} > 0`,
+    ),
     check(
       "operational_findings_entity_type_check",
       sql`${table.localEntityType} in ('trip_pass_order', 'trip_pass', 'closure_operation', 'service')`,

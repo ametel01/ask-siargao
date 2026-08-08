@@ -1,3 +1,5 @@
+import { createCipheriv } from "node:crypto";
+
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import {
   reconcileLiveCommerce,
@@ -7,16 +9,27 @@ import {
   enqueueDueOperationalTasks,
   stableOperationalTaskId,
 } from "@/server/operations/operational-task-producer";
+import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   executeRepairAction,
   type LocalRepairExecutor,
   previewRepairAction,
 } from "@/server/operations/repair-actions";
+import { workerFailureAlertKey } from "@/server/operations/run-operational-worker";
 import { deliverOperationalAlertOnce } from "@/server/operations/sentry-alerts";
 import { createTripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
-import { enqueueOperationalTask, runOperationalWorker } from "@/server/operations/worker-runner";
+import {
+  enqueueOperationalTask,
+  opaqueTaskKey,
+  runOperationalWorker,
+} from "@/server/operations/worker-runner";
 
-export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) {
+type NativeOperationsClient = DatabaseQueryClient & { end(): Promise<void> };
+
+export async function runOperationsPostgresIntegration(
+  db: DatabaseQueryClient,
+  createQueryClient: () => NativeOperationsClient,
+) {
   await db.query("insert into users (id, email) values ('native_operations_account', null)");
   await db.query(
     `insert into trip_pass_orders (
@@ -57,6 +70,7 @@ export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) 
               alertKey: reconciliationAlertKey(finding),
               errorCode: finding.summaryCode,
               findingId: finding.findingId,
+              findingObservationSequence: finding.observationSequence,
               impact: finding.impact,
               operation: "paid_without_pass",
             },
@@ -93,9 +107,12 @@ export async function runOperationsPostgresIntegration(db: DatabaseQueryClient) 
   assert(unchanged.rows[0]?.status === "pending", "reconciliation mutated Order state");
 
   await runObservationOrderingRegressions(db);
+  await runPageIntentOrderingRegressions(db);
 
   await runRepairActionRegressions(db);
+  await runReconciliationRepairLockOrderingRegressions(db, createQueryClient);
   await runOperationalProducerRegressions(db);
+  await runClosureTaskCompletionRegression(db);
 
   await enqueueOperationalTask(
     {
@@ -634,6 +651,101 @@ async function runObservationOrderingRegressions(db: DatabaseQueryClient) {
   assert(finalFinding.rows[0]?.status === "open", "older healthy state resolved newer mismatch");
 }
 
+async function runPageIntentOrderingRegressions(db: DatabaseQueryClient) {
+  await seedNativeRaceOrder(db, "page_stale");
+  const stale = await reconcileNativeRaceOrder(db, "page_stale", "paid");
+  const staleFinding = stale.findings[0];
+  assert(staleFinding, "native stale page fixture did not create a finding");
+  await reconcileNativeRaceOrder(db, "page_stale", "unpaid");
+  let staleSends = 0;
+  const staleResult = await deliverOperationalAlertOnce(
+    {
+      alertKey: reconciliationAlertKey(staleFinding),
+      errorCode: staleFinding.summaryCode,
+      findingId: staleFinding.findingId,
+      findingObservationSequence: staleFinding.observationSequence,
+      impact: staleFinding.impact,
+      operation: "paid_without_pass",
+    },
+    {
+      db,
+      sink: {
+        async send() {
+          staleSends += 1;
+        },
+      },
+    },
+  );
+  assert(
+    staleResult.status === "already_delivered_or_in_flight" && staleSends === 0,
+    "native newer healthy observation did not suppress stale page intent",
+  );
+
+  await seedNativeRaceOrder(db, "page_first");
+  const pageClaimed = deferred<void>();
+  const releasePage = deferred<void>();
+  let legitimateSends = 0;
+  const mismatch = reconcileLiveCommerce(
+    { orderId: "native_race_order_page_first", source: "worker" },
+    {
+      commerceReader: nativePaymentReader("paid"),
+      db,
+      alertFinding: async (finding) => {
+        await deliverOperationalAlertOnce(
+          {
+            alertKey: reconciliationAlertKey(finding),
+            errorCode: finding.summaryCode,
+            findingId: finding.findingId,
+            findingObservationSequence: finding.observationSequence,
+            impact: finding.impact,
+            operation: "paid_without_pass",
+          },
+          {
+            db,
+            sink: {
+              async send() {
+                legitimateSends += 1;
+                pageClaimed.resolve();
+                await releasePage.promise;
+              },
+            },
+          },
+        );
+      },
+    },
+  );
+  await pageClaimed.promise;
+  await reconcileNativeRaceOrder(db, "page_first", "unpaid");
+  releasePage.resolve();
+  await mismatch;
+  assert(legitimateSends === 1, "native committed page intent did not deliver exactly once");
+
+  const escalationTaskKey = opaqueTaskKey("native_escalation_task");
+  const escalationEvents: string[] = [];
+  for (const attempts of [3, 4, 5, 6]) {
+    await deliverOperationalAlertOnce(
+      {
+        alertKey: workerFailureAlertKey(escalationTaskKey, attempts),
+        errorCode: "operational_worker_repeated_failure",
+        impact: attempts >= 5 ? "high" : "warning",
+        operation: "live_reconciliation",
+      },
+      {
+        db,
+        sink: {
+          async send({ eventId }) {
+            escalationEvents.push(eventId);
+          },
+        },
+      },
+    );
+  }
+  assert(
+    escalationEvents.length === 2 && escalationEvents[0] !== escalationEvents[1],
+    "native warning delivery suppressed or duplicated high escalation",
+  );
+}
+
 async function runRepairActionRegressions(db: DatabaseQueryClient) {
   const highImpactFinding = await db.query<{ id: string }>(
     `select id from operational_findings
@@ -806,6 +918,95 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
   assert(rollback.rows[0]?.probe_state === "before", "crashed repair retained target mutation");
 }
 
+async function runReconciliationRepairLockOrderingRegressions(
+  db: DatabaseQueryClient,
+  createQueryClient: () => NativeOperationsClient,
+) {
+  for (const ordering of ["reconciliation_first", "repair_first"] as const) {
+    await seedNativeRaceOrder(db, ordering);
+    const initial = await reconcileNativeRaceOrder(db, ordering, "paid");
+    const finding = initial.findings[0];
+    assert(finding, `native ${ordering} fixture did not create a finding`);
+    const executor = createTripPassLocalRepairExecutor({
+      commerceReader: nativePaymentReader("paid"),
+    });
+    const preview = await previewRepairAction(
+      { actionType: "grant_missing_trip_pass", findingId: finding.findingId },
+      { db, executor },
+    );
+    const command = {
+      actionType: "grant_missing_trip_pass" as const,
+      auth: { accountId: "native_operator", mfaFresh: true },
+      confirmation: "APPLY REPAIR",
+      findingId: finding.findingId,
+      idempotencyKey: `native-lock-order-${ordering}`,
+      previewDigest: preview.digest,
+      reasonCode: "verified_lock_order",
+    };
+    const holderAcquired = deferred<void>();
+    const releaseHolder = deferred<void>();
+    const contenderReached = deferred<void>();
+    const holderClient = createQueryClient();
+    const contenderClient = createQueryClient();
+    const observerClient = createQueryClient();
+    const holderDb = instrumentFamilyLock(holderClient, {
+      after: async () => {
+        holderAcquired.resolve();
+        await releaseHolder.promise;
+      },
+    });
+    const contenderDb = instrumentFamilyLock(contenderClient, {
+      before: async () => contenderReached.resolve(),
+    });
+
+    try {
+      const first =
+        ordering === "reconciliation_first"
+          ? reconcileLiveCommerce(
+              { orderId: `native_race_order_${ordering}`, source: "worker" },
+              { commerceReader: nativePaymentReader("paid"), db: holderDb },
+            )
+          : executeRepairAction(command, {
+              allowlist: new Set(["native_operator"]),
+              db: holderDb,
+              executor,
+            });
+      await holderAcquired.promise;
+      const second =
+        ordering === "reconciliation_first"
+          ? executeRepairAction(command, {
+              allowlist: new Set(["native_operator"]),
+              db: contenderDb,
+              executor,
+            })
+          : reconcileLiveCommerce(
+              { orderId: `native_race_order_${ordering}`, source: "worker" },
+              { commerceReader: nativePaymentReader("paid"), db: contenderDb },
+            );
+      await contenderReached.promise;
+      assert(
+        await hasBlockedAdvisoryLock(observerClient),
+        `native ${ordering} race did not observe the contender blocked on Family lock`,
+      );
+      releaseHolder.resolve();
+      await Promise.all([first, second]);
+    } finally {
+      releaseHolder.resolve();
+      await Promise.all([holderClient.end(), contenderClient.end(), observerClient.end()]);
+    }
+    const outcome = await db.query<{ finding_status: string; grants: string }>(
+      `select
+         (select status from operational_findings where id = $1) as finding_status,
+         (select count(*)::text from trip_pass_grants where order_id = $2) as grants`,
+      [finding.findingId, `native_race_order_${ordering}`],
+    );
+    assert(
+      outcome.rows[0]?.finding_status === "resolved" && outcome.rows[0]?.grants === "1",
+      `native ${ordering} reconciliation/repair race did not converge`,
+    );
+  }
+}
+
 async function seedNativeFinding(db: DatabaseQueryClient, findingId: string, localRef: string) {
   const runId = `run_${findingId}`;
   await db.query(
@@ -823,6 +1024,163 @@ async function seedNativeFinding(db: DatabaseQueryClient, findingId: string, loc
        'authoritative_payment_terms_mismatch', $4, clock_timestamp())`,
     [findingId, runId, localRef, `incident_${findingId}`],
   );
+}
+
+async function runClosureTaskCompletionRegression(db: DatabaseQueryClient) {
+  const encrypted = encryptLocalClosureSubject("native_closure_multistep_user");
+  await db.query(
+    `insert into account_closure_tombstones (
+       id, subject_hash, subject_hash_version, subject_type, closure_policy_version
+     ) values ('native_closure_multistep_tombstone', 'native_closure_multistep_hash', 1,
+       'clerk_user_id', 'local-closure-v1')`,
+  );
+  await db.query(
+    `insert into account_closure_operations (
+       id, tombstone_id, operation_type, status, phase_one_committed_at
+     ) values ('native_closure_multistep_operation', 'native_closure_multistep_tombstone',
+       'traveler_requested_closure', 'pending', clock_timestamp())`,
+  );
+  await db.query(
+    `insert into account_closure_provider_subjects (
+       operation_id, ciphertext, iv, auth_tag, key_version
+     ) values ('native_closure_multistep_operation', $1, $2, $3, 1)`,
+    [encrypted.ciphertext, encrypted.iv, encrypted.authTag],
+  );
+  await db.query(
+    `insert into account_closure_steps (id, operation_id, step_type)
+     values
+       ('native_closure_multistep_clerk', 'native_closure_multistep_operation',
+         'clerk_deletion'),
+       ('native_closure_multistep_checkout', 'native_closure_multistep_operation',
+         'checkout_expiry')`,
+  );
+  await enqueueOperationalTask(
+    {
+      id: "native_closure_multistep_task",
+      resourceRef: "native_closure_multistep_operation",
+      taskType: "account_closure",
+    },
+    db,
+  );
+  const handlers = createProductionOperationalTaskHandlers({
+    closureProviders: {
+      async deleteClerkUser() {},
+      async expireCheckoutSession() {},
+    },
+    db,
+  });
+  const partial = await runOperationalWorker({ batchSize: 1, leaseSeconds: 60 }, { db, handlers });
+  assert(
+    partial.failed === 1 && partial.succeeded === 0,
+    "native partial closure incorrectly completed its durable task",
+  );
+  await db.query(
+    `update operational_worker_tasks set next_attempt_at = clock_timestamp()
+     where id = 'native_closure_multistep_task'`,
+  );
+  const terminal = await runOperationalWorker({ batchSize: 1, leaseSeconds: 60 }, { db, handlers });
+  const state = await db.query<{ attempts: number; operation_status: string; task_status: string }>(
+    `select t.attempts, o.status as operation_status, t.status as task_status
+     from account_closure_operations o
+     join operational_worker_tasks t on t.resource_ref = o.id
+     where o.id = 'native_closure_multistep_operation'`,
+  );
+  assert(
+    terminal.succeeded === 1 &&
+      state.rows[0]?.attempts === 2 &&
+      state.rows[0].operation_status === "succeeded" &&
+      state.rows[0].task_status === "succeeded",
+    "native multi-step closure did not converge on one terminal task",
+  );
+}
+
+async function seedNativeRaceOrder(db: DatabaseQueryClient, suffix: string) {
+  const accountId = `native_race_account_${suffix}`;
+  const orderId = `native_race_order_${suffix}`;
+  await db.query("insert into users (id, email) values ($1, null)", [accountId]);
+  await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_version, stripe_price_id,
+       amount_total_minor, currency, checkout_idempotency_key,
+       stripe_checkout_session_id, stripe_payment_intent_id
+     ) values ($1, $2, 'paid', 'siargao_trip_pass_14d_v2', 2, 'price_native_race',
+       999, 'usd', $3, $4, $5)`,
+    [orderId, accountId, `checkout_${suffix}`, `cs_${suffix}`, `pi_${suffix}`],
+  );
+}
+
+function nativePaymentReader(paymentState: "paid" | "unpaid") {
+  return {
+    async readPaymentFact() {
+      return { amountMinor: 999, currency: "usd", paymentState } as const;
+    },
+  };
+}
+
+function reconcileNativeRaceOrder(
+  db: DatabaseQueryClient,
+  suffix: string,
+  paymentState: "paid" | "unpaid",
+) {
+  return reconcileLiveCommerce(
+    { orderId: `native_race_order_${suffix}`, source: "worker" },
+    { commerceReader: nativePaymentReader(paymentState), db },
+  );
+}
+
+function instrumentFamilyLock(
+  db: DatabaseQueryClient,
+  hooks: { after?: () => Promise<void>; before?: () => Promise<void> },
+): DatabaseQueryClient {
+  if (!db.transaction) throw new Error("database_transactions_required");
+  let observed = false;
+  return {
+    ...db,
+    async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+      return db.transaction?.(async (transaction) => {
+        const instrumented: DatabaseQueryClient = {
+          ...transaction,
+          async query<Result>(query: string, params: unknown[] = []) {
+            const familyLock =
+              !observed && query.includes("pg_advisory_xact_lock(hashtext($1), hashtext($2))");
+            if (familyLock) {
+              observed = true;
+              await hooks.before?.();
+            }
+            const result = await transaction.query<Result>(query, params);
+            if (familyLock) await hooks.after?.();
+            return result;
+          },
+        };
+        return callback(instrumented);
+      }) as Promise<T>;
+    },
+  };
+}
+
+async function hasBlockedAdvisoryLock(db: DatabaseQueryClient) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const blocked = await db.query<{ blocked: boolean }>(
+      `select exists (
+         select 1 from pg_stat_activity
+         where cardinality(pg_blocking_pids(pid)) > 0
+           and query like '%pg_advisory_xact_lock%'
+       ) as blocked`,
+    );
+    if (blocked.rows[0]?.blocked) return true;
+  }
+  return false;
+}
+
+function encryptLocalClosureSubject(value: string) {
+  const iv = Buffer.alloc(12, 2);
+  const cipher = createCipheriv("aes-256-gcm", Buffer.alloc(32, 1), iv);
+  const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  return {
+    authTag: cipher.getAuthTag().toString("base64url"),
+    ciphertext: ciphertext.toString("base64url"),
+    iv: iv.toString("base64url"),
+  };
 }
 
 function nativeIds() {

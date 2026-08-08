@@ -21,6 +21,26 @@ export function createTripPassLocalRepairExecutor(dependencies: {
   commerceReader: AuthoritativeCommerceReader;
 }): LocalRepairExecutor {
   return {
+    async lock({ actionType, db, finding }) {
+      if (requiresAuthoritativeProof(actionType)) {
+        if (finding.local_entity_type !== "trip_pass_order") {
+          throw new Error("repair_lock_scope_unavailable");
+        }
+        await lockOrderAccount(finding.local_entity_ref, db);
+        return;
+      }
+      const query =
+        actionType === "initialize_missing_meters"
+          ? "select id from trip_passes where id = $1 for update"
+          : actionType === "release_stale_reservation"
+            ? "select id from trip_usage_events where id = $1 for update"
+            : actionType === "account_recovery"
+              ? "select id from account_closure_operations where id = $1 for update"
+              : null;
+      if (!query) throw new Error("repair_lock_scope_unavailable");
+      const locked = await db.query<{ id: string }>(query, [finding.local_entity_ref]);
+      if (!locked.rows[0]) throw new Error("repair_lock_scope_changed");
+    },
     async prepare({ actionType, db, finding }) {
       if (!requiresAuthoritativeProof(actionType)) return undefined;
       if (finding.local_entity_type !== "trip_pass_order") {
@@ -291,6 +311,14 @@ async function lockOrderAccount(
   const candidate = await loadManualTransitionState(orderId, db);
   await lockTripPassAccountFamily(candidate.accountId, candidate.productFamily, db);
   await lockTripPassAccountWrites(candidate.accountId, db);
+  const locked = await db.query<{ product_family: string; user_id: string | null }>(
+    "select user_id, product_family from trip_pass_orders where id = $1 for update",
+    [orderId],
+  );
+  const row = locked.rows[0];
+  if (row?.user_id !== candidate.accountId || row.product_family !== candidate.productFamily) {
+    throw new Error("repair_lock_scope_changed");
+  }
   return loadManualTransitionState(orderId, db);
 }
 

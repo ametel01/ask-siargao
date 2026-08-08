@@ -32,6 +32,7 @@ const result = await reconcileLiveCommerce(
               alertKey: reconciliationAlertKey(finding),
               errorCode: finding.summaryCode,
               findingId: finding.findingId,
+              findingObservationSequence: finding.observationSequence,
               impact: finding.impact,
               operation:
                 finding.kind === "paid_without_pass" ? "paid_without_pass" : "live_reconciliation",

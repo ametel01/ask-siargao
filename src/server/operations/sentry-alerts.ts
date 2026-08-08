@@ -6,6 +6,7 @@ export type OperationalAlert = {
   alertKey: string;
   errorCode: string;
   findingId?: string;
+  findingObservationSequence?: string;
   impact: "warning" | "high";
   operation:
     | "stripe_persistence"
@@ -79,13 +80,19 @@ export async function deliverOperationalAlertOnce(
     throw new Error("invalid_alert_lease_seconds");
   }
   const claimed = await dependencies.db.query<{ id: string }>(
-    `insert into operational_alert_deliveries (
+    `with eligible_finding as materialized (
+       select id from operational_findings
+       where $7::bigint is not null and id = $3 and status = 'open'
+         and last_observation_sequence = $7::bigint
+       for update
+     )
+     insert into operational_alert_deliveries (
        id, alert_key, finding_id, impact, destination, status, delivery_token,
        lease_expires_at, attempted_at
-     ) values (
+     ) select
        $1, $2, $3, $4, 'sentry', 'sending', $5,
        clock_timestamp() + ($6::text || ' seconds')::interval, clock_timestamp()
-     )
+     where $7::bigint is null or exists (select 1 from eligible_finding)
      on conflict (alert_key) do update set
        status = 'sending', delivery_token = excluded.delivery_token,
        lease_expires_at = excluded.lease_expires_at, attempted_at = clock_timestamp()
@@ -102,6 +109,7 @@ export async function deliverOperationalAlertOnce(
       alert.impact,
       token,
       leaseSeconds,
+      alert.findingObservationSequence ?? null,
     ],
   );
   if (!claimed.rows[0]) return { status: "already_delivered_or_in_flight" as const };

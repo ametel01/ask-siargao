@@ -24,7 +24,8 @@ file. Operations findings, repair audit, paging delivery, and generic worker lea
 
 Issues #155-#156 must not reuse migrations owned by #154. Any newly discovered schema need is
 coordinator-assigned after this reserved sequence instead of being folded into an applied or
-already-reserved file. The next available coordinator-assigned number is `0019`.
+already-reserved file. Operations paging fencing uses additive `0019`; the next available
+coordinator-assigned number is `0020`.
 
 The migration ledger validates every known filename/checksum independently so an additive preflight
 can be discovered after a database recorded `0017`. On a database stopped at `0016`, lexical order

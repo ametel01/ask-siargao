@@ -43,6 +43,7 @@ async function main() {
                   alertKey: reconciliationAlertKey(finding),
                   errorCode: finding.summaryCode,
                   findingId: finding.findingId,
+                  findingObservationSequence: finding.observationSequence,
                   impact: finding.impact,
                   operation:
                     finding.kind === "paid_without_pass"
@@ -59,7 +60,7 @@ async function main() {
         ? async ({ attempts, taskKey, taskType }) => {
             await deliverOperationalAlertOnce(
               {
-                alertKey: `worker:${taskKey}`,
+                alertKey: workerFailureAlertKey(taskKey, attempts),
                 errorCode: "operational_worker_repeated_failure",
                 impact: attempts >= 5 ? "high" : "warning",
                 operation: operationForTask(taskType),
@@ -72,6 +73,10 @@ async function main() {
   );
 
   console.info(JSON.stringify({ checked: "operational-worker", enqueued, ...result }));
+}
+
+export function workerFailureAlertKey(taskKey: string, attempts: number) {
+  return `worker:${taskKey}:tier:${attempts >= 5 ? "high" : "warning"}`;
 }
 
 export function parseOperationalWorkerArguments(arguments_: string[]) {

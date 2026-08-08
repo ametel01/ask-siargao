@@ -53,7 +53,9 @@ await withRealPostgresHarness(async (harness) => {
   await runPaidAnswerReservationPostgresIntegration(harness);
   const operationsClient = harness.createQueryClient();
   try {
-    await runOperationsPostgresIntegration(operationsClient);
+    await runOperationsPostgresIntegration(operationsClient, () =>
+      harness.createQueryClient({ max: 1 }),
+    );
   } finally {
     await operationsClient.end();
   }
@@ -131,6 +133,7 @@ async function runHistoricalPaidAnswerMigrationUpgrade() {
           "0016_preflight_operational_incident_dedup.sql",
           "0017_operational_incident_leases.sql",
           "0018_operational_command_and_observation_fencing.sql",
+          "0019_operational_page_intent_fencing.sql",
         ],
         "historical native ledger must advance through the additive operations migration",
       );
@@ -242,6 +245,7 @@ async function runHistoricalOperationsMigrationUpgrade() {
           "0016_preflight_operational_incident_dedup.sql",
           "0017_operational_incident_leases.sql",
           "0018_operational_command_and_observation_fencing.sql",
+          "0019_operational_page_intent_fencing.sql",
         ],
         "historical 0016 ledger did not apply preflight before immutable 0017",
       );
@@ -289,6 +293,7 @@ async function runHistoricalOperationsMigrationUpgrade() {
       [
         "0016_preflight_operational_incident_dedup.sql",
         "0018_operational_command_and_observation_fencing.sql",
+        "0019_operational_page_intent_fencing.sql",
       ],
       "already-applied 0017 ledger did not accept safe late preflight",
     );

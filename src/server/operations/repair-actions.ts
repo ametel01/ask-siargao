@@ -21,6 +21,11 @@ export type RepairPreview = {
 };
 
 export type LocalRepairExecutor = {
+  lock?(input: {
+    actionType: RepairActionType;
+    finding: RepairFinding;
+    db: DatabaseQueryClient;
+  }): Promise<void>;
   prepare?(input: {
     actionType: RepairActionType;
     finding: RepairFinding;
@@ -152,6 +157,11 @@ export async function executeRepairAction(
         status: "replayed" as const,
       };
     }
+    await dependencies.executor.lock?.({
+      actionType: input.actionType,
+      db: transaction,
+      finding: preparedFinding,
+    });
     const findingResult = await transaction.query<RepairFinding>(
       `select id, kind, local_entity_type, local_entity_ref, summary_code, status
        from operational_findings where id = $1 for update`,

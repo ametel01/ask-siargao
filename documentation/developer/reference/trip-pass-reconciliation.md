@@ -11,8 +11,11 @@ compatibility but are ignored; every flag combination is detect-only.
 
 After each provider response, reconciliation allocates a database-authored monotonic observation
 sequence without holding a transaction or lock across the provider call. The apply transaction then
-locks the Order and advances its observation row only when the token is newer than the stored token.
-Older healthy or mismatch responses cannot resolve, reopen, or page after a newer observation.
+uses the same production lock order as Repair—Family → Account → Order → Finding—and advances its
+observation row only when the token is newer than the stored token. It reloads local commerce after
+those locks before comparing it with the captured provider fact. Older healthy or mismatch responses
+cannot resolve, reopen, or page after a newer observation, and reconciliation cannot deadlock Repair
+by acquiring Finding before the commerce aggregate.
 
 Each mismatch has a canonical opaque incident key derived from constrained mismatch fields and its
 local record identity, never from the reconciliation run. An unchanged mismatch updates the same
@@ -90,8 +93,12 @@ new resource identity. `--batch`, `--enqueue-limit`, and `--lease-seconds` bound
 scheduler vendor or cadence is selected by engineering.
 
 Both success and retry transitions require the matching token and an unexpired database-time lease;
-an expired worker can neither complete nor reschedule work after takeover becomes eligible. Repeated
-failure alerts use a one-way opaque task key, stable across attempts but distinct across tasks.
+an expired worker can neither complete nor reschedule work after takeover becomes eligible. Account
+Closure handlers reread the durable operation after each bounded cleanup step and request a worker
+retry until the operation itself is terminal `succeeded`; the worker task cannot strand a pending
+multi-step closure as succeeded. Repeated-failure alerts use a one-way opaque task key, stable across
+attempts but distinct across tasks. Warning and high-impact escalation tiers use separate lifecycle
+keys, so warning retries deduplicate without suppressing the later page.
 
 ## Alert ownership
 
@@ -103,6 +110,11 @@ high-impact payment/access/privacy/Redis mismatches page once. Lower-impact cond
 create tickets. PostHog remains timeout-bounded analytics only; its success or failure cannot change
 commerce, access, closure, reconciliation, repair, or worker state.
 
+For finding alerts, the delivery claim also verifies and locks the exact latest open Finding and its
+database-authored observation sequence. Committing that claim is the page intent: a newer healthy
+observation that resolves first prevents the stale claim, while a claim that commits first remains a
+legitimate page even if resolution follows. Provider delivery still begins only after that commit.
+
 The Sentry `event_id` is the valid 32-hex-character digest of the opaque alert lifecycle key. Crash
 reclaim and ambiguous transport retry therefore reuse one provider idempotency identity, while a new
-incident lifecycle receives a different identity.
+incident lifecycle or escalation tier receives a different identity.

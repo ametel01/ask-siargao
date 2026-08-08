@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createCipheriv } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
@@ -21,13 +22,17 @@ import {
   operatorMutationVerificationConfig,
   readOperatorAccountAllowlist,
 } from "@/server/operations/operator-auth";
+import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   executeRepairAction,
   type LocalRepairExecutor,
   previewRepairAction,
 } from "@/server/operations/repair-actions";
 import { parseOperationalTaskProducerArguments } from "@/server/operations/run-operational-task-producer";
-import { parseOperationalWorkerArguments } from "@/server/operations/run-operational-worker";
+import {
+  parseOperationalWorkerArguments,
+  workerFailureAlertKey,
+} from "@/server/operations/run-operational-worker";
 import {
   classifyOperationalCondition,
   createSentryHttpSink,
@@ -106,6 +111,7 @@ describe("live Stripe reconciliation", () => {
           incidentKey: expect.stringMatching(/^incident_[a-f0-9]{32}$/),
           kind: "paid_without_pass",
           lifecycle: 1,
+          observationSequence: "1",
           status: "open",
           summaryCode: "authoritative_payment_has_no_local_access",
         },
@@ -153,6 +159,7 @@ describe("live Stripe reconciliation", () => {
                   alertKey: reconciliationAlertKey(finding),
                   errorCode: finding.summaryCode,
                   findingId: finding.findingId,
+                  findingObservationSequence: finding.observationSequence,
                   impact: finding.impact,
                   operation: "paid_without_pass",
                 },
@@ -196,6 +203,111 @@ describe("live Stripe reconciliation", () => {
          from operational_findings where local_entity_ref = 'order_incident_lifecycle'`,
       );
       expect(incidents.rows).toEqual([{ count: "1", lifecycle: 2, status: "open" }]);
+    });
+  });
+
+  test("linearizes page intent against a newer healthy observation in both orders", async () => {
+    await withTestDb(async (db) => {
+      await seedOrder(db, "order_page_intent_stale");
+      const staleResult = await reconcileLiveCommerce(
+        { orderId: "order_page_intent_stale", source: "worker" },
+        {
+          commerceReader: {
+            async readPaymentFact() {
+              return { amountMinor: 999, currency: "usd", paymentState: "paid" };
+            },
+          },
+          db,
+        },
+      );
+      await reconcileLiveCommerce(
+        { orderId: "order_page_intent_stale", source: "worker" },
+        {
+          commerceReader: {
+            async readPaymentFact() {
+              return { amountMinor: 999, currency: "usd", paymentState: "unpaid" };
+            },
+          },
+          db,
+        },
+      );
+      const staleFinding = staleResult.findings[0];
+      if (!staleFinding) throw new Error("missing_stale_finding_fixture");
+      let staleSends = 0;
+      await expect(
+        deliverOperationalAlertOnce(
+          {
+            alertKey: reconciliationAlertKey(staleFinding),
+            errorCode: staleFinding.summaryCode,
+            findingId: staleFinding.findingId,
+            findingObservationSequence: staleFinding.observationSequence,
+            impact: staleFinding.impact,
+            operation: "paid_without_pass",
+          },
+          {
+            db,
+            sink: {
+              async send() {
+                staleSends += 1;
+              },
+            },
+          },
+        ),
+      ).resolves.toEqual({ status: "already_delivered_or_in_flight" });
+      expect(staleSends).toBe(0);
+
+      await seedOrder(db, "order_page_intent_first");
+      const pageClaimed = deferred<void>();
+      const releasePage = deferred<void>();
+      let legitimateSends = 0;
+      const mismatch = reconcileLiveCommerce(
+        { orderId: "order_page_intent_first", source: "worker" },
+        {
+          commerceReader: {
+            async readPaymentFact() {
+              return { amountMinor: 999, currency: "usd", paymentState: "paid" };
+            },
+          },
+          db,
+          alertFinding: async (finding) => {
+            await deliverOperationalAlertOnce(
+              {
+                alertKey: reconciliationAlertKey(finding),
+                errorCode: finding.summaryCode,
+                findingId: finding.findingId,
+                findingObservationSequence: finding.observationSequence,
+                impact: finding.impact,
+                operation: "paid_without_pass",
+              },
+              {
+                db,
+                sink: {
+                  async send() {
+                    legitimateSends += 1;
+                    pageClaimed.resolve();
+                    await releasePage.promise;
+                  },
+                },
+              },
+            );
+          },
+        },
+      );
+      await pageClaimed.promise;
+      await reconcileLiveCommerce(
+        { orderId: "order_page_intent_first", source: "worker" },
+        {
+          commerceReader: {
+            async readPaymentFact() {
+              return { amountMinor: 999, currency: "usd", paymentState: "unpaid" };
+            },
+          },
+          db,
+        },
+      );
+      releasePage.resolve();
+      await mismatch;
+      expect(legitimateSends).toBe(1);
     });
   });
 });
@@ -952,6 +1064,89 @@ describe("durable provider-neutral workers", () => {
       expect(taskKeys.join(" ")).not.toContain("raw_task_");
     });
   });
+
+  test("uses distinct stable warning and high escalation identities for one task", () => {
+    const taskKey = opaqueTaskKey("raw_escalation_task");
+    expect(workerFailureAlertKey(taskKey, 3)).toBe(workerFailureAlertKey(taskKey, 4));
+    expect(workerFailureAlertKey(taskKey, 5)).toBe(workerFailureAlertKey(taskKey, 8));
+    expect(workerFailureAlertKey(taskKey, 3)).not.toBe(workerFailureAlertKey(taskKey, 5));
+    expect(workerFailureAlertKey(taskKey, 3)).not.toContain("raw_escalation_task");
+  });
+
+  test("keeps an Account Closure task retryable until every operation step is terminal", async () => {
+    await withTestDb(async (db) => {
+      const encrypted = encryptLocalClosureSubject("user_closure_multistep");
+      await db.query(
+        `insert into account_closure_tombstones (
+           id, subject_hash, subject_hash_version, subject_type, closure_policy_version
+         ) values ('closure_multistep_tombstone', 'closure_multistep_hash', 1,
+           'clerk_user_id', 'local-closure-v1')`,
+      );
+      await db.query(
+        `insert into account_closure_operations (
+           id, tombstone_id, operation_type, status, phase_one_committed_at
+         ) values ('closure_multistep_operation', 'closure_multistep_tombstone',
+           'traveler_requested_closure', 'pending', clock_timestamp())`,
+      );
+      await db.query(
+        `insert into account_closure_provider_subjects (
+           operation_id, ciphertext, iv, auth_tag, key_version
+         ) values ('closure_multistep_operation', $1, $2, $3, 1)`,
+        [encrypted.ciphertext, encrypted.iv, encrypted.authTag],
+      );
+      await db.query(
+        `insert into account_closure_steps (id, operation_id, step_type)
+         values
+           ('closure_multistep_clerk', 'closure_multistep_operation', 'clerk_deletion'),
+           ('closure_multistep_checkout', 'closure_multistep_operation', 'checkout_expiry')`,
+      );
+      await enqueueOperationalTask(
+        {
+          id: "closure_multistep_task",
+          resourceRef: "closure_multistep_operation",
+          taskType: "account_closure",
+        },
+        db,
+      );
+      const handlers = createProductionOperationalTaskHandlers({
+        closureProviders: {
+          async deleteClerkUser() {},
+          async expireCheckoutSession() {},
+        },
+        db,
+      });
+      await expect(
+        runOperationalWorker({ batchSize: 1, leaseSeconds: 60 }, { db, handlers }),
+      ).resolves.toEqual({ claimed: 1, failed: 1, stale: 0, succeeded: 0 });
+      const partial = await db.query<{ operation_status: string; task_status: string }>(
+        `select o.status as operation_status, t.status as task_status
+         from account_closure_operations o
+         join operational_worker_tasks t on t.resource_ref = o.id
+         where o.id = 'closure_multistep_operation'`,
+      );
+      expect(partial.rows).toEqual([{ operation_status: "pending", task_status: "pending" }]);
+      await db.query(
+        `update operational_worker_tasks set next_attempt_at = clock_timestamp()
+         where id = 'closure_multistep_task'`,
+      );
+      await expect(
+        runOperationalWorker({ batchSize: 1, leaseSeconds: 60 }, { db, handlers }),
+      ).resolves.toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      const terminal = await db.query<{
+        attempts: number;
+        operation_status: string;
+        task_status: string;
+      }>(
+        `select t.attempts, o.status as operation_status, t.status as task_status
+         from account_closure_operations o
+         join operational_worker_tasks t on t.resource_ref = o.id
+         where o.id = 'closure_multistep_operation'`,
+      );
+      expect(terminal.rows).toEqual([
+        { attempts: 2, operation_status: "succeeded", task_status: "succeeded" },
+      ]);
+    });
+  });
 });
 
 async function withTestDb(
@@ -1070,4 +1265,25 @@ function commandFor(
 function sequenceIds() {
   let index = 0;
   return (prefix: string) => `${prefix}_${++index}`;
+}
+
+function encryptLocalClosureSubject(value: string) {
+  const iv = Buffer.alloc(12, 2);
+  const cipher = createCipheriv("aes-256-gcm", Buffer.alloc(32, 1), iv);
+  const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  return {
+    authTag: cipher.getAuthTag().toString("base64url"),
+    ciphertext: ciphertext.toString("base64url"),
+    iv: iv.toString("base64url"),
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }

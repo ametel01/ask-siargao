@@ -117,6 +117,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0016_preflight_operational_incident_dedup.sql");
     expect(migrationNames).toContain("0017_operational_incident_leases.sql");
     expect(migrationNames).toContain("0018_operational_command_and_observation_fencing.sql");
+    expect(migrationNames).toContain("0019_operational_page_intent_fencing.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -304,6 +305,7 @@ describe("Step 3 database migration", () => {
       "0016_preflight_operational_incident_dedup.sql",
       "0017_operational_incident_leases.sql",
       "0018_operational_command_and_observation_fencing.sql",
+      "0019_operational_page_intent_fencing.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -385,6 +387,7 @@ describe("Step 3 database migration", () => {
       "0016_preflight_operational_incident_dedup.sql",
       "0017_operational_incident_leases.sql",
       "0018_operational_command_and_observation_fencing.sql",
+      "0019_operational_page_intent_fencing.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -451,6 +454,7 @@ describe("Step 3 database migration", () => {
       "0016_preflight_operational_incident_dedup.sql",
       "0017_operational_incident_leases.sql",
       "0018_operational_command_and_observation_fencing.sql",
+      "0019_operational_page_intent_fencing.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -569,6 +573,7 @@ describe("Step 3 database migration", () => {
     expect(upgrade.applied).toEqual([
       "0016_preflight_operational_incident_dedup.sql",
       "0018_operational_command_and_observation_fencing.sql",
+      "0019_operational_page_intent_fencing.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -602,6 +607,7 @@ describe("Step 3 database migration", () => {
         "incident_key",
         "kind",
         "last_detected_at",
+        "last_observation_sequence",
         "lifecycle",
         "local_entity_ref",
         "local_entity_type",
