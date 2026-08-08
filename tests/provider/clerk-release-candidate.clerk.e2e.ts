@@ -48,7 +48,7 @@ test("Google OAuth is offered by the dedicated Clerk test instance", async ({ pa
   await expect(page).toHaveURL(/accounts\.google\.com|clerk\.accounts\.dev/);
 
   await page.goto("/");
-  await clerk.signIn({ page, emailAddress: requiredTestEmail("PROVIDER_RC_CLERK_GOOGLE_USER") });
+  await clerk.signIn({ page, emailAddress: required("PROVIDER_RC_CLERK_GOOGLE_USER") });
   const verifiedGoogleAccount = await page.evaluate(() =>
     window.Clerk.user?.externalAccounts.some(
       (account) => account.provider === "google" && account.verification?.status === "verified",
