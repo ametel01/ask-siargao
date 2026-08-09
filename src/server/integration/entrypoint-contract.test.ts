@@ -11,6 +11,7 @@ import {
 } from "@/server/integration/entrypoint-shared";
 import { parsePostgresHarnessOptions } from "@/server/integration/postgres-harness";
 import { parseRedisHarnessOptions } from "@/server/integration/redis-harness";
+import { localFoundationGates } from "@/server/qa/foundation-gates";
 
 describe("integration entry-point contracts", () => {
   test("package scripts expose semantic PostgreSQL and Redis lanes", async () => {
@@ -276,8 +277,18 @@ describe("integration entry-point contracts", () => {
   test("CI defines separate secret-free pinned service job boundaries", async () => {
     const workflow = await readFile(".github/workflows/ci.yml", "utf8");
 
-    expect(workflow).toContain("integration-postgres:");
-    expect(workflow).toContain("integration-redis:");
+    expect(extractWorkflowJobNames(workflow)).toEqual([
+      "release-gate",
+      "integration-postgres",
+      "integration-redis",
+      "trip-pass-launch-manifest",
+    ]);
+    expect(extractWorkflowJob(workflow, "integration-postgres")).toContain(
+      "run: bun run test:integration:postgres",
+    );
+    expect(extractWorkflowJob(workflow, "integration-redis")).toContain(
+      "run: bun run test:integration:redis",
+    );
     expect(workflow).toContain("image: postgres:17.6-alpine3.22");
     expect(workflow).toContain("image: redis:8.2.1-alpine3.22");
     expect(workflow).toContain("POSTGRES_PASSWORD: ask_siargao_issue145_password");
@@ -301,17 +312,18 @@ describe("integration entry-point contracts", () => {
     expect(workflow).toContain("Real Redis semantic integration suite");
   });
 
-  test("CI preserves production performance before isolated release artifacts", async () => {
+  test("CI runs the shared local Foundation Gate before isolated release artifacts", async () => {
     const workflow = await readFile(".github/workflows/ci.yml", "utf8");
     const releaseGateJob = extractWorkflowJob(workflow, "release-gate");
 
-    const e2eIndex = releaseGateJob.indexOf("run: bun run test:e2e");
-    const productionPerfIndex = releaseGateJob.indexOf("run: bun run test:e2e:production-perf");
+    const foundationGateIndex = releaseGateJob.indexOf("run: bun run verify:foundation:local");
     const screenshotUploadIndex = releaseGateJob.indexOf("Upload mobile trip context screenshots");
 
-    expect(e2eIndex).toBeGreaterThan(0);
-    expect(productionPerfIndex).toBeGreaterThan(e2eIndex);
-    expect(screenshotUploadIndex).toBeGreaterThan(productionPerfIndex);
+    expect(foundationGateIndex).toBeGreaterThan(0);
+    expect(screenshotUploadIndex).toBeGreaterThan(foundationGateIndex);
+    for (const gate of localFoundationGates) {
+      expect(releaseGateJob).not.toContain(`run: ${gate.command.join(" ")}`);
+    }
     expect(releaseGateJob).not.toContain("run: bun run qa:trip-pass-launch");
   });
 
@@ -330,6 +342,56 @@ describe("integration entry-point contracts", () => {
     expect(postgresNeedIndex).toBeGreaterThan(needsIndex);
     expect(redisNeedIndex).toBeGreaterThan(needsIndex);
     expect(manifestGenerateIndex).toBeGreaterThan(redisNeedIndex);
+    expect(extractWorkflowNeeds(workflow, "trip-pass-launch-manifest")).toEqual([
+      "release-gate",
+      "integration-postgres",
+      "integration-redis",
+    ]);
+    expect(manifestJob).not.toMatch(/^ {4}if:/m);
+    expect(manifestJob).not.toContain("continue-on-error:");
+    expect(workflow.match(/--foundation-ci-gates-passed/g)).toHaveLength(1);
+    for (const upstreamJob of ["release-gate", "integration-postgres", "integration-redis"]) {
+      const upstream = extractWorkflowJob(workflow, upstreamJob);
+      expect(upstream).not.toContain("--foundation-ci-gates-passed");
+      expect(upstream).not.toContain("continue-on-error:");
+    }
+  });
+
+  test("CI defers launch evidence while any required upstream job is pending", async () => {
+    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const redisResult = deferred<WorkflowJobStatus>();
+    const started: string[] = [];
+
+    const result = runWorkflowJob(workflow, "trip-pass-launch-manifest", async (jobName) => {
+      started.push(jobName);
+      return jobName === "integration-redis" ? redisResult.promise : "success";
+    });
+
+    await Promise.resolve();
+    expect(started).toEqual(["release-gate", "integration-postgres", "integration-redis"]);
+    expect(started).not.toContain("trip-pass-launch-manifest");
+
+    redisResult.resolve("success");
+    expect(await result).toBe("success");
+    expect(started).toEqual([
+      "release-gate",
+      "integration-postgres",
+      "integration-redis",
+      "trip-pass-launch-manifest",
+    ]);
+  });
+
+  test("CI cannot emit successful launch evidence after an upstream failure", async () => {
+    const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+    const started: string[] = [];
+
+    const result = await runWorkflowJob(workflow, "trip-pass-launch-manifest", async (jobName) => {
+      started.push(jobName);
+      return jobName === "integration-postgres" ? "failure" : "success";
+    });
+
+    expect(result).toBe("skipped");
+    expect(started).not.toContain("trip-pass-launch-manifest");
   });
 
   test("Playwright routes only issue #124 production performance by tag and output directory", async () => {
@@ -378,6 +440,42 @@ function extractWorkflowJob(workflow: string, jobName: string) {
     start,
     nextJobMatch ? start + marker.length + nextJobMatch.index : undefined,
   );
+}
+
+function extractWorkflowNeeds(workflow: string, jobName: string) {
+  const job = extractWorkflowJob(workflow, jobName);
+  const needs = /\n {4}needs:\n((?: {6}- [a-z0-9-]+\n)+)/.exec(job)?.[1];
+  if (!needs) return [];
+  return [...needs.matchAll(/^ {6}- ([a-z0-9-]+)$/gm)].map((match) => match[1]);
+}
+
+function extractWorkflowJobNames(workflow: string) {
+  const jobs = workflow.slice(workflow.indexOf("jobs:\n") + "jobs:\n".length);
+  return [...jobs.matchAll(/^ {2}([a-z0-9-]+):$/gm)].map((match) => match[1]);
+}
+
+type WorkflowJobStatus = "failure" | "skipped" | "success";
+
+function runWorkflowJob(
+  workflow: string,
+  jobName: string,
+  runJob: (jobName: string) => Promise<WorkflowJobStatus>,
+  running = new Map<string, Promise<WorkflowJobStatus>>(),
+): Promise<WorkflowJobStatus> {
+  const existing = running.get(jobName);
+  if (existing) return existing;
+
+  const result = (async () => {
+    const dependencyResults = await Promise.all(
+      extractWorkflowNeeds(workflow, jobName).map((dependency) =>
+        runWorkflowJob(workflow, dependency, runJob, running),
+      ),
+    );
+    if (dependencyResults.some((status) => status !== "success")) return "skipped";
+    return runJob(jobName);
+  })();
+  running.set(jobName, result);
+  return result;
 }
 
 function deferred<T>() {

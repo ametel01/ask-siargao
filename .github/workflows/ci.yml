@@ -29,29 +29,8 @@ jobs:
       - name: Install Playwright browser
         run: bunx playwright install --with-deps chromium
 
-      - name: Lint
-        run: bun run lint
-
-      - name: Typecheck
-        run: bun run typecheck --incremental false
-
-      - name: Test
-        run: bun test
-
-      - name: Validate test database migration
-        run: bun run db:migrate:test
-
-      - name: Validate test database seed
-        run: bun run db:seed:test
-
-      - name: Build
-        run: bun run build
-
-      - name: End-to-end tests
-        run: bun run test:e2e
-
-      - name: Production performance tests
-        run: bun run test:e2e:production-perf
+      - name: Run local Foundation Gate
+        run: bun run verify:foundation:local
 
       - name: Upload mobile trip context screenshots
         if: ${{ !cancelled() }}
