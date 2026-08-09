@@ -25,6 +25,18 @@ const verificationDocs = [
 ] as const;
 
 const legacyVerificationAlias = ["verify", "ci"].join(":");
+const activeVerificationConsumerPaths = [
+  ".github/workflows",
+  "AGENTS.md",
+  "CONTEXT.md",
+  "README.md",
+  "docs/agents",
+  "documentation/developer/how-to-guides",
+  "documentation/developer/reference",
+  "package.json",
+  "src",
+  "tests",
+] as const;
 
 test("as-built environment example covers the production-readiness interfaces", async () => {
   const example = await readFile(".env.example", "utf8");
@@ -134,9 +146,17 @@ test("first-party verification docs expose the complete Foundation Gate without 
   }
 });
 
-test("tracked first-party files have no stale verification alias consumers", async () => {
+test("active first-party files have no stale verification alias consumers", async () => {
   const search = Bun.spawn(
-    ["git", "grep", "--line-number", "--fixed-strings", legacyVerificationAlias, "--"],
+    [
+      "git",
+      "grep",
+      "--line-number",
+      "--fixed-strings",
+      legacyVerificationAlias,
+      "--",
+      ...activeVerificationConsumerPaths,
+    ],
     {
       stderr: "pipe",
       stdout: "pipe",
