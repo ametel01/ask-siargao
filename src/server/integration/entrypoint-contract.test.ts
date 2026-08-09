@@ -145,6 +145,7 @@ describe("integration entry-point contracts", () => {
     expect(postgresHarness).toContain("pg_terminate_backend");
     expect(postgresEntrypoint).toContain("pg_advisory_xact_lock");
     expect(postgresEntrypoint).toContain("pg_stat_activity");
+    expect(postgresEntrypoint).not.toContain("harness.databaseUrl");
 
     expect(redisHarness).toContain("export async function withRealRedisHarness");
     expect(redisHarness).toContain('"SCAN"');
@@ -158,6 +159,7 @@ describe("integration entry-point contracts", () => {
     expect(redisEntrypoint).toContain('import { POST } from "@/app/api/stripe/webhook/route"');
     expect(redisEntrypoint).toContain("withStripeWebhookRouteDependenciesForTest");
     expect(redisEntrypoint).toContain("checkout.session.completed");
+    expect(redisEntrypoint).not.toContain("harness.redisUrl");
   });
 
   test("integration lifecycle owner tears down scoped resources before signal exit", async () => {

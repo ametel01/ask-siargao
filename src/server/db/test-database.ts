@@ -9,6 +9,13 @@ import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 
 const testDatabaseRoot = path.join(process.cwd(), ".tmp");
 const testDatabasePrefix = "pglite-";
+const testDatabaseSignals = ["SIGINT", "SIGTERM"] as const;
+
+type TestDatabaseSignal = (typeof testDatabaseSignals)[number];
+
+const activeTestDatabaseOwners = new Set<PgliteTestDatabaseOwner>();
+const testDatabaseSignalHandlers = new Map<TestDatabaseSignal, () => void>();
+let signalCleanupPromise: Promise<void> | undefined;
 
 class PgliteTestDatabaseOwner {
   readonly directory: string;
@@ -19,6 +26,7 @@ class PgliteTestDatabaseOwner {
 
   constructor(directory: string) {
     this.directory = directory;
+    registerTestDatabaseOwner(this);
   }
 
   get closed() {
@@ -59,8 +67,30 @@ class PgliteTestDatabaseOwner {
 
   close() {
     this.closePromise ??= (async () => {
-      await Promise.all([...this.openDatabases.values()].map((closeDatabase) => closeDatabase()));
-      await this.cleanupWhenIdle();
+      const errors: unknown[] = [];
+      const closeResults = await Promise.allSettled(
+        [...this.openDatabases.values()].map((closeDatabase) => closeDatabase()),
+      );
+      errors.push(
+        ...closeResults
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason),
+      );
+
+      try {
+        await this.cleanupWhenIdle();
+      } catch (error) {
+        errors.push(error);
+      } finally {
+        unregisterTestDatabaseOwner(this);
+      }
+
+      if (errors.length === 1) {
+        throw errors[0];
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "PGlite test database cleanup failed.");
+      }
     })();
     return this.closePromise;
   }
@@ -72,6 +102,58 @@ class PgliteTestDatabaseOwner {
 
     this.cleanupPromise ??= rm(this.directory, { force: true, recursive: true });
     await this.cleanupPromise;
+  }
+}
+
+function registerTestDatabaseOwner(owner: PgliteTestDatabaseOwner) {
+  activeTestDatabaseOwners.add(owner);
+  if (testDatabaseSignalHandlers.size > 0) {
+    return;
+  }
+
+  for (const signal of testDatabaseSignals) {
+    const handler = () => {
+      signalCleanupPromise ??= cleanupActiveTestDatabaseOwners()
+        .catch(() => {
+          console.error("PGlite test database cleanup failed during termination.");
+        })
+        .finally(() => {
+          detachTestDatabaseSignalHandlers();
+          process.exit(signal === "SIGINT" ? 130 : 143);
+        });
+    };
+    testDatabaseSignalHandlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+}
+
+function unregisterTestDatabaseOwner(owner: PgliteTestDatabaseOwner) {
+  activeTestDatabaseOwners.delete(owner);
+  if (activeTestDatabaseOwners.size === 0 && !signalCleanupPromise) {
+    detachTestDatabaseSignalHandlers();
+  }
+}
+
+function detachTestDatabaseSignalHandlers() {
+  for (const [signal, handler] of testDatabaseSignalHandlers) {
+    process.off(signal, handler);
+  }
+  testDatabaseSignalHandlers.clear();
+}
+
+async function cleanupActiveTestDatabaseOwners() {
+  const results = await Promise.allSettled(
+    [...activeTestDatabaseOwners].map((owner) => owner.close()),
+  );
+  const errors = results
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) => result.reason);
+
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+  if (errors.length > 1) {
+    throw new AggregateError(errors, "PGlite test database signal cleanup failed.");
   }
 }
 

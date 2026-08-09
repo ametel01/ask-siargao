@@ -64,7 +64,6 @@ await withRealPostgresHarness(async (harness) => {
     JSON.stringify(
       {
         checked: "postgres-integration-semantic-suite",
-        databaseUrl: harness.databaseUrl,
         migration,
         namespace: harness.namespace,
       },

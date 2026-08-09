@@ -9,6 +9,9 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Changed Foundation Gate termination handling to forward signals through the local aggregate and
+  remove active run-owned PGlite directories before exit, while omitting PostgreSQL and Redis
+  service URLs from integration receipts.
 - Repositioned the landing page, Trip Pass copy, and contextual chat prompts around on-demand
   Siargao Reality Checks, and upgraded decision strips with accessible text verdicts and subjects
   for keep/change/avoid/needs-confirmation while preserving legacy summaries, sources, saved plans,

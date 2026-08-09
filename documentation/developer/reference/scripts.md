@@ -94,7 +94,8 @@ when both endpoints pass the existing integration safety policy and readiness pr
 missing or unavailable service, it requires a running Docker daemon and starts the pinned image
 below with a unique container name, run namespace, database name or Redis prefix, and dynamic
 loopback port. Normal completion, failure, SIGINT, and SIGTERM remove only containers recorded as
-owned by that run.
+owned by that run. The local aggregate forwards termination to its active gate, and active PGlite
+owners close and remove their unique directories before the interrupted process exits.
 
 Start the pinned local PostgreSQL service:
 
@@ -147,6 +148,10 @@ database` succeeds, and drops only that database during normal completion or SIG
 cleanup. A failed create attempt does not drop a pre-existing database. The Redis harness claims a
 UUID-suffixed key prefix with an owner marker and deletes only keys under that prefix during normal
 completion or SIGINT/SIGTERM cleanup.
+
+Integration receipts report the checked suite, run namespace, and PostgreSQL migration result where
+applicable. They omit service URLs and credentials entirely, including for explicitly configured
+remote test services.
 
 For disposable remote test services, set `INTEGRATION_TEST_ALLOW_REMOTE=1` and make the hostname,
 username, database name, or query string visibly contain a test marker such as `test`,

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { access } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
+import path from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
 
 import { seedSiargaoBaseline } from "@/server/db/seed";
@@ -32,7 +33,7 @@ test("keeps concurrently active test databases isolated through cleanup", async 
   }
 
   expect(await pathExists(secondOwner.directory)).toBe(false);
-});
+}, 15_000);
 
 test("cleans up its owned database when an invocation fails", async () => {
   let ownedDirectory: string | undefined;
@@ -48,7 +49,53 @@ test("cleans up its owned database when an invocation fails", async () => {
 
   expect(ownedDirectory).toBeDefined();
   expect(await pathExists(ownedDirectory as string)).toBe(false);
-});
+}, 15_000);
+
+for (const [signal, expectedExitCode] of [
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+] as const) {
+  test(`cleans up its owned database before ${signal} exits`, async () => {
+    const script = [
+      'const { createTestDatabase } = await import("./src/server/db/test-database.ts");',
+      "const owner = await createTestDatabase();",
+      "const database = await owner.open();",
+      'await database.query("select 1");',
+      "console.log(owner.directory);",
+      "await new Promise(() => {});",
+    ].join("\n");
+    const subprocess = Bun.spawn(["bun", "-e", script], {
+      cwd: process.cwd(),
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    let ownedDirectory: string | undefined;
+
+    try {
+      ownedDirectory = await readFirstLine(subprocess.stdout);
+      expect(ownedDirectory).toStartWith(path.join(process.cwd(), ".tmp", "pglite-"));
+      expect(await pathExists(ownedDirectory)).toBe(true);
+
+      subprocess.kill(signal);
+      const [exitCode, stderr] = await Promise.all([
+        subprocess.exited,
+        new Response(subprocess.stderr).text(),
+      ]);
+
+      expect(exitCode).toBe(expectedExitCode);
+      expect(stderr).not.toContain("PGlite test database cleanup failed during termination");
+      expect(await pathExists(ownedDirectory)).toBe(false);
+    } finally {
+      if (subprocess.exitCode === null) {
+        subprocess.kill("SIGKILL");
+        await subprocess.exited;
+      }
+      if (ownedDirectory) {
+        await rm(ownedDirectory, { force: true, recursive: true });
+      }
+    }
+  }, 15_000);
+}
 
 async function migrateAndSeed(db: PGlite) {
   await runInitialMigration(db);
@@ -62,4 +109,28 @@ async function pathExists(filePath: string) {
   } catch {
     return false;
   }
+}
+
+async function readFirstLine(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+
+  try {
+    while (!output.includes("\n")) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      output += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const line = output.split("\n", 1)[0]?.trim();
+  if (!line) {
+    throw new Error("Interrupted PGlite fixture exited before reporting its owned directory.");
+  }
+  return line;
 }

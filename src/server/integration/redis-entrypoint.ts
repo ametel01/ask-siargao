@@ -33,7 +33,6 @@ await withRealRedisHarness(async (harness) => {
         {
           checked: "redis-integration-semantic-suite",
           namespace: harness.namespace,
-          redisUrl: harness.redisUrl,
         },
         null,
         2,

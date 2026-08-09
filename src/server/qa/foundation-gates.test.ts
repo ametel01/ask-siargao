@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 
 import {
   foundationGateContract,
   localFoundationGates,
   runFoundationGatePlan,
 } from "@/server/qa/foundation-gates";
-import { runLocalFoundationGates } from "@/server/qa/run-foundation-local";
+import {
+  type LocalFoundationCommandRunner,
+  runLocalFoundationGates,
+  runLocalFoundationVerification,
+} from "@/server/qa/run-foundation-local";
 
 describe("Foundation Gate contract", () => {
   test("keeps the ten manifest gates in command execution order", () => {
@@ -117,6 +122,41 @@ describe("Foundation Gate contract", () => {
     expect(exitCode).toBe(0);
     expect(commands).toEqual(localFoundationGates.map((gate) => [...gate.command]));
   });
+
+  test("forwards termination to the active local gate before exiting", async () => {
+    const processLike = new EventEmitter() as EventEmitter & {
+      exit(code?: number): void;
+    };
+    const activeGate = deferred<number>();
+    const exited = deferred<number | undefined>();
+    const events: string[] = [];
+    processLike.exit = (code?: number) => {
+      events.push(`exit:${code}`);
+      exited.resolve(code);
+    };
+    const commandRunner: LocalFoundationCommandRunner = {
+      async run(command) {
+        events.push(`run:${command.join(" ")}`);
+        return activeGate.promise;
+      },
+      async stop(signal) {
+        events.push(`stop:${signal}`);
+        activeGate.resolve(signal === "SIGINT" ? 130 : 143);
+      },
+    };
+
+    const verification = runLocalFoundationVerification({
+      commandRunner,
+      lifecycleProcess: processLike,
+    });
+
+    await until(() => events.some((event) => event.startsWith("run:")));
+    processLike.emit("SIGTERM");
+
+    expect(await exited.promise).toBe(143);
+    expect(await verification).toBe(143);
+    expect(events).toEqual(["run:bun run lint", "stop:SIGTERM", "exit:143"]);
+  });
 });
 
 function deferred<T>() {
@@ -125,4 +165,14 @@ function deferred<T>() {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+
+async function until(predicate: () => boolean) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
+    await Promise.resolve();
+  }
+  throw new Error("Timed out waiting for local Foundation Gate test event.");
 }
