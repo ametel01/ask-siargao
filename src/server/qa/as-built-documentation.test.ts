@@ -29,6 +29,7 @@ const verificationContractPathspecs = [
   ".",
   ":(exclude).agents/**",
   ":(exclude).github/skills/**",
+  ":(exclude)CHANGELOG*",
   ":(exclude)**/CHANGELOG*",
   ":(exclude)documentation/developer/explanation/*assessment*.md",
   ":(exclude)docs/adr/**",
