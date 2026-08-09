@@ -42,7 +42,7 @@ describe("integration entry-point contracts", () => {
     expect(packageJson.scripts["verify:foundation"]).toBe(
       "bun run src/server/qa/run-foundation.ts",
     );
-    expect(packageJson.scripts["verify:ci"]).toBeUndefined();
+    expect(packageJson.scripts[["verify", "ci"].join(":")]).toBeUndefined();
   });
 
   test("entry-point argument parsing fails closed on unsafe options", () => {

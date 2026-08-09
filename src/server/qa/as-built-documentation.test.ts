@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { parseOperationalWorkerArguments } from "@/server/operations/run-operational-worker";
@@ -24,7 +24,7 @@ const verificationDocs = [
   "documentation/developer/how-to-guides/extend-a-reality-check-kind.md",
 ] as const;
 
-const documentationExtensions = new Set([".json", ".md", ".mdx", ".sh", ".yaml", ".yml"]);
+const legacyVerificationAlias = ["verify", "ci"].join(":");
 
 test("as-built environment example covers the production-readiness interfaces", async () => {
   const example = await readFile(".env.example", "utf8");
@@ -116,7 +116,7 @@ test("first-party verification docs expose the complete Foundation Gate without 
   const normalizedReadme = readme.replaceAll(/\s+/g, " ");
   const normalizedReleaseCandidateQaGuide = releaseCandidateQaGuide.replaceAll(/\s+/g, " ");
 
-  expect(corpus).not.toContain("verify:ci");
+  expect(corpus).not.toContain(legacyVerificationAlias);
   expect(readme).toContain("bun run verify:foundation");
   expect(scriptReference).toContain("`bun run verify:foundation`");
   expect(releaseCandidateQaGuide).toContain("bun run verify:foundation");
@@ -134,24 +134,23 @@ test("first-party verification docs expose the complete Foundation Gate without 
   }
 });
 
-test("first-party documentation and automation have no stale verification alias consumers", async () => {
-  const files = await collectFiles([
-    ".github/workflows",
-    "AGENTS.md",
-    "CONTEXT.md",
-    "README.md",
-    "docs",
-    "documentation",
-    "package.json",
-    "plans",
+test("tracked first-party files have no stale verification alias consumers", async () => {
+  const search = Bun.spawn(
+    ["git", "grep", "--line-number", "--fixed-strings", legacyVerificationAlias, "--"],
+    {
+      stderr: "pipe",
+      stdout: "pipe",
+    },
+  );
+  const [exitCode, stderr, stdout] = await Promise.all([
+    search.exited,
+    new Response(search.stderr).text(),
+    new Response(search.stdout).text(),
   ]);
-  const staleConsumers = (
-    await Promise.all(files.map(async (path) => ({ path, text: await readFile(path, "utf8") })))
-  )
-    .filter(({ text }) => text.includes("verify:ci"))
-    .map(({ path }) => path);
 
-  expect(staleConsumers).toEqual([]);
+  expect(stderr).toBe("");
+  expect(exitCode, stdout).toBe(1);
+  expect(stdout).toBe("");
 });
 
 test("script reference names every canonical Foundation Gate command", async () => {
@@ -244,25 +243,3 @@ test("reconciliation docs match the exact finding scope and keep mutation at the
     "The worker uses database-time leases, retry fencing, and idempotency",
   );
 });
-
-async function collectFiles(paths: readonly string[]): Promise<string[]> {
-  const files: string[] = [];
-  for (const path of paths) {
-    const entries = await readdir(path, { withFileTypes: true }).catch(() => undefined);
-    if (!entries) {
-      files.push(path);
-      continue;
-    }
-    for (const entry of entries) {
-      const child = `${path}/${entry.name}`;
-      if (entry.isDirectory()) files.push(...(await collectFiles([child])));
-      else if (
-        entry.isFile() &&
-        documentationExtensions.has(entry.name.slice(entry.name.lastIndexOf(".")))
-      ) {
-        files.push(child);
-      }
-    }
-  }
-  return files;
-}
