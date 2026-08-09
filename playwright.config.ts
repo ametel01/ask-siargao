@@ -17,7 +17,7 @@ export default defineConfig({
   testMatch: "**/*.e2e.ts",
   fullyParallel: true,
   grep: isProductionPerformanceRun ? /@production-perf/ : undefined,
-  grepInvert: process.env.CI && !isProductionPerformanceRun ? /@production-perf/ : undefined,
+  grepInvert: !isProductionPerformanceRun ? /@production-perf/ : undefined,
   outputDir: isProductionPerformanceRun ? "test-results/production-perf" : "test-results",
   reporter: "list",
   workers: isProductionPerformanceRun ? 1 : undefined,

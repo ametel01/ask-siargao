@@ -47,9 +47,12 @@ Quality gates:
 ```sh
 bun run verify
 bun run verify:foundation:local
+bun run verify:foundation
 ```
 
 `bun run verify` is the fast non-mutating local check. `bun run verify:foundation:local` runs the
 eight local Foundation Gates through production-performance Playwright, but does not run the real
-PostgreSQL or Redis lanes. `bun run verify:ci` remains as a temporary compatibility alias for the
-same local aggregate. Run `bun run format` only when you want Biome to write formatting fixes.
+PostgreSQL or Redis lanes. `bun run verify:foundation` is the complete ten-gate command: it
+preflights safe PostgreSQL and Redis test services, provisions uniquely owned pinned Docker services
+when needed, then runs the local, PostgreSQL, and Redis lanes sequentially. Run `bun run format` only
+when you want Biome to write formatting fixes.

@@ -147,7 +147,7 @@ operations without creating large locks, WAL bursts, or rollback scopes.
 | Weekly | Review dead tuples, autovacuum lag, cache hit rate, temp files, and table/index growth. |
 | Weekly | Run duplicate and unused-index candidate queries from the index audit reference. |
 | Monthly | Run a restore drill into a disposable environment and record the result. |
-| Before release | Run `bun run verify:ci` locally or rely on the release-gate CI result for the release candidate. |
+| Before release | Run `bun run verify:foundation` for the Prospective Candidate or rely on the complete trusted-CI Foundation Gate for the exact candidate. |
 
 Run Google Places retention cleanup as a recurring job against production:
 

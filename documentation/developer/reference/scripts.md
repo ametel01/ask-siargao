@@ -38,9 +38,9 @@ Scripts are defined in `package.json`.
 | `bun run typecheck` | `tsc --noEmit` | Run TypeScript type checking. |
 | `bun run verify` | `bun run lint && bun run typecheck --incremental false && bun test` | Run the fast non-mutating local verification gate. |
 | `bun run verify:foundation:local` | `bun run src/server/qa/run-foundation-local.ts` | Run the eight local Foundation Gates sequentially: lint, clean typecheck, Bun tests, PGlite migration and seed validation, production build, functional Playwright, and production-performance Playwright. It stops on the first failure and does not run the real PostgreSQL or Redis lanes. |
-| `bun run verify:ci` | `bun run verify:foundation:local` | Temporary compatibility alias for `verify:foundation:local`. It does not maintain a separate command graph and is not a complete CI-equivalent Foundation Gate. |
+| `bun run verify:foundation` | `bun run src/server/qa/run-foundation.ts` | Run the complete ten-gate Foundation Gate. It preflights both real-service boundaries, accepts only safe disposable `DATABASE_URL` and `REDIS_URL` targets when supplied, otherwise provisions uniquely owned pinned Docker services on dynamic loopback ports, then runs `verify:foundation:local`, PostgreSQL, and Redis sequentially. |
 | `bun test` | `bun test` | Run Bun unit and integration tests. |
-| `bun run test:e2e` | `playwright test` | Run Playwright browser tests. |
+| `bun run test:e2e` | `playwright test` | Run functional Playwright browser tests, excluding the production-performance tag. |
 | `bun run test:e2e:production-perf` | `PLAYWRIGHT_PRODUCTION_PERF=1 playwright test` | Run the tagged production-performance Playwright lane against a built `next start` server. |
 | `bun run test:e2e:clerk` | `playwright test --config=playwright.clerk.config.ts --grep-invert='final live boundary'` | Run the mutating protected Clerk test-instance scenarios. This command denies non-manual, non-protected, SHA-mismatched, production-origin, or non-test-key contexts. |
 | `bun run test:e2e:clerk:final-boundary` | `playwright test --config=playwright.clerk.config.ts --grep='final live boundary'` | After Clerk deletion/worker checks, authenticate the persistent boundary fixture and re-prove the exact deployed SHA, database sentinel, and complete migration ledger immediately before evidence. |
@@ -50,18 +50,17 @@ Scripts are defined in `package.json`.
 | `bun run qa:provider-rc-evidence` | `bun run src/server/qa/run-provider-release-candidate-evidence.ts` | After a protected provider lane passes, write a SHA- and migration-qualified redacted evidence manifest. Pass `-- --lane clerk` or `-- --lane stripe`. |
 | `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
 
-There is currently no single complete Foundation Gate script. For a Prospective Candidate, run:
+For a Prospective Candidate, run the complete Foundation Gate:
 
 ```sh
-bun run verify:foundation:local
-bun run test:integration:postgres
-bun run test:integration:redis
+bun run verify:foundation
 ```
 
 `bun run format` is a fix command, not a verification gate. `bun run verify` and `bun run
-verify:foundation:local` are non-mutating verification commands. `bun run verify:ci` remains an alias
-for the local aggregate during the command migration. The real-service lanes require the disposable
-services and scoped environment configuration documented below.
+verify:foundation:local` are non-mutating local verification commands. `bun run verify:foundation`
+also creates and removes only run-owned disposable service resources; it does not mutate production
+resources or generate trusted-CI evidence. The individual real-service lanes remain available for
+focused iteration with the scoped environment configuration documented below.
 
 The provider commands are not normal local or pull-request gates. Dispatch the protected workflow
 from the default branch after its requested full SHA is present in `main`; GitHub environment
@@ -73,6 +72,13 @@ fail before contacting Clerk or Stripe.
 The PostgreSQL and Redis integration lanes require disposable local or explicitly marked remote test
 services. They do not use production credentials, provider credentials, PGlite, process-local Redis
 fallbacks, or broad cleanup commands such as `FLUSHALL`.
+
+`bun run verify:foundation` uses safe explicitly configured `DATABASE_URL` and `REDIS_URL` services
+when both endpoints pass the existing integration safety policy and readiness probes. For any
+missing or unavailable service, it requires a running Docker daemon and starts the pinned image
+below with a unique container name, run namespace, database name or Redis prefix, and dynamic
+loopback port. Normal
+completion, failure, SIGINT, and SIGTERM remove only containers recorded as owned by that run.
 
 Start the pinned local PostgreSQL service:
 

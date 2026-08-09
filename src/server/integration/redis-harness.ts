@@ -3,6 +3,7 @@ import { createClient } from "redis";
 
 import {
   assertSafeIntegrationServiceUrl,
+  disposableIntegrationServiceMarkers,
   parseIntegrationEntrypointOptions,
   redactUrl,
   requireServiceUrl,
@@ -57,7 +58,7 @@ export function parseRedisHarnessOptions(
   assertSafeIntegrationServiceUrl({
     allowRemote,
     name: "REDIS_URL",
-    requiredText: ["test", "integration", "issue", "local", "ci"],
+    requiredText: disposableIntegrationServiceMarkers,
     url: redisUrl,
   });
 

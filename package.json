@@ -48,7 +48,7 @@
     "typecheck": "tsc --noEmit",
     "verify": "bun run lint && bun run typecheck --incremental false && bun test",
     "verify:foundation:local": "bun run src/server/qa/run-foundation-local.ts",
-    "verify:ci": "bun run verify:foundation:local",
+    "verify:foundation": "bun run src/server/qa/run-foundation.ts",
     "test": "bun test",
     "test:e2e": "playwright test",
     "test:e2e:clerk": "playwright test --config=playwright.clerk.config.ts --grep-invert='final live boundary'",

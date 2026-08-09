@@ -2,9 +2,18 @@ const namespacePattern = /^[a-z][a-z0-9_]{0,62}$/;
 const localTestHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 const integrationSignals = ["SIGINT", "SIGTERM"] as const;
 
-type IntegrationSignal = (typeof integrationSignals)[number];
+export const disposableIntegrationServiceMarkers = [
+  "test",
+  "integration",
+  "issue",
+  "local",
+  "ci",
+  "foundation",
+] as const;
 
-type IntegrationProcess = {
+export type IntegrationSignal = (typeof integrationSignals)[number];
+
+export type IntegrationProcess = {
   exit(code?: number): unknown;
   off(event: IntegrationSignal, listener: (signal: IntegrationSignal) => void): unknown;
   once(event: IntegrationSignal, listener: (signal: IntegrationSignal) => void): unknown;
@@ -17,8 +26,8 @@ export type IntegrationEntrypointOptions = {
 };
 
 export type IntegrationLifecycleOwner = {
-  cleanup(): Promise<void>;
-  deferCleanup(cleanup: () => Promise<void>): void;
+  cleanup(signal?: IntegrationSignal): Promise<void>;
+  deferCleanup(cleanup: (signal?: IntegrationSignal) => Promise<void>): void;
 };
 
 export function parseIntegrationEntrypointOptions(
@@ -100,16 +109,16 @@ export async function runWithIntegrationLifecycle<T>(
 }
 
 export function createIntegrationLifecycleOwner(): IntegrationLifecycleOwner {
-  const cleanups: Array<() => Promise<void>> = [];
+  const cleanups: Array<(signal?: IntegrationSignal) => Promise<void>> = [];
   let cleanupPromise: Promise<void> | null = null;
 
   return {
-    cleanup() {
+    cleanup(signal) {
       cleanupPromise ??= (async () => {
         const errors: unknown[] = [];
         for (const cleanup of cleanups.splice(0).reverse()) {
           try {
-            await cleanup();
+            await cleanup(signal);
           } catch (error) {
             errors.push(error);
           }
@@ -254,8 +263,9 @@ function createIntegrationSignalRegistry(
       return;
     }
     for (const signal of integrationSignals) {
-      const handler = (receivedSignal: IntegrationSignal) => {
-        signalCleanupPromise ??= cleanupAllActiveOwners(owners)
+      const handler = () => {
+        const receivedSignal = signal;
+        signalCleanupPromise ??= cleanupAllActiveOwners(owners, receivedSignal)
           .catch((error) => {
             console.error(error);
           })
@@ -291,12 +301,15 @@ function createIntegrationSignalRegistry(
   };
 }
 
-async function cleanupAllActiveOwners(owners: Set<IntegrationLifecycleOwner>) {
+async function cleanupAllActiveOwners(
+  owners: Set<IntegrationLifecycleOwner>,
+  signal: IntegrationSignal,
+) {
   const errors: unknown[] = [];
   await Promise.all(
     [...owners].map(async (owner) => {
       try {
-        await owner.cleanup();
+        await owner.cleanup(signal);
       } catch (error) {
         errors.push(error);
       }

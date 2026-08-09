@@ -12,24 +12,19 @@ records the historical evidence and decisions behind these gates.
 Start from one clean immutable pre-merge commit. A dirty worktree, branch name, mutable deployment
 alias, or latest-green run is not a Prospective Candidate.
 
-Run the local aggregate:
+Run the complete Foundation Gate:
 
 ```sh
 bun install --frozen-lockfile
-bun run verify:ci
+bun run verify:foundation
 ```
 
-Despite its current name, `verify:ci` does not run the real PostgreSQL and Redis lanes and is not a
-complete Foundation Gate. Run both separately against disposable test services:
-
-```sh
-bun run test:integration:postgres
-bun run test:integration:redis
-```
-
-Configure those commands as described in the [script reference](../reference/scripts.md). Do not
-point them at production resources. The planned `verify:foundation` aggregate is not available until
-its package script and service orchestration land.
+The command preflights both real-service boundaries before starting the eight-gate local aggregate,
+then runs the existing PostgreSQL and Redis semantic lanes sequentially. It uses safe explicitly
+configured disposable services or uniquely owned pinned Docker containers. Configure explicit
+services as described in the [script reference](../reference/scripts.md); never point the command at
+production resources. A local pass establishes only local Foundation Gate evidence and cannot set
+the trusted-CI attestation used by the launch manifest.
 
 ## 2. Write deterministic foundation evidence
 

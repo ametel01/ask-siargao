@@ -94,6 +94,23 @@ test("documentation entry points and changed-page relative links resolve", async
   }
 });
 
+test("first-party verification docs expose the complete Foundation Gate without the obsolete alias", async () => {
+  const paths = [
+    "README.md",
+    "documentation/developer/reference/scripts.md",
+    "documentation/developer/how-to-guides/run-release-candidate-qa.md",
+    "documentation/developer/how-to-guides/operate-the-production-database.md",
+    "documentation/developer/how-to-guides/extend-a-reality-check-kind.md",
+  ];
+  const documents = await Promise.all(paths.map((path) => readFile(path, "utf8")));
+  const corpus = documents.join("\n");
+
+  expect(corpus).not.toContain("verify:ci");
+  expect(documents[0]).toContain("bun run verify:foundation");
+  expect(documents[1]).toContain("`bun run verify:foundation`");
+  expect(documents[2]).toContain("bun run verify:foundation");
+});
+
 test("CI binds launch evidence to all foundation gates, checkout off, and the exact SHA", async () => {
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
   const job = workflow.slice(workflow.indexOf("  trip-pass-launch-manifest:"));

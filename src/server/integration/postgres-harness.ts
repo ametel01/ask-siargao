@@ -7,6 +7,7 @@ import type { MigrationDatabase, MigrationQueryValue } from "@/server/db/migrati
 import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 import {
   assertSafeIntegrationServiceUrl,
+  disposableIntegrationServiceMarkers,
   parseIntegrationEntrypointOptions,
   redactUrl,
   requireServiceUrl,
@@ -93,7 +94,7 @@ export function parsePostgresHarnessOptions(
   assertSafeIntegrationServiceUrl({
     allowRemote,
     name: "DATABASE_URL",
-    requiredText: ["test", "integration", "issue", "local", "ci"],
+    requiredText: disposableIntegrationServiceMarkers,
     url: adminDatabaseUrl,
   });
 

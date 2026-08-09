@@ -26,7 +26,7 @@ describe("integration entry-point contracts", () => {
     );
   });
 
-  test("package scripts expose one local Foundation Gate aggregate and a compatibility alias", async () => {
+  test("package scripts expose the local and complete Foundation Gate commands", async () => {
     const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
       scripts: Record<string, string>;
     };
@@ -38,7 +38,10 @@ describe("integration entry-point contracts", () => {
     expect(packageJson.scripts["verify:foundation:local"]).toBe(
       "bun run src/server/qa/run-foundation-local.ts",
     );
-    expect(packageJson.scripts["verify:ci"]).toBe("bun run verify:foundation:local");
+    expect(packageJson.scripts["verify:foundation"]).toBe(
+      "bun run src/server/qa/run-foundation.ts",
+    );
+    expect(packageJson.scripts["verify:ci"]).toBeUndefined();
   });
 
   test("entry-point argument parsing fails closed on unsafe options", () => {
@@ -91,6 +94,13 @@ describe("integration entry-point contracts", () => {
       }),
     ).not.toThrow();
     expect(() =>
+      parsePostgresHarnessOptions([], {
+        DATABASE_URL:
+          "postgres://foundation:pw@127.0.0.1:5432/ask_siargao_foundation_11111111222243338444",
+        INTEGRATION_TEST_NAMESPACE: "ask_siargao_foundation_11111111222243338444",
+      }),
+    ).not.toThrow();
+    expect(() =>
       parseRedisHarnessOptions([], {
         INTEGRATION_TEST_NAMESPACE: "issue150",
         REDIS_URL: "redis://127.0.0.1:6379/0",
@@ -108,6 +118,13 @@ describe("integration entry-point contracts", () => {
         INTEGRATION_TEST_ALLOW_REMOTE: "1",
         INTEGRATION_TEST_NAMESPACE: "issue150",
         REDIS_URL: "redis://redis.integration.example/0",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      parseRedisHarnessOptions([], {
+        INTEGRATION_TEST_ALLOW_REMOTE: "1",
+        INTEGRATION_TEST_NAMESPACE: "foundation_test",
+        REDIS_URL: "redis://redis.foundation.example/0",
       }),
     ).not.toThrow();
   });
@@ -324,7 +341,7 @@ describe("integration entry-point contracts", () => {
     expect(playwrightConfig).toContain('PLAYWRIGHT_PRODUCTION_PERF === "1"');
     expect(playwrightConfig).toContain("grep: isProductionPerformanceRun ? /@production-perf/");
     expect(playwrightConfig).toContain(
-      "grepInvert: process.env.CI && !isProductionPerformanceRun ? /@production-perf/",
+      "grepInvert: !isProductionPerformanceRun ? /@production-perf/ : undefined",
     );
     expect(playwrightConfig).toContain(
       'outputDir: isProductionPerformanceRun ? "test-results/production-perf" : "test-results"',

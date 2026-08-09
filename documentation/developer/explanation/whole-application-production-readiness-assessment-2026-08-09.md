@@ -369,11 +369,10 @@ alert, workers within their documented cadence, and no high-severity incident. G
 Availability additionally requires successful canary evidence and a separate Launch Authorization
 decision.
 
-The command documented as `verify:ci` was not a true CI-equivalent gate because it omitted the real
-PostgreSQL and Redis lanes. The current local aggregate should become
-`verify:foundation:local`; `verify:foundation` should provision or target disposable PostgreSQL and
-Redis and run every Foundation Gate requirement. CI and documentation should use that same
-vocabulary.
+The former local aggregate was not a true CI-equivalent gate because it omitted the real
+PostgreSQL and Redis lanes. That gap is now closed: `verify:foundation:local` names the eight-gate
+local aggregate, while `verify:foundation` provisions or targets disposable PostgreSQL and Redis
+services and runs every Foundation Gate requirement. CI and documentation use the same vocabulary.
 
 The live release-candidate QA, free-product launch, and Trip Pass launch guides contain the settled
 policies. This dated assessment remains historical evidence linked from those guides.

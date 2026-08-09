@@ -70,7 +70,7 @@ Add a representative synthetic prompt and contract expectation to
 ```sh
 bun run eval:reality-check
 bun test src/server/evaluations/reality-check-matrix.test.ts
-bun run verify:ci
+bun run verify:foundation:local
 ```
 
 If the change alters traveler-visible behavior, add a concise `[Unreleased]` changelog entry. If it
