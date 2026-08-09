@@ -25,17 +25,14 @@ const verificationDocs = [
 ] as const;
 
 const legacyVerificationAlias = ["verify", "ci"].join(":");
-const activeVerificationConsumerPaths = [
-  ".github/workflows",
-  "AGENTS.md",
-  "CONTEXT.md",
-  "README.md",
-  "docs/agents",
-  "documentation/developer/how-to-guides",
-  "documentation/developer/reference",
-  "package.json",
-  "src",
-  "tests",
+const verificationContractPathspecs = [
+  ".",
+  ":(exclude).agents/**",
+  ":(exclude).github/skills/**",
+  ":(exclude)documentation/developer/explanation/*assessment*.md",
+  ":(exclude)docs/evaluations/**",
+  ":(exclude)docs/visual-evidence/**",
+  ":(exclude)plans/**",
 ] as const;
 
 test("as-built environment example covers the production-readiness interfaces", async () => {
@@ -155,7 +152,7 @@ test("active first-party files have no stale verification alias consumers", asyn
       "--fixed-strings",
       legacyVerificationAlias,
       "--",
-      ...activeVerificationConsumerPaths,
+      ...verificationContractPathspecs,
     ],
     {
       stderr: "pipe",
