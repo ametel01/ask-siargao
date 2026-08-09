@@ -1,6 +1,6 @@
 # 006 - Make Local Verification Non-Mutating And CI-Aligned
 
-Status: ready  
+Status: complete
 Priority: P2  
 Effort: small  
 Risk: low  
@@ -13,21 +13,21 @@ Planned at: `2026-06-30` against `a9d1775`
 Make the repository's local verification command non-mutating and aligned with CI quality gates.
 Formatting writes should stay in `bun run format`, not happen inside verification.
 
-## Current Evidence
+## Evidence At Planning Time
 
-`package.json` currently defines:
+At commit `a9d1775`, `package.json` defined:
 
 ```json
 "verify": "bun run format && bun run lint && bun run typecheck && bun run test"
 ```
 
-Problems:
+Problems observed at that point:
 
 - `verify` mutates files through `bun run format`;
 - `typecheck` does not force a clean incremental-free check;
 - the command is narrower than CI, which also runs test database migrate/seed, build, and e2e.
 
-CI currently runs:
+CI then ran:
 
 - `bun run lint`
 - `bun run typecheck --incremental false`
@@ -50,24 +50,18 @@ CI currently runs:
 - Fixing unrelated test failures, if any are introduced before this plan is executed.
 - Adding paid-pass or revenue-model checks.
 
-## Recommended Script Shape
+## Completed Script Shape
 
-Use one of these patterns. Prefer option A unless maintainers want a shorter everyday command.
-
-Option A, exact CI-aligned `verify`:
-
-```json
-"verify": "bun run lint && bun run typecheck --incremental false && bun test && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e"
-```
-
-Option B, fast default plus explicit full CI:
+The repository keeps fast iteration distinct from complete Foundation Gate verification:
 
 ```json
 "verify": "bun run lint && bun run typecheck --incremental false && bun test",
-"verify:ci": "bun run verify && bun run db:migrate:test && bun run db:seed:test && bun run build && bun run test:e2e"
+"verify:foundation:local": "bun run src/server/qa/run-foundation-local.ts",
+"verify:foundation": "bun run src/server/qa/run-foundation.ts"
 ```
 
-If choosing option B, update docs so contributors know `verify:ci` is the merge gate equivalent.
+The local Foundation command runs the eight repository-only gates. The complete command adds the
+real PostgreSQL and Redis lanes for all ten Foundation Gates.
 
 ## Implementation Steps
 
@@ -87,14 +81,15 @@ If choosing option B, update docs so contributors know `verify:ci` is the merge 
 
    - remove `bun run format` from `verify`;
    - use `bun run typecheck --incremental false`;
-   - align with CI using option A or add `verify:ci` using option B.
+   - expose the local and complete Foundation Gate commands without duplicating their gate graphs.
 
 4. Update docs that mention local checks:
 
    - `bun run format` writes formatting fixes;
    - `bun run lint` is non-mutating;
    - `bun run verify` is safe to run without rewriting files;
-   - if present, `bun run verify:ci` mirrors CI.
+   - `bun run verify:foundation:local` runs the eight local gates;
+   - `bun run verify:foundation` runs the complete ten-gate workflow.
 
 5. Do not update `.github/workflows/ci.yml` unless inspection finds it has drifted.
 
@@ -108,10 +103,10 @@ git diff --check
 git status --short
 ```
 
-If option B is chosen, also run:
+For the complete Foundation Gate, also run:
 
 ```sh
-bun run verify:ci
+bun run verify:foundation
 ```
 
 Expected:
@@ -135,7 +130,8 @@ script is made non-mutating unless this plan introduces a regression.
 Stop and ask for a workflow decision if:
 
 - maintainers intentionally want `verify` to format files;
-- e2e/build are too slow for `verify` and there is no appetite for a separate `verify:ci`;
+- e2e/build are too slow for `verify` and there is no appetite for separate Foundation Gate
+  commands;
 - CI workflow has changed enough that script alignment needs a broader discussion.
 
 ## Suggested Commit

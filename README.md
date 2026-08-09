@@ -54,5 +54,11 @@ bun run verify:foundation
 eight local Foundation Gates through production-performance Playwright, but does not run the real
 PostgreSQL or Redis lanes. `bun run verify:foundation` is the complete ten-gate command: it
 preflights safe PostgreSQL and Redis test services, provisions uniquely owned pinned Docker services
-when needed, then runs the local, PostgreSQL, and Redis lanes sequentially. Run `bun run format` only
-when you want Biome to write formatting fixes.
+when needed, then runs the local, PostgreSQL, and Redis lanes sequentially. It requires a running
+Docker daemon unless both `DATABASE_URL` and `REDIS_URL` identify safe, ready disposable services;
+see the [script reference](documentation/developer/reference/scripts.md) for service safety, cleanup,
+and failure behavior. Run `bun run format` only when you want Biome to write formatting fixes.
+
+A complete `bun run verify:foundation` pass for one exact clean candidate is local Foundation Gate
+Status evidence only. It cannot create trusted exact-SHA CI attestation and does not supply provider
+QA, Production Readiness, or human Launch Authorization.

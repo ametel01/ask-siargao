@@ -50,6 +50,16 @@ Scripts are defined in `package.json`.
 | `bun run qa:provider-rc-evidence` | `bun run src/server/qa/run-provider-release-candidate-evidence.ts` | After a protected provider lane passes, write a SHA- and migration-qualified redacted evidence manifest. Pass `-- --lane clerk` or `-- --lane stripe`. |
 | `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
 
+## Verification Coverage
+
+The three verification commands have deliberately different coverage:
+
+| Command | Coverage |
+| --- | --- |
+| `bun run verify` | Fast local iteration: `bun run lint`, `bun run typecheck --incremental false`, and `bun test`. |
+| `bun run verify:foundation:local` | Eight repository-only gates: the three fast checks plus `bun run db:migrate:test`, `bun run db:seed:test`, `bun run build`, `bun run test:e2e`, and `bun run test:e2e:production-perf`. It needs no PostgreSQL or Redis service. |
+| `bun run verify:foundation` | Complete ten-gate verification: all eight local gates followed by `bun run test:integration:postgres` and `bun run test:integration:redis` against safe disposable services. |
+
 For a Prospective Candidate, run the complete Foundation Gate:
 
 ```sh
@@ -61,6 +71,12 @@ verify:foundation:local` are non-mutating local verification commands. `bun run 
 also creates and removes only run-owned disposable service resources; it does not mutate production
 resources or generate trusted-CI evidence. The individual real-service lanes remain available for
 focused iteration with the scoped environment configuration documented below.
+
+Trusted CI runs the same ten-gate contract for one exact candidate SHA, with the local aggregate,
+PostgreSQL, and Redis kept as independently visible jobs. Only the downstream trusted manifest job
+can attest that those CI gates passed. A complete `bun run verify:foundation` pass for one exact
+Prospective Candidate establishes local Foundation Gate Status evidence but does not provide
+provider QA, Production Readiness, or human Launch Authorization.
 
 The provider commands are not normal local or pull-request gates. Dispatch the protected workflow
 from the default branch after its requested full SHA is present in `main`; GitHub environment
@@ -77,8 +93,8 @@ fallbacks, or broad cleanup commands such as `FLUSHALL`.
 when both endpoints pass the existing integration safety policy and readiness probes. For any
 missing or unavailable service, it requires a running Docker daemon and starts the pinned image
 below with a unique container name, run namespace, database name or Redis prefix, and dynamic
-loopback port. Normal
-completion, failure, SIGINT, and SIGTERM remove only containers recorded as owned by that run.
+loopback port. Normal completion, failure, SIGINT, and SIGTERM remove only containers recorded as
+owned by that run.
 
 Start the pinned local PostgreSQL service:
 

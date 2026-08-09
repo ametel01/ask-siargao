@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { parseOperationalWorkerArguments } from "@/server/operations/run-operational-worker";
+import { foundationGateContract } from "@/server/qa/foundation-gates";
 
 const currentDocs = [
   ".env.example",
@@ -14,6 +15,16 @@ const currentDocs = [
   "documentation/developer/how-to-guides/launch-trip-pass.md",
   "documentation/developer/how-to-guides/run-release-candidate-qa.md",
 ] as const;
+
+const verificationDocs = [
+  "README.md",
+  "documentation/developer/reference/scripts.md",
+  "documentation/developer/how-to-guides/run-release-candidate-qa.md",
+  "documentation/developer/how-to-guides/operate-the-production-database.md",
+  "documentation/developer/how-to-guides/extend-a-reality-check-kind.md",
+] as const;
+
+const documentationExtensions = new Set([".json", ".md", ".mdx", ".sh", ".yaml", ".yml"]);
 
 test("as-built environment example covers the production-readiness interfaces", async () => {
   const example = await readFile(".env.example", "utf8");
@@ -80,11 +91,13 @@ test("current auth, commerce, operator, and release docs reject stale launch cla
 });
 
 test("documentation entry points and changed-page relative links resolve", async () => {
-  for (const path of [
+  const paths = new Set([
     "documentation/README.md",
     "documentation/developer/README.md",
     ...currentDocs.filter((path) => path.endsWith(".md")),
-  ]) {
+    ...verificationDocs,
+  ]);
+  for (const path of paths) {
     const markdown = await readFile(path, "utf8");
     for (const match of markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
       const target = match[1]?.split("#", 1)[0];
@@ -95,20 +108,58 @@ test("documentation entry points and changed-page relative links resolve", async
 });
 
 test("first-party verification docs expose the complete Foundation Gate without the obsolete alias", async () => {
-  const paths = [
-    "README.md",
-    "documentation/developer/reference/scripts.md",
-    "documentation/developer/how-to-guides/run-release-candidate-qa.md",
-    "documentation/developer/how-to-guides/operate-the-production-database.md",
-    "documentation/developer/how-to-guides/extend-a-reality-check-kind.md",
-  ];
-  const documents = await Promise.all(paths.map((path) => readFile(path, "utf8")));
-  const corpus = documents.join("\n");
+  const [readme, scriptReference, releaseCandidateQaGuide, ...otherVerificationDocs] =
+    await Promise.all(verificationDocs.map((path) => readFile(path, "utf8")));
+  const corpus = [readme, scriptReference, releaseCandidateQaGuide, ...otherVerificationDocs].join(
+    "\n",
+  );
+  const normalizedReadme = readme.replaceAll(/\s+/g, " ");
+  const normalizedReleaseCandidateQaGuide = releaseCandidateQaGuide.replaceAll(/\s+/g, " ");
 
   expect(corpus).not.toContain("verify:ci");
-  expect(documents[0]).toContain("bun run verify:foundation");
-  expect(documents[1]).toContain("`bun run verify:foundation`");
-  expect(documents[2]).toContain("bun run verify:foundation");
+  expect(readme).toContain("bun run verify:foundation");
+  expect(scriptReference).toContain("`bun run verify:foundation`");
+  expect(releaseCandidateQaGuide).toContain("bun run verify:foundation");
+  for (const boundary of [
+    "Foundation Gate Status",
+    "provider QA",
+    "Production Readiness",
+    "Launch Authorization",
+  ]) {
+    expect(normalizedReadme).toContain(boundary);
+    expect(normalizedReleaseCandidateQaGuide).toContain(boundary);
+  }
+  for (const prerequisite of ["DATABASE_URL", "REDIS_URL", "Docker daemon", "run-owned"]) {
+    expect(scriptReference).toContain(prerequisite);
+  }
+});
+
+test("first-party documentation and automation have no stale verification alias consumers", async () => {
+  const files = await collectFiles([
+    ".github/workflows",
+    "AGENTS.md",
+    "CONTEXT.md",
+    "README.md",
+    "docs",
+    "documentation",
+    "package.json",
+    "plans",
+  ]);
+  const staleConsumers = (
+    await Promise.all(files.map(async (path) => ({ path, text: await readFile(path, "utf8") })))
+  )
+    .filter(({ text }) => text.includes("verify:ci"))
+    .map(({ path }) => path);
+
+  expect(staleConsumers).toEqual([]);
+});
+
+test("script reference names every canonical Foundation Gate command", async () => {
+  const reference = await readFile("documentation/developer/reference/scripts.md", "utf8");
+
+  for (const gate of foundationGateContract) {
+    expect(reference).toContain(`\`${gate.command.join(" ")}\``);
+  }
 });
 
 test("CI binds launch evidence to all foundation gates, checkout off, and the exact SHA", async () => {
@@ -193,3 +244,25 @@ test("reconciliation docs match the exact finding scope and keep mutation at the
     "The worker uses database-time leases, retry fencing, and idempotency",
   );
 });
+
+async function collectFiles(paths: readonly string[]): Promise<string[]> {
+  const files: string[] = [];
+  for (const path of paths) {
+    const entries = await readdir(path, { withFileTypes: true }).catch(() => undefined);
+    if (!entries) {
+      files.push(path);
+      continue;
+    }
+    for (const entry of entries) {
+      const child = `${path}/${entry.name}`;
+      if (entry.isDirectory()) files.push(...(await collectFiles([child])));
+      else if (
+        entry.isFile() &&
+        documentationExtensions.has(entry.name.slice(entry.name.lastIndexOf(".")))
+      ) {
+        files.push(child);
+      }
+    }
+  }
+  return files;
+}
