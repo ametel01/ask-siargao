@@ -5,6 +5,7 @@ export type PostgresClientProfile = "app" | "cli";
 export type PostgresConnectionEnv = Partial<
   Pick<
     NodeJS.ProcessEnv,
+    | "APP_ENV"
     | "DATABASE_CLI_POOL_SIZE"
     | "DATABASE_CONNECT_TIMEOUT_SECONDS"
     | "DATABASE_IDLE_TIMEOUT_SECONDS"
@@ -19,6 +20,7 @@ export type PostgresConnectionEnv = Partial<
 export type PostgresConnectionOptions = postgres.Options<Record<string, postgres.PostgresType>>;
 
 const defaultAppPoolSize = 10;
+const defaultProductionAppPoolSize = 2;
 const defaultCliPoolSize = 1;
 const defaultConnectTimeoutSeconds = 10;
 const defaultIdleTimeoutSeconds = 30;
@@ -30,7 +32,7 @@ export function createPostgresConnectionOptions(
   profile: PostgresClientProfile,
   env: PostgresConnectionEnv = process.env,
 ): PostgresConnectionOptions {
-  const isProduction = env.NODE_ENV === "production";
+  const isProduction = env.NODE_ENV === "production" || env.APP_ENV === "production";
   const statementTimeoutDefault =
     profile === "cli"
       ? defaultProductionCliStatementTimeoutMs
@@ -65,9 +67,12 @@ export function createPostgresConnectionOptions(
             defaultCliPoolSize,
             { minimum: 1 },
           )
-        : parseIntegerEnv("DATABASE_POOL_SIZE", env.DATABASE_POOL_SIZE, defaultAppPoolSize, {
-            minimum: 1,
-          }),
+        : parseIntegerEnv(
+            "DATABASE_POOL_SIZE",
+            env.DATABASE_POOL_SIZE,
+            isProduction ? defaultProductionAppPoolSize : defaultAppPoolSize,
+            { minimum: 1 },
+          ),
     max_lifetime: parseIntegerEnv(
       "DATABASE_MAX_LIFETIME_SECONDS",
       env.DATABASE_MAX_LIFETIME_SECONDS,
@@ -104,8 +109,14 @@ function parseIntegerEnv(
 
 function parseSslMode(rawValue: string | undefined, isProduction: boolean) {
   const value = rawValue?.trim().toLowerCase();
+  if (isProduction) {
+    if (value !== "verify-full") {
+      throw new Error("DATABASE_SSL_MODE must be verify-full in production.");
+    }
+    return "verify-full";
+  }
   if (!value) {
-    return isProduction ? "require" : false;
+    return false;
   }
 
   switch (value) {

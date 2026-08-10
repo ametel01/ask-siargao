@@ -4,6 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import {
   createSharedTripResponse,
   deleteSavedTripItemResponse,
+  revokeSharedTripTokenResponse,
   savedTripsResponse,
   sharedTripTokenResponse,
   type TripRouteDependencies,
@@ -460,6 +461,38 @@ describe("saved trip API routes", () => {
     );
     expect(deletedLookup.status).toBe(404);
 
+    await dependencies.close();
+  });
+
+  test("revokes a Shared Trip Link immediately and rejects cross-origin revocation", async () => {
+    const dependencies = await tripRouteDependencies();
+    const tripId = "local_trip_revocable_123456";
+    await saveRouteItem(dependencies, tripId, shakaCard);
+    await createSharedTripResponse(
+      jsonRequest("/api/trips/share", { tripId, itemIds: ["place_shaka"] }),
+      dependencies,
+    );
+
+    const denied = await revokeSharedTripTokenResponse(
+      new Request("https://siargao.test/api/trips/share/public-token-1", {
+        method: "DELETE",
+        headers: { origin: "https://attacker.example" },
+      }),
+      { token: "public-token-1", dependencies },
+    );
+    expect(denied.status).toBe(403);
+
+    const revoked = await revokeSharedTripTokenResponse(
+      new Request("https://siargao.test/api/trips/share/public-token-1", { method: "DELETE" }),
+      { token: "public-token-1", dependencies },
+    );
+    expect(await revoked.json()).toEqual({ revoked: true });
+    expect(
+      await sharedTripTokenResponse(
+        new Request("https://siargao.test/api/trips/share/public-token-1"),
+        { token: "public-token-1", dependencies },
+      ),
+    ).toMatchObject({ status: 404 });
     await dependencies.close();
   });
 });

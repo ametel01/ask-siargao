@@ -27,6 +27,25 @@ describe("web research provider", () => {
     }
   });
 
+  test("stays disabled until the untrusted-content security boundary is complete", () => {
+    const client = { responses: { create: async () => ({ output_text: "{}" }) } };
+
+    expect(
+      createConfiguredWebResearchProvider({
+        client,
+        enabled: true,
+        env: { WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE: "false" },
+      }),
+    ).toBeUndefined();
+    expect(
+      createConfiguredWebResearchProvider({
+        client,
+        enabled: true,
+        env: { WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE: "true" },
+      }),
+    ).toBeDefined();
+  });
+
   test("uses OpenAI hosted web_search and parses structured source results", async () => {
     const requests: Record<string, unknown>[] = [];
     const provider = createOpenAIWebResearchProvider({
@@ -137,7 +156,9 @@ describe("web research provider", () => {
     const originalProvider = process.env.WEB_RESEARCH_PROVIDER;
     const originalModel = process.env.OPENAI_MODEL;
     const originalWebSearchModel = process.env.OPENAI_WEB_SEARCH_MODEL;
+    const originalSecurityBoundary = process.env.WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE;
     process.env.WEB_RESEARCH_PROVIDER = "openai";
+    process.env.WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE = "true";
     process.env.OPENAI_MODEL = "model-that-must-not-be-inherited";
     delete process.env.OPENAI_WEB_SEARCH_MODEL;
     const requests: Record<string, unknown>[] = [];
@@ -162,6 +183,7 @@ describe("web research provider", () => {
       restoreEnv("WEB_RESEARCH_PROVIDER", originalProvider);
       restoreEnv("OPENAI_MODEL", originalModel);
       restoreEnv("OPENAI_WEB_SEARCH_MODEL", originalWebSearchModel);
+      restoreEnv("WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE", originalSecurityBoundary);
     }
 
     expect(requests[0]?.model).toBe("gpt-5.4-mini");

@@ -146,9 +146,14 @@ export async function deliverOperationalAlertOnce(
 export function createSentryHttpSink(input: {
   dsn: string;
   fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
+  timeoutMs?: number;
 }): SentryOperationalSink {
   const endpoint = parseSentryDsn(input.dsn);
   const fetchImpl = input.fetchImpl ?? ((url, init) => fetch(url, init));
+  const timeoutMs = input.timeoutMs ?? 5_000;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 10_000) {
+    throw new Error("invalid_sentry_timeout");
+  }
   return {
     async send(event) {
       const response = await fetchImpl(endpoint.url, {
@@ -170,10 +175,89 @@ export function createSentryHttpSink(input: {
           "x-sentry-auth": `Sentry sentry_version=7, sentry_key=${endpoint.publicKey}`,
         },
         method: "POST",
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!response.ok) throw new Error("sentry_delivery_failed");
     },
   };
+}
+
+type PageWorthyState = {
+  alert_key: string;
+  error_code: string;
+  finding_id: string | null;
+  finding_observation_sequence: string | null;
+  impact: "warning" | "high";
+  operation: OperationalAlert["operation"];
+};
+
+export async function deliverPendingPageWorthyAlerts(dependencies: {
+  db: DatabaseQueryClient;
+  sink: SentryOperationalSink;
+}) {
+  const states = await dependencies.db.query<PageWorthyState>(`
+    select
+      'stripe-event:' || id as alert_key,
+      coalesce(sanitized_error_class, 'repeated_stripe_application_failure') as error_code,
+      null::text as finding_id,
+      null::text as finding_observation_sequence,
+      'high'::text as impact,
+      'stripe_application'::text as operation
+    from trip_pass_stripe_events
+    where status = 'pending' and alert_state = 'page'
+    union all
+    select
+      'account-closure-step:' || s.id,
+      coalesce(s.last_error_category, 'account_closure_step_failure'),
+      null::text,
+      null::text,
+      'high'::text,
+      'account_closure'::text
+    from account_closure_steps s
+    where s.status <> 'succeeded' and s.alerted_at is not null
+    union all
+    select
+      'paid-after-closure-refund:' || id,
+      coalesce(last_error_category, 'paid_after_closure_refund_failure'),
+      null::text,
+      null::text,
+      'high'::text,
+      'paid_after_closure_refund'::text
+    from account_closure_refund_obligations
+    where status <> 'succeeded' and alerted_at is not null
+    union all
+    select
+      'operational-finding:' || id || ':lifecycle:' || lifecycle::text,
+      summary_code,
+      id,
+      last_observation_sequence::text,
+      impact,
+      case when kind = 'paid_without_pass' then 'paid_without_pass'
+        else 'live_reconciliation' end
+    from operational_findings
+    where status = 'open'
+    order by alert_key
+  `);
+
+  const results = [];
+  for (const state of states.rows) {
+    results.push(
+      await deliverOperationalAlertOnce(
+        {
+          alertKey: state.alert_key,
+          errorCode: state.error_code,
+          ...(state.finding_id ? { findingId: state.finding_id } : {}),
+          ...(state.finding_observation_sequence
+            ? { findingObservationSequence: state.finding_observation_sequence }
+            : {}),
+          impact: state.impact,
+          operation: state.operation,
+        },
+        dependencies,
+      ),
+    );
+  }
+  return { checked: states.rows.length, results };
 }
 
 export function sentryEventIdForAlertKey(alertKey: string) {

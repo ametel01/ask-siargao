@@ -113,6 +113,9 @@ export async function discoverGooglePlacesAccommodationIds({
 
   const results = await Promise.all(
     searches.map(async (search): Promise<GooglePlacesDiscoverySearchResult> => {
+      assertGooglePlacesCostCircuit(
+        await reserveGooglePlacesSearchCost({ fieldMask: googlePlacesDiscoveryFieldMask }),
+      );
       const response = await fetcher("https://places.googleapis.com/v1/places:searchText", {
         method: "POST",
         headers: {
@@ -209,3 +212,8 @@ function slugParts(...parts: string[]) {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+import {
+  assertGooglePlacesCostCircuit,
+  reserveGooglePlacesSearchCost,
+} from "@/server/providers/google-places-cost-circuit";

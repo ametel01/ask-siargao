@@ -33,6 +33,7 @@ export const applicationTables = [
   "trip_pass_dispute_facts",
   "trip_usage_events",
   "paid_answer_reservations",
+  "trip_pass_stripe_events",
   "areas",
   "routes",
   "providers",
@@ -63,13 +64,21 @@ export const applicationTables = [
   "audit_reports",
   "refresh_jobs",
   "public_evidence_bundles",
+  "public_evidence_bundle_evidence",
   "public_pages",
+  "public_page_facts",
   "agent_readable_snapshots",
   "llm_runs",
   "llm_tool_calls",
   "reviewer_results",
   "provider_health_checks",
   "public_page_generation_jobs",
+  "operational_reconciliation_runs",
+  "operational_findings",
+  "operator_repair_actions",
+  "operational_alert_deliveries",
+  "operational_worker_tasks",
+  "operational_reconciliation_observations",
 ] as const;
 
 export const userOwnedTables = [
@@ -164,6 +173,20 @@ export function buildDatabaseAuthorizationSql(options: DatabaseAuthorizationTemp
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationRole} IN SCHEMA ${schemaName} REVOKE ALL ON SEQUENCES FROM PUBLIC;`,
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationRole} IN SCHEMA ${schemaName} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${runtimeRole};`,
     `ALTER DEFAULT PRIVILEGES FOR ROLE ${migrationRole} IN SCHEMA ${schemaName} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${runtimeRole};`,
+  ].join("\n");
+}
+
+export function buildDatabaseAuthorizationRepairSql(
+  options: DatabaseAuthorizationTemplateOptions = {},
+) {
+  const migrationRole = quoteIdentifier(options.migrationRole ?? "ask_siargao_migration");
+  const runtimeRole = quoteIdentifier(options.runtimeRole ?? "ask_siargao_runtime");
+  return [
+    "-- Idempotent repair for application tables added after initial role provisioning.",
+    ...applicationTables.map((table) => {
+      const quotedTable = quoteIdentifier(table);
+      return `ALTER TABLE ${quotedTable} OWNER TO ${migrationRole};\nGRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ${quotedTable} TO ${runtimeRole};`;
+    }),
   ].join("\n");
 }
 

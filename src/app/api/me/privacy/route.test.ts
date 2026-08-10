@@ -16,6 +16,41 @@ import type { PrivacyAuditEvent } from "@/server/privacy/travel-data-controls";
 import { hashClientTripKey, hashPublicToken } from "@/server/trips/shared-trip-store";
 
 describe("privacy data controls route", () => {
+  test("rejects cross-origin destructive requests before parsing or authentication", async () => {
+    const dependencies = await privacyDependencies({ userId: "user_origin_privacy" });
+    const response = await postPrivacyActionResponse(
+      privacyRequest(
+        { action: "delete_chat_history", confirmation: "DELETE CHAT HISTORY" },
+        { origin: "https://attacker.example", "sec-fetch-site": "cross-site" },
+      ),
+      dependencies,
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "invalid_request_origin" });
+    const siblingSiteResponse = await postPrivacyActionResponse(
+      privacyRequest(
+        { action: "delete_chat_history", confirmation: "DELETE CHAT HISTORY" },
+        { "sec-fetch-site": "same-site" },
+      ),
+      dependencies,
+    );
+    expect(siblingSiteResponse.status).toBe(403);
+    expect(dependencies.auditEvents).toEqual([]);
+    await dependencies.close();
+  });
+
+  test("allows non-browser clients with missing origin metadata", async () => {
+    const dependencies = await privacyDependencies({ userId: "user_originless_privacy" });
+    const response = await postPrivacyActionResponse(
+      privacyRequest({ action: "delete_chat_history", confirmation: "DELETE CHAT HISTORY" }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(200);
+    await dependencies.close();
+  });
+
   test("deletes only the authenticated user's complete chat graph and is repeat safe", async () => {
     const dependencies = await privacyDependencies({ userId: "user_privacy_chat" });
     await seedChatGraph(dependencies.db, "user_privacy_chat", "owner");
@@ -467,7 +502,10 @@ async function seedSavedPlanningGraph(
         id, trip_id, public_token_hash, title, item_ids_json, items_json,
         expires_at, deleted_at, created_at, updated_at
       )
-      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, null, null, $7, $7)
+      values (
+        $1, $2, $3, $4, $5::jsonb, $6::jsonb,
+        $7::timestamptz + interval '30 days', null, $7, $7
+      )
     `,
     [
       `share_${input.itemId}`,

@@ -14,6 +14,7 @@ Use these pages when working on the Ask Siargao codebase.
 - [Routes and surfaces reference](reference/routes-and-surfaces.md): app pages, API routes, public machine-readable surfaces, and private surfaces.
 - [Reality Check contract reference](reference/reality-check-contract.md): kinds, verdicts, proposal fields, validation reasons, source states, and public summary compatibility.
 - [Database authorization reference](reference/database-authorization.md): production database roles, grants, and runtime/migration credential boundaries.
+- [Free Controlled Beta accountability](reference/free-controlled-beta-accountability.md): assigned launch-preparation owners, approved spending limits, and the independent-approver blocker.
 - [Demo data reference](reference/demo-data.md): synthetic and permitted local QA fixtures.
 - [Clerk auth and account lifecycle](reference/clerk-auth-session-chat-history-requirements.md): as-built sign-in, session, profile, webhook, closure, monitoring, and rollback behavior.
 - [Audit lifecycle and boundaries](explanation/audit-lifecycle-and-boundaries.md): how intake, payment, generation, public data, and privacy boundaries fit together.
@@ -22,4 +23,5 @@ Use these pages when working on the Ask Siargao codebase.
 - [On-demand Reality Check lifecycle](explanation/on-demand-reality-check-lifecycle.md): how explicit requests, evidence ordering, validation, public projection, persistence, and provider failure form one synchronous chat turn.
 - [Siargao chatbot data pipeline](explanation/siargao-chatbot-data-pipeline.md): product direction and lazy fact acquisition model for the chat-first tour-operator assistant.
 - [Web research layer](explanation/web-research-layer.md): background on public-web evidence, source scoring, provider failure, and how `research_web` complements Places, weather, and memory.
+- [Production deployment infrastructure assessment](explanation/production-deployment-infrastructure-assessment-2026-08-10.md): required web, data, job, provider, monitoring, and recovery infrastructure plus the current production-readiness boundary.
 - [Whole-application production-readiness assessment](explanation/whole-application-production-readiness-assessment-2026-08-09.md): point-in-time readiness of the free product, Trip Pass, security, monitoring, features, and release evidence.

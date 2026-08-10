@@ -1,3 +1,7 @@
+import {
+  assertGooglePlacesCostCircuit,
+  reserveGooglePlacesSearchCost,
+} from "@/server/providers/google-places-cost-circuit";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import {
   googlePlacesAtmosphereDetailsFieldMask,
@@ -214,6 +218,7 @@ export async function enrichGooglePlacesCaptureDetails({
 
   return Promise.all(
     [...new Set(placeIds)].map(async (placeId): Promise<GooglePlacesCaptureDetails> => {
+      assertGooglePlacesCostCircuit(await reserveGooglePlacesSearchCost({ fieldMask }));
       const response = await fetchWithProviderTimeout(
         fetcher,
         `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=en`,

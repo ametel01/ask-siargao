@@ -110,6 +110,37 @@ export const clerkRoutePolicyEntries = [
     "Clerk signature-verified webhook",
   ),
   api(
+    "src/app/api/cron/marine/route.ts",
+    "/api/cron/marine",
+    "externally_verified",
+    "CRON_SECRET-authenticated marine ingestion adapter",
+  ),
+  api(
+    "src/app/api/cron/operations/route.ts",
+    "/api/cron/operations",
+    "externally_verified",
+    "CRON_SECRET-authenticated operations adapter",
+  ),
+  api(
+    "src/app/api/cron/places-prune/route.ts",
+    "/api/cron/places-prune",
+    "externally_verified",
+    "CRON_SECRET-authenticated Google Places retention adapter",
+  ),
+  api(
+    "src/app/api/cron/weather/route.ts",
+    "/api/cron/weather",
+    "externally_verified",
+    "CRON_SECRET-authenticated weather ingestion adapter",
+  ),
+  api("src/app/api/health/live/route.ts", "/api/health/live", "public", "process liveness"),
+  api(
+    "src/app/api/health/ready/route.ts",
+    "/api/health/ready",
+    "public",
+    "redacted PostgreSQL and Redis readiness",
+  ),
+  api(
     "src/app/api/me/privacy/route.ts",
     "/api/me/privacy",
     "protected",

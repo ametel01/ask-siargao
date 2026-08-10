@@ -36,6 +36,7 @@ export function getRedisCommandClient(redisUrl: string | undefined) {
   if (!url) {
     throw new Error("REDIS_URL is required for the shared quota store.");
   }
+  assertSecureRedisUrl(url);
 
   const existing = clientsByUrl.get(url);
   if (existing) {
@@ -49,8 +50,10 @@ export function getRedisCommandClient(redisUrl: string | undefined) {
 
 export function createRedisCommandClient(input: {
   createClient?: RedisClientFactory;
+  env?: Partial<Pick<NodeJS.ProcessEnv, "APP_ENV" | "NODE_ENV">>;
   url: string;
 }): RedisCommandClient {
+  assertSecureRedisUrl(input.url, input.env);
   const redisClient = (input.createClient ?? defaultRedisClientFactory)(input.url);
   let connectPromise: Promise<void> | null = null;
 
@@ -101,6 +104,27 @@ export function createRedisCommandClient(input: {
       return condition === "NX" ? client.set(key, value, { NX: true }) : client.set(key, value);
     },
   };
+}
+
+export function assertSecureRedisUrl(
+  value: string,
+  env: Partial<Pick<NodeJS.ProcessEnv, "APP_ENV" | "NODE_ENV">> = process.env,
+) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("REDIS_URL must be a valid redis:// or rediss:// URL.");
+  }
+  if (url.protocol !== "redis:" && url.protocol !== "rediss:") {
+    throw new Error("REDIS_URL must use redis:// or rediss://.");
+  }
+  if (
+    (env.NODE_ENV === "production" || env.APP_ENV === "production") &&
+    url.protocol !== "rediss:"
+  ) {
+    throw new Error("REDIS_URL must use rediss:// in production.");
+  }
 }
 
 function defaultRedisClientFactory(url: string): NodeRedisCommandClient {

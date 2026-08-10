@@ -309,6 +309,7 @@ describe("shared trip persistence store", () => {
     });
 
     expect(result.publicToken).toBe("raw-public-token");
+    expect(result.plan.expiresAt).toBe("2026-07-28T02:00:00.000Z");
     expect(result.plan.items.map((item) => item.id)).toEqual(["place_shaka"]);
 
     const rows = await db.query<{ public_token_hash: string }>(
@@ -342,6 +343,24 @@ describe("shared trip persistence store", () => {
     expect(JSON.stringify(lookedUp)).toContain("live_checked");
     expect(JSON.stringify(lookedUp)).toContain("current opening status");
 
+    await db.close();
+  });
+
+  test("rejects Shared Trip Link expiry beyond 30 days", async () => {
+    const db = await openSharedTripStoreTestDatabase();
+    const trip = await seedTripWithItems(db, "trip_long_expiry", "browser-trip-key-long-expiry");
+
+    await expect(
+      createSharedTripPlan(db, {
+        id: "share_long_expiry",
+        tripId: trip.id,
+        title: "Too long",
+        itemIds: ["place_shaka"],
+        publicToken: "long-expiry-token",
+        expiresAt: "2026-07-28T02:00:00.001Z",
+        now: "2026-06-28T02:00:00.000Z",
+      }),
+    ).rejects.toThrow("expire within 30 days");
     await db.close();
   });
 

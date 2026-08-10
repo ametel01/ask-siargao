@@ -26,3 +26,4 @@ test-results/
 
 # private agent session notes
 .stow-notes.md
+.vercel

@@ -2,6 +2,7 @@ import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
+import { isAllowedMutationOrigin } from "@/server/security/request-origin";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
 import {
   cancelTripPassCheckout,
@@ -270,17 +271,4 @@ function checkoutFailureTelemetryReason(
     return "checkout_disabled";
   }
   return "checkout_unavailable";
-}
-
-function isAllowedMutationOrigin(request: Request) {
-  const requestOrigin = new URL(request.url).origin;
-  const origin = request.headers.get("origin");
-  if (origin && origin !== requestOrigin) {
-    return false;
-  }
-
-  const fetchSite = request.headers.get("sec-fetch-site");
-  return (
-    !fetchSite || fetchSite === "same-origin" || fetchSite === "same-site" || fetchSite === "none"
-  );
 }

@@ -19,21 +19,36 @@ describe("Postgres connection options", () => {
     });
   });
 
-  test("uses production app defaults when NODE_ENV is production", () => {
-    const options = createPostgresConnectionOptions("app", { NODE_ENV: "production" });
+  test("uses production app defaults when verified TLS is configured", () => {
+    const options = createPostgresConnectionOptions("app", {
+      DATABASE_SSL_MODE: "verify-full",
+      NODE_ENV: "production",
+    });
 
     expect(options).toMatchObject({
       connection: {
         statement_timeout: 30_000,
       },
-      max: 10,
+      max: 2,
       prepare: false,
-      ssl: "require",
+      ssl: "verify-full",
     });
   });
 
+  test("treats APP_ENV production as a verified-TLS boundary", () => {
+    expect(() =>
+      createPostgresConnectionOptions("app", {
+        APP_ENV: "production",
+        DATABASE_SSL_MODE: "require",
+      }),
+    ).toThrow("DATABASE_SSL_MODE must be verify-full in production");
+  });
+
   test("uses a small production CLI pool and longer statement timeout by default", () => {
-    const options = createPostgresConnectionOptions("cli", { NODE_ENV: "production" });
+    const options = createPostgresConnectionOptions("cli", {
+      DATABASE_SSL_MODE: "verify-full",
+      NODE_ENV: "production",
+    });
 
     expect(options).toMatchObject({
       connection: {
@@ -41,7 +56,7 @@ describe("Postgres connection options", () => {
       },
       max: 1,
       prepare: false,
-      ssl: "require",
+      ssl: "verify-full",
     });
   });
 
@@ -49,6 +64,7 @@ describe("Postgres connection options", () => {
     const env = {
       DATABASE_CLI_POOL_SIZE: "2",
       DATABASE_POOL_SIZE: "12",
+      DATABASE_SSL_MODE: "verify-full",
       NODE_ENV: "production",
     } as const;
 
@@ -62,7 +78,8 @@ describe("Postgres connection options", () => {
       DATABASE_IDLE_TIMEOUT_SECONDS: "0",
       DATABASE_MAX_LIFETIME_SECONDS: "900",
       DATABASE_STATEMENT_TIMEOUT_MS: "45000",
-      NODE_ENV: "production",
+      DATABASE_SSL_MODE: "verify-full",
+      NODE_ENV: "development",
     });
 
     expect(options).toMatchObject({
@@ -84,7 +101,7 @@ describe("Postgres connection options", () => {
   ] as const)("parses DATABASE_SSL_MODE=%s", (sslMode, expected) => {
     const options = createPostgresConnectionOptions("app", {
       DATABASE_SSL_MODE: sslMode,
-      NODE_ENV: "production",
+      NODE_ENV: "development",
     });
 
     expect(options.ssl).toBe(expected);
@@ -112,4 +129,16 @@ describe("Postgres connection options", () => {
       }),
     ).toThrow("DATABASE_SSL_MODE must be one of");
   });
+
+  test.each([undefined, "disable", "allow", "prefer", "require"])(
+    "rejects DATABASE_SSL_MODE=%s in production",
+    (sslMode) => {
+      expect(() =>
+        createPostgresConnectionOptions("app", {
+          DATABASE_SSL_MODE: sslMode,
+          NODE_ENV: "production",
+        }),
+      ).toThrow("DATABASE_SSL_MODE must be verify-full in production");
+    },
+  );
 });

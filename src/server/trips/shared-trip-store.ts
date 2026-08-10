@@ -50,6 +50,7 @@ type SavedTripItemRow = {
 };
 
 const savedTripItemUpsertBatchSize = 100;
+export const sharedTripLinkLifetimeMs = 30 * 24 * 60 * 60 * 1_000;
 
 type SharedTripPlanRow = {
   id: string;
@@ -361,6 +362,17 @@ export async function createSharedTripPlan(
     publicToken?: string;
   },
 ): Promise<SharedTripPlanCreationResult> {
+  const nowTime = new Date(now).getTime();
+  const resolvedExpiresAt = expiresAt ?? new Date(nowTime + sharedTripLinkLifetimeMs).toISOString();
+  const expiresTime = new Date(resolvedExpiresAt).getTime();
+  if (
+    !Number.isFinite(nowTime) ||
+    !Number.isFinite(expiresTime) ||
+    expiresTime <= nowTime ||
+    expiresTime > nowTime + sharedTripLinkLifetimeMs
+  ) {
+    throw new Error("Shared Trip Links must expire within 30 days.");
+  }
   const requestedItemIds = [...new Set(itemIds)];
   const selectedItems = await listSelectedActiveItems(db, { itemIds: requestedItemIds, tripId });
   if (selectedItems.length !== requestedItemIds.length) {
@@ -401,7 +413,7 @@ export async function createSharedTripPlan(
       title,
       JSON.stringify(requestedItemIds),
       JSON.stringify(snapshotItems),
-      expiresAt ?? null,
+      resolvedExpiresAt,
       now,
     ],
   );
@@ -411,7 +423,7 @@ export async function createSharedTripPlan(
     title,
     items: snapshotItems,
     createdAt: now,
-    ...(expiresAt ? { expiresAt } : {}),
+    expiresAt: resolvedExpiresAt,
   });
 
   return {

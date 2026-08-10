@@ -33,6 +33,13 @@ Use custom identifiers when a provider requires different names:
 bun -e 'import { buildDatabaseAuthorizationSql } from "./src/server/db/authorization-boundaries"; console.log(buildDatabaseAuthorizationSql({ databaseName: "ask_siargao_prod", migrationRole: "asi_prod_migration", runtimeRole: "asi_prod_runtime", reportingRole: "asi_prod_reporting" }))'
 ```
 
+For a database provisioned before later operational migrations, print and apply the idempotent
+ownership/grant repair after migrating:
+
+```sh
+bun -e 'import { buildDatabaseAuthorizationRepairSql } from "./src/server/db/authorization-boundaries"; console.log(buildDatabaseAuthorizationRepairSql())'
+```
+
 The template:
 
 - creates separate non-login group roles for migration, runtime, and reporting access;

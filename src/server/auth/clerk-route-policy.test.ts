@@ -39,6 +39,9 @@ describe("Clerk route policy", () => {
       ["/api/chat/threads/thread_123", "protected"],
       ["/api/chat/ratings", "protected"],
       ["/api/clerk/webhooks", "externally_verified"],
+      ["/api/cron/operations", "externally_verified"],
+      ["/api/health/live", "public"],
+      ["/api/health/ready", "public"],
       ["/api/stripe/webhook", "externally_verified"],
     ];
 
@@ -59,7 +62,7 @@ describe("Clerk route policy", () => {
     const policyFiles = clerkRoutePolicyEntries.map((entry) => entry.routeFile).toSorted();
 
     expect(policyFiles).toEqual(routeFiles.toSorted());
-    expect(routeFiles).toHaveLength(55);
+    expect(routeFiles).toHaveLength(61);
   });
 
   test("proves a seeded omitted route would fail inventory coverage", () => {

@@ -49,6 +49,33 @@ describe("Node Redis quota command adapter", () => {
     expect(fake.connectCalls).toBe(2);
     await client.close();
   });
+
+  test("requires rediss in production and accepts it", () => {
+    const fake = createFakeNodeRedisClient();
+    expect(() =>
+      createRedisCommandClient({
+        url: "redis://redis.example.test:6379",
+        env: { NODE_ENV: "production" },
+        createClient: () => fake.client,
+      }),
+    ).toThrow("REDIS_URL must use rediss:// in production");
+
+    expect(() =>
+      createRedisCommandClient({
+        url: "rediss://redis.example.test:6380",
+        env: { NODE_ENV: "production" },
+        createClient: () => fake.client,
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      createRedisCommandClient({
+        url: "redis://redis.example.test:6379",
+        env: { APP_ENV: "production" },
+        createClient: () => fake.client,
+      }),
+    ).toThrow("REDIS_URL must use rediss:// in production");
+  });
 });
 
 function createFakeNodeRedisClient(input: { failedConnects?: number } = {}) {

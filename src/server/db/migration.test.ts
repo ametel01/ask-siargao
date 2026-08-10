@@ -118,6 +118,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0017_operational_incident_leases.sql");
     expect(migrationNames).toContain("0018_operational_command_and_observation_fencing.sql");
     expect(migrationNames).toContain("0019_operational_page_intent_fencing.sql");
+    expect(migrationNames).toContain("0020_shared_trip_link_expiry.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -306,6 +307,7 @@ describe("Step 3 database migration", () => {
       "0017_operational_incident_leases.sql",
       "0018_operational_command_and_observation_fencing.sql",
       "0019_operational_page_intent_fencing.sql",
+      "0020_shared_trip_link_expiry.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -388,6 +390,7 @@ describe("Step 3 database migration", () => {
       "0017_operational_incident_leases.sql",
       "0018_operational_command_and_observation_fencing.sql",
       "0019_operational_page_intent_fencing.sql",
+      "0020_shared_trip_link_expiry.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -455,6 +458,7 @@ describe("Step 3 database migration", () => {
       "0017_operational_incident_leases.sql",
       "0018_operational_command_and_observation_fencing.sql",
       "0019_operational_page_intent_fencing.sql",
+      "0020_shared_trip_link_expiry.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -574,6 +578,7 @@ describe("Step 3 database migration", () => {
       "0016_preflight_operational_incident_dedup.sql",
       "0018_operational_command_and_observation_fencing.sql",
       "0019_operational_page_intent_fencing.sql",
+      "0020_shared_trip_link_expiry.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -1583,7 +1588,7 @@ describe("Step 3 database migration", () => {
       ["title", "text", "NO", null],
       ["item_ids_json", "jsonb", "NO", "'[]'::jsonb"],
       ["items_json", "jsonb", "NO", "'[]'::jsonb"],
-      ["expires_at", "timestamp with time zone", "YES", null],
+      ["expires_at", "timestamp with time zone", "NO", "(clock_timestamp() + '30 days'::interval)"],
       ["deleted_at", "timestamp with time zone", "YES", null],
       ["created_at", "timestamp with time zone", "NO", "now()"],
       ["updated_at", "timestamp with time zone", "NO", "now()"],

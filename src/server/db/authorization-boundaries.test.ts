@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 import {
   applicationTables,
+  buildDatabaseAuthorizationRepairSql,
   buildDatabaseAuthorizationSql,
   defaultReportingTables,
   userOwnedTables,
 } from "@/server/db/authorization-boundaries";
+import { listMigrationPaths } from "@/server/db/migration-files";
 
 describe("database authorization boundaries", () => {
   test("generates separated migration, runtime, and reporting role grants", () => {
@@ -46,6 +49,13 @@ describe("database authorization boundaries", () => {
     expect(applicationTables).toContain("audit_reports");
     expect(applicationTables).toContain("paid_answer_reservations");
     expect(applicationTables).toContain("provider_health_checks");
+    expect(applicationTables).toContain("trip_pass_stripe_events");
+    expect(applicationTables).toContain("operational_reconciliation_runs");
+    expect(applicationTables).toContain("operational_findings");
+    expect(applicationTables).toContain("operator_repair_actions");
+    expect(applicationTables).toContain("operational_alert_deliveries");
+    expect(applicationTables).toContain("operational_worker_tasks");
+    expect(applicationTables).toContain("operational_reconciliation_observations");
     expect(applicationTables).not.toContain("schema_migrations");
 
     expect(defaultReportingTables).toContain("public_pages");
@@ -80,11 +90,38 @@ describe("database authorization boundaries", () => {
     ]);
   });
 
+  test("grants runtime access to every application table created by migrations", async () => {
+    const migrationSql = await Promise.all(
+      (await listMigrationPaths()).map((migrationPath) => readFile(migrationPath, "utf8")),
+    );
+    const migratedTables = migrationSql.flatMap((sql) =>
+      Array.from(
+        sql.matchAll(/create\s+table(?:\s+if\s+not\s+exists)?\s+([a-z_][a-z0-9_]*)/gi),
+        (match) => match[1],
+      ),
+    );
+
+    const grantedTables: string[] = [...applicationTables];
+    expect(grantedTables.sort()).toEqual([...new Set(migratedTables)].sort());
+  });
+
   test("rejects unsafe SQL identifiers instead of interpolating them", () => {
     expect(() =>
       buildDatabaseAuthorizationSql({
         runtimeRole: 'runtime"; grant all on schema public to x; --',
       }),
     ).toThrow(/Unsafe SQL identifier/);
+  });
+
+  test("generates an idempotent repair for already-provisioned operational tables", () => {
+    const sql = buildDatabaseAuthorizationRepairSql();
+
+    expect(sql).toContain(
+      'ALTER TABLE "operational_reconciliation_observations" OWNER TO "ask_siargao_migration";',
+    );
+    expect(sql).toContain(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "operational_alert_deliveries" TO "ask_siargao_runtime";',
+    );
+    expect(sql).not.toContain("CREATE ROLE");
   });
 });

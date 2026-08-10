@@ -1,5 +1,6 @@
 import postgres from "postgres";
 
+import { createPostgresConnectionOptions } from "@/server/db/connection-options";
 import { loadMigrationFiles } from "@/server/db/migration-files";
 import {
   assertProviderReleaseCandidateBoundaryStable,
@@ -13,7 +14,11 @@ export async function verifyLiveProviderDatabase(input: {
   compareInitialReceipt: boolean;
   lane: ProviderReleaseCandidateLane;
 }) {
-  const sql = postgres(required("DATABASE_URL"), { max: 1, prepare: false });
+  const sql = postgres(required("DATABASE_URL"), {
+    ...createPostgresConnectionOptions("cli"),
+    max: 1,
+    prepare: false,
+  });
   try {
     const [ledgerRows, sentinelRows, expectedMigrations] = await Promise.all([
       sql<{ checksum: string; name: string }[]>`

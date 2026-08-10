@@ -37,6 +37,7 @@ import {
   classifyOperationalCondition,
   createSentryHttpSink,
   deliverOperationalAlertOnce,
+  deliverPendingPageWorthyAlerts,
 } from "@/server/operations/sentry-alerts";
 import { createTripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
 import {
@@ -668,6 +669,72 @@ describe("Sentry operational paging", () => {
       expect(sent).toHaveLength(1);
       expect(sent[0]).not.toContain("traveler@example.com");
       expect(sent[0]).toContain("operational_failure");
+    });
+  });
+
+  test("bounds stalled Sentry delivery", async () => {
+    const sink = createSentryHttpSink({
+      dsn: "https://public@example.invalid/42",
+      timeoutMs: 100,
+      fetchImpl: async (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        }),
+    });
+
+    await expect(
+      sink.send({
+        errorCode: "bounded_transport",
+        eventId: "a".repeat(32),
+        impact: "high",
+        operation: "account_closure",
+      }),
+    ).rejects.toBeDefined();
+  });
+
+  test("delivers all durable page-worthy state families through Sentry", async () => {
+    await withTestDb(async (db) => {
+      await db.query(
+        `insert into trip_pass_stripe_events (
+          id, stripe_event_id, stripe_api_version, normalized_schema_version, event_type,
+          object_type, object_id, status, attempt_count, alert_state
+        ) values ('event_page', 'evt_page', '2026-07-29.preview', 1, 'checkout.session.completed',
+          'checkout.session', 'cs_page', 'pending', 10, 'page')`,
+      );
+      await db.query("insert into users (id) values ('closure_page_user')");
+      await db.query(
+        `insert into account_closure_tombstones (
+           id, subject_type, subject_hash, subject_hash_version, closure_policy_version,
+           closed_at, purge_after
+         ) values ('closure_page_tombstone', 'clerk_user_id', 'closure_page_hash', 1,
+           'closure-v1', now(), now() + interval '1 day')`,
+      );
+      await db.query(
+        `insert into account_closure_operations (
+           id, tombstone_id, operation_type, status, attempts, phase_one_committed_at,
+           closure_policy_version, commerce_policy_version
+         ) values ('closure_page_operation', 'closure_page_tombstone', 'traveler_requested_closure',
+           'pending', 3, now(), 'closure-v1', 'commerce-v1')`,
+      );
+      await db.query(
+        `insert into account_closure_steps (
+           id, operation_id, step_type, status, attempts, alerted_at
+         ) values ('closure_page_step', 'closure_page_operation', 'clerk_deletion',
+           'pending', 3, now())`,
+      );
+      const sent: string[] = [];
+      const result = await deliverPendingPageWorthyAlerts({
+        db,
+        sink: {
+          async send(event) {
+            sent.push(event.operation);
+          },
+        },
+      });
+
+      expect(result.checked).toBeGreaterThanOrEqual(2);
+      expect(sent).toContain("stripe_application");
+      expect(sent).toContain("account_closure");
     });
   });
 

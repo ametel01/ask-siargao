@@ -1,9 +1,53 @@
 import { describe, expect, test } from "bun:test";
 import type { UserWebhookEvent, WebhookEvent } from "@clerk/backend";
 
-import { clerkWebhookResponse } from "@/app/api/clerk/webhooks/clerk-webhook-route";
+import {
+  clerkWebhookResponse,
+  maxClerkWebhookBodyBytes,
+} from "@/app/api/clerk/webhooks/clerk-webhook-route";
 
 describe("Clerk webhook route", () => {
+  test("rejects oversized bodies before signature verification", async () => {
+    let verifyCalls = 0;
+    const response = await clerkWebhookResponse(
+      new Request("https://siargao.test/api/clerk/webhooks", {
+        method: "POST",
+        headers: { "content-length": String(maxClerkWebhookBodyBytes + 1) },
+        body: "{}",
+      }),
+      {
+        applyClerkUserWebhookEvent: async () => ({ status: "upserted", userId: "unreached" }),
+        verifyWebhook: async () => {
+          verifyCalls += 1;
+          return userEvent("user.created", "unreached");
+        },
+      },
+    );
+
+    expect(response.status).toBe(413);
+    expect(verifyCalls).toBe(0);
+  });
+
+  test("bounds streamed bodies when content-length is absent", async () => {
+    let verifyCalls = 0;
+    const response = await clerkWebhookResponse(
+      new Request("https://siargao.test/api/clerk/webhooks", {
+        method: "POST",
+        body: "x".repeat(maxClerkWebhookBodyBytes + 1),
+      }),
+      {
+        applyClerkUserWebhookEvent: async () => ({ status: "upserted", userId: "unreached" }),
+        verifyWebhook: async () => {
+          verifyCalls += 1;
+          return userEvent("user.created", "unreached");
+        },
+      },
+    );
+
+    expect(response.status).toBe(413);
+    expect(verifyCalls).toBe(0);
+  });
+
   test("rejects requests that fail Clerk webhook verification", async () => {
     const internalPhrase = "fixture_should_not_render_clerk_verification";
     const response = await clerkWebhookResponse(clerkWebhookRequest(), {

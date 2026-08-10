@@ -78,13 +78,36 @@ export function getPublicKnowledgeCatalog() {
     return defaultCatalog;
   }
 
-  defaultCatalog = process.env.DATABASE_URL
-    ? createResilientPublicKnowledgeCatalog({
-        primary: createDatabasePublicKnowledgeCatalog({ client: getDefaultDatabaseQueryClient() }),
-      })
-    : createFixturePublicKnowledgeCatalog();
+  defaultCatalog = createRuntimePublicKnowledgeCatalog();
 
   return defaultCatalog;
+}
+
+export function createRuntimePublicKnowledgeCatalog({
+  databaseUrl = process.env.DATABASE_URL,
+  env = process.env,
+  primary,
+}: {
+  databaseUrl?: string;
+  env?: Pick<NodeJS.ProcessEnv, "NODE_ENV">;
+  primary?: PublicKnowledgeCatalog;
+} = {}) {
+  if (env.NODE_ENV === "production") {
+    if (!databaseUrl && !primary) {
+      return unavailablePublicKnowledgeCatalog();
+    }
+    return (
+      primary ?? createDatabasePublicKnowledgeCatalog({ client: getDefaultDatabaseQueryClient() })
+    );
+  }
+
+  return databaseUrl || primary
+    ? createResilientPublicKnowledgeCatalog({
+        primary:
+          primary ??
+          createDatabasePublicKnowledgeCatalog({ client: getDefaultDatabaseQueryClient() }),
+      })
+    : createFixturePublicKnowledgeCatalog();
 }
 
 export function resetPublicKnowledgeCatalogForTests(catalog: PublicKnowledgeCatalog | null = null) {
@@ -99,4 +122,15 @@ function normalizeFixtureCatalogLimit(limit: number | undefined) {
     return 1;
   }
   return Math.min(limit, PUBLIC_CATALOG_FIXTURE_MAX_LIMIT);
+}
+
+function unavailablePublicKnowledgeCatalog(): PublicKnowledgeCatalog {
+  const unavailable = async () => {
+    throw new Error("public_catalog_unavailable");
+  };
+  return {
+    getPage: unavailable,
+    listPages: unavailable,
+    listEligiblePages: unavailable,
+  };
 }

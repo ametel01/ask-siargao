@@ -42,6 +42,7 @@ import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/serve
 import type { AskSiargaoChatMessage } from "@/server/llm/chat-adapter";
 import { trackServerEvent } from "@/server/observability/events";
 import { createComponentLogger } from "@/server/observability/logger";
+import { beginTravelAnswerExposure } from "@/server/operations/production-exposure";
 import { loadUserProfile } from "@/server/profile/user-profile-store";
 import { checkRequestIdempotency, idempotencyJson } from "@/server/security/request-idempotency";
 import {
@@ -95,6 +96,7 @@ export type ChatRouteDependencies = AskSiargaoAgentDependencies & {
   runAskSiargaoAgentTurn?: typeof defaultRunAskSiargaoAgentTurn;
   now?: () => Date;
   logger?: Logger;
+  beginTravelAnswerExposure?: typeof beginTravelAnswerExposure;
 };
 
 type AuthenticatedChatPersistence = {
@@ -226,6 +228,13 @@ export async function chatResponse(
   let paidChatSettlement: PaidChatUsageSettlement | null = null;
   let authenticatedIdempotency: Awaited<ReturnType<typeof checkRequestIdempotency>> | null = null;
   const now = dependencies.now?.() ?? new Date(startedAt);
+  const exposure = await (dependencies.beginTravelAnswerExposure ?? beginTravelAnswerExposure)(
+    requestId,
+    { now },
+  );
+  if (exposure.status !== "allowed") {
+    return cloneJsonResponseWithHeaders(exposure.response, responseHeaders);
+  }
   const normalizedClientContext = normalizeTripContextClientContext(
     parsed.data.clientContext as TripContextClientContextInput | undefined,
     now,

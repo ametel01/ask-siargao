@@ -14,14 +14,27 @@ const defaultDependencies: ClerkWebhookRouteDependencies = {
     verifyClerkWebhook(request as Parameters<typeof verifyClerkWebhook>[0]),
 };
 
+export const maxClerkWebhookBodyBytes = 262_144;
+
 export async function clerkWebhookResponse(
   request: Request,
   dependencies: ClerkWebhookRouteDependencies = defaultDependencies,
 ) {
   let event: WebhookEvent;
 
+  const boundedRequest = await readBoundedWebhookRequest(request);
+  if (boundedRequest.status === "too_large") {
+    return Response.json(
+      {
+        error: "clerk_webhook_too_large",
+        message: `Webhook body must be ${maxClerkWebhookBodyBytes} bytes or smaller.`,
+      },
+      { status: 413 },
+    );
+  }
+
   try {
-    event = await dependencies.verifyWebhook(request);
+    event = await dependencies.verifyWebhook(boundedRequest.request);
   } catch {
     return Response.json(
       {
@@ -48,6 +61,53 @@ export async function clerkWebhookResponse(
       { status: 500 },
     );
   }
+}
+
+async function readBoundedWebhookRequest(
+  request: Request,
+): Promise<{ status: "ok"; request: Request } | { status: "too_large" }> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && /^\d+$/.test(contentLength)) {
+    if (Number(contentLength) > maxClerkWebhookBodyBytes) {
+      return { status: "too_large" };
+    }
+  }
+
+  if (!request.body) {
+    return { status: "ok", request };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      break;
+    }
+    totalBytes += chunk.value.byteLength;
+    if (totalBytes > maxClerkWebhookBodyBytes) {
+      await reader.cancel();
+      return { status: "too_large" };
+    }
+    chunks.push(chunk.value);
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return {
+    status: "ok",
+    request: new Request(request.url, {
+      body,
+      headers: request.headers,
+      method: request.method,
+    }),
+  };
 }
 
 function isUserWebhookEvent(event: WebhookEvent): event is UserWebhookEvent {

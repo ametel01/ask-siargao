@@ -24,6 +24,41 @@ describe("model cost circuits", () => {
     ).resolves.toMatchObject({ status: "allowed", provider: "deepseek" });
   });
 
+  test("defaults production to a USD 10 global circuit and a 2,000 micro-USD reservation", async () => {
+    const result = await reserveModelCost(
+      { model: "deepseek-v4-flash", requestId: "production_default" },
+      {
+        env: { NODE_ENV: "production" },
+        store: createMemoryQuotaStore(),
+        now: () => new Date("2026-07-14T00:00:00.000Z"),
+      },
+    );
+
+    expect(result).toMatchObject({ status: "allowed", amountMicros: 2_000 });
+  });
+
+  test("reconciles conservative reservations to actual modeled cost", async () => {
+    const store = createMemoryQuotaStore();
+    const env = {
+      GLOBAL_MODEL_DAILY_USD_LIMIT: "0.002001",
+      MODEL_COST_RESERVATION_MICRO_USD: "2000",
+    };
+    const first = await reserveModelCost(
+      { model: "deepseek-v4-flash", requestId: "reconcile_first" },
+      { env, store, now: () => new Date("2026-07-14T00:00:00.000Z") },
+    );
+    expect(first.status).toBe("allowed");
+    if (first.status === "allowed") {
+      expect(await first.settle(1)).toBe("settled");
+    }
+    await expect(
+      reserveModelCost(
+        { model: "deepseek-v4-flash", requestId: "reconcile_second" },
+        { env, store, now: () => new Date("2026-07-14T00:00:00.000Z") },
+      ),
+    ).resolves.toMatchObject({ status: "allowed" });
+  });
+
   test("blocks provider and global circuit races atomically", async () => {
     const providerStore = createMemoryQuotaStore();
     const providerEnv = {

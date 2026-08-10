@@ -10,7 +10,7 @@ validate restoration before depending on a provider backup.
 
 ## Prerequisites
 
-- A managed Postgres 16-compatible database for each environment.
+- A separate PlanetScale PostgreSQL 17 database in Singapore for each protected environment.
 - Provider backups with point-in-time recovery enabled before production traffic starts.
 - Separate credentials for migration, runtime, and optional reporting access.
 - Server-only deployment secrets. Never expose a database URL with a `NEXT_PUBLIC_` prefix.
@@ -29,10 +29,13 @@ Use these references alongside this runbook:
 
 ## Provision A Production Database
 
-1. Create one database per environment. Do not share staging and production data stores.
-2. Enable automated backups and point-in-time recovery in the provider before applying migrations.
-3. Set the backup retention window to cover at least seven days. Use a longer window when the
-   provider and budget allow it.
+1. Create separate PlanetScale databases in Singapore for production and Protected Staging. Use the
+   smallest highly available production cluster that satisfies launch capacity and the smallest
+   single-node staging cluster that can rehearse recovery. Do not use branches of one database as
+   the environment boundary.
+2. Add a custom backup schedule at least every 12 hours with seven-day retention. PlanetScale's
+   default two-day retention does not satisfy the production recovery contract.
+3. Confirm point-in-time recovery is available for the retained window before applying migrations.
 4. Create or bootstrap the database authorization roles:
 
 ```sh
@@ -51,13 +54,13 @@ bun -e 'import { buildDatabaseAuthorizationSql } from "./src/server/db/authoriza
 
 | Variable | Production starting point |
 | --- | --- |
-| `DATABASE_URL` | Runtime credential for the deployed app; migration credential only during migration jobs. |
-| `DATABASE_POOL_SIZE` | Start at `10`; lower it if provider connection limits are tight. |
+| `DATABASE_URL` | Runtime credential through PlanetScale's local PgBouncer on port `6432`; use the direct migration credential on port `5432` only during migration jobs. |
+| `DATABASE_POOL_SIZE` | Start at `2` for Vercel functions and tune only from observed concurrency. |
 | `DATABASE_CLI_POOL_SIZE` | Keep the default `1` for one-off jobs and migrations. |
 | `DATABASE_CONNECT_TIMEOUT_SECONDS` | Keep the default `10` unless the provider needs more. |
 | `DATABASE_IDLE_TIMEOUT_SECONDS` | Keep the default `30` for pooled app connections. |
 | `DATABASE_MAX_LIFETIME_SECONDS` | Keep the default `1800` to recycle long-lived sockets. |
-| `DATABASE_SSL_MODE` | Use `require` or provider-required verification in production. |
+| `DATABASE_SSL_MODE` | Use `verify-full`; release-candidate QA must prove PlanetScale hostname and certificate verification. |
 | `DATABASE_STATEMENT_TIMEOUT_MS` | Start with the production defaults: `30000` for app clients, `120000` for CLI jobs. |
 
 7. Apply migrations with the migration credential:
@@ -209,14 +212,16 @@ Set these production targets unless a stricter business target is agreed before 
 | Backup retention | At least 7 days of automated backups and WAL/PITR coverage. |
 | Restore drill | Monthly restore into an isolated non-production database. |
 
-Point-in-time recovery must be provider-managed or operator-tested before production launch. A
-backup that has never been restored is not accepted as production-ready.
+PlanetScale point-in-time recovery must be operator-tested before production launch. It restores to
+a new branch in the source database's region and supports recovery up to the provider's five-minute
+WAL buffer when the target is inside the retained backup window. A backup that has never been
+restored is not accepted as production-ready.
 
 Restore drill steps:
 
 1. Pick a timestamp inside the current backup retention window.
-2. Restore into a disposable database or isolated staging project. Never restore over production for
-   a drill.
+2. Restore into a new isolated PlanetScale branch. Never restore over the production branch for a
+   drill.
 3. Connect with a migration/reporting credential, not the production runtime credential.
 4. Validate the restored schema and migration ledger:
 

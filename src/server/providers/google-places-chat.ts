@@ -1,4 +1,8 @@
 import { createComponentLogger } from "@/server/observability/logger";
+import {
+  assertGooglePlacesCostCircuit,
+  reserveGooglePlacesSearchCost,
+} from "@/server/providers/google-places-cost-circuit";
 import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import { googlePlacesChatSearchFieldMask } from "@/server/providers/google-places-policy";
 import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
@@ -176,6 +180,10 @@ export async function getGooglePlacesChatContext({
     throw new Error("GOOGLE_API_KEY is required for Google Places chat lookup.");
   }
 
+  assertGooglePlacesCostCircuit(
+    await reserveGooglePlacesSearchCost({ fieldMask: googlePlacesChatSearchFieldMask }),
+  );
+
   const logger = googlePlacesChatLogger.child(
     compactLogFields({
       requestId: trace?.requestId,
@@ -186,8 +194,7 @@ export async function getGooglePlacesChatContext({
   const startedAt = Date.now();
   logger.info(
     {
-      label: search.label,
-      query: search.textQuery,
+      queryLength: search.textQuery.length,
       includedType: search.includedType,
       center: googlePlacesChatSearchCenterLogFields(),
       radiusMeters: search.radiusMeters,
@@ -219,7 +226,6 @@ export async function getGooglePlacesChatContext({
 
     logger.info(
       {
-        label: search.label,
         httpStatus: response.status,
         resultCount: places.length,
         status: places.length > 0 ? "available" : "no_results",
@@ -254,8 +260,7 @@ export async function getGooglePlacesChatContext({
     logger.error(
       {
         error,
-        label: search.label,
-        query: search.textQuery,
+        queryLength: search.textQuery.length,
         durationMs: Date.now() - startedAt,
       },
       "Google Places chat lookup failed.",

@@ -12,6 +12,7 @@ import {
   type PrivacyAuditSink,
   recordPrivacyAudit,
 } from "@/server/privacy/travel-data-controls";
+import { isAllowedMutationOrigin } from "@/server/security/request-origin";
 
 export type PrivacyRouteDependencies = {
   auth?: EnsureCurrentUserDependencies["auth"];
@@ -63,6 +64,13 @@ export async function postPrivacyActionResponse(
   request: Request,
   dependencies: PrivacyRouteDependencies = createDefaultPrivacyRouteDependencies(),
 ) {
+  if (!isAllowedMutationOrigin(request)) {
+    return Response.json(
+      { error: "invalid_request_origin" },
+      { status: 403, headers: { "cache-control": "private, no-store" } },
+    );
+  }
+
   // Correlation IDs are audit metadata. Never let a caller choose the value that is logged.
   const requestId = dependencies.requestId();
   const auditSink = dependencies.auditSink ?? defaultPrivacyAuditSink;

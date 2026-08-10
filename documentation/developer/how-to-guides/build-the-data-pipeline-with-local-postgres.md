@@ -310,16 +310,20 @@ Provision cloud Postgres only after the local Compose slice can:
 - Run the completeness gate before checkout.
 - Generate at least one public or internal fact-backed surface from the same data.
 
-Use the same Postgres major version selected for Compose Postgres. The local stack uses Postgres 16, so provision a Postgres 16-compatible managed database unless there is a deliberate reason to change both local and cloud together.
+The local Compose stack remains on PostgreSQL 16 as a lower-bound compatibility environment, while
+CI exercises PostgreSQL 17. Production uses PlanetScale PostgreSQL 17 in Singapore. Treat both local
+and CI database lanes as required compatibility evidence rather than assuming the Compose major
+selects the production provider version.
 
 Cloud setup requirements:
 
-- Dedicated database per environment.
+- Separate PlanetScale database per protected environment.
 - Server-only `DATABASE_URL`.
-- SSL configured according to provider requirements.
-- Automated backups enabled.
-- Point-in-time recovery enabled if available.
-- Separate credentials for app runtime and migrations if the provider supports it.
+- Runtime connections through local PgBouncer on port `6432` and direct migration connections on
+  port `5432`.
+- `DATABASE_SSL_MODE=verify-full` with hostname and certificate verification proven in QA.
+- A custom backup schedule at least every 12 hours with seven-day retention and PITR enabled.
+- Separate credentials for app runtime and migrations.
 - No test or demo secrets in production env vars.
 
 For the production provisioning, monitoring, maintenance, backup, and restore checklist, use

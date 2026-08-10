@@ -2,6 +2,7 @@ import type { UserJSON, UserWebhookEvent } from "@clerk/backend";
 import { auth } from "@clerk/nextjs/server";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import { reserveNewAccountExposure } from "@/server/operations/production-exposure";
 import { beginAccountClosure, readAccountClosurePolicy } from "@/server/privacy/account-closure";
 import {
   type ClosureSubjectHashPolicy,
@@ -61,6 +62,13 @@ export async function ensureCurrentUser(dependencies: Partial<EnsureCurrentUserD
     return null;
   }
 
+  if (!(await clerkUserExists(authSnapshot.userId, db))) {
+    const exposure = await reserveNewAccountExposure(authSnapshot.userId, { now: lastSeenAt });
+    if (exposure.status !== "allowed") {
+      return null;
+    }
+  }
+
   const user = await touchClerkUserSessionPresence(
     {
       id: authSnapshot.userId,
@@ -106,12 +114,26 @@ export async function applyClerkUserWebhookEvent(
   if (await hasClosureTombstoneForClerkUser(user.id, db, hashPolicy)) {
     return { status: "closed" as const, userId: user.id };
   }
+  if (!(await clerkUserExists(user.id, db))) {
+    const exposure = await reserveNewAccountExposure(user.id);
+    if (exposure.status !== "allowed") {
+      return { status: "limited" as const, userId: user.id };
+    }
+  }
 
   const result = await upsertClerkUser(user, db, hashPolicy);
   return {
     status: result.status === "closed" ? ("closed" as const) : ("upserted" as const),
     userId: user.id,
   };
+}
+
+async function clerkUserExists(userId: string, db: DatabaseQueryClient) {
+  const result = await db.query<{ id: string }>(
+    "select id from users where id = $1 and deleted_at is null limit 1",
+    [userId],
+  );
+  return Boolean(result.rows[0]);
 }
 
 export function normalizeClerkUser(user: UserJSON): ClerkUserInput {

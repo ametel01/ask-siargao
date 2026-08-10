@@ -30,6 +30,7 @@ export type OpenAIWebResearchProviderOptions = {
   apiKey?: string;
   client?: ResponsesClientLike;
   enabled?: boolean;
+  env?: Record<string, string | undefined>;
   maxResults?: number;
   model?: string;
   maxRetries?: number;
@@ -45,13 +46,15 @@ export const defaultWebResearchMaxRetries = 1;
 export function createConfiguredWebResearchProvider(
   options: OpenAIWebResearchProviderOptions = {},
 ): WebResearchSearchProvider | undefined {
-  const enabled =
-    options.enabled ?? process.env.WEB_RESEARCH_PROVIDER?.trim().toLowerCase() === "openai";
-  if (!enabled) {
+  const env = options.env ?? process.env;
+  const enabled = options.enabled ?? env.WEB_RESEARCH_PROVIDER?.trim().toLowerCase() === "openai";
+  const securityBoundaryComplete =
+    env.WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE?.trim().toLowerCase() === "true";
+  if (!enabled || !securityBoundaryComplete) {
     return undefined;
   }
 
-  const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
+  const apiKey = options.apiKey ?? env.OPENAI_API_KEY;
   const client: ResponsesClientLike | undefined =
     options.client ??
     (apiKey
@@ -68,7 +71,7 @@ export function createConfiguredWebResearchProvider(
   return createOpenAIWebResearchProvider({
     client,
     maxResults: options.maxResults,
-    model: options.model ?? process.env.OPENAI_WEB_SEARCH_MODEL ?? defaultOpenAiWebSearchModel,
+    model: options.model ?? env.OPENAI_WEB_SEARCH_MODEL ?? defaultOpenAiWebSearchModel,
   });
 }
 

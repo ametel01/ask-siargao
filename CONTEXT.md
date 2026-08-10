@@ -77,6 +77,11 @@ The immutable trusted-main commit deployed to the protected environment and used
 Evidence. A changed commit or relevant configuration creates a different candidate.
 _Avoid_: Prospective Candidate, latest main
 
+**Protected Staging**:
+A stable, access-controlled non-production deployment of one exact Release Candidate with isolated
+test data and provider resources. It can produce Release Evidence but cannot mutate production.
+_Avoid_: Untrusted preview, production clone
+
 **Launch Authorization**:
 The decision by an eligible non-author human approver to expose one release lane after reviewing its
 current evidence and residual risks. It is distinct from Production Readiness.
@@ -103,6 +108,17 @@ The independently authorized release lane that exposes public knowledge and auth
 under bounded usage, traffic, cost, monitoring, and rollback controls while Trip Pass checkout
 remains globally disabled.
 _Avoid_: Production launch, paid beta
+
+**Beta Cohort**:
+The invitation-controlled set of Ask Siargao Accounts allowed to request Travel Answers during the
+Free Controlled Beta. Public knowledge remains available outside the cohort.
+_Avoid_: Waitlist, all registered users
+
+**Staffed Exposure Window**:
+The daily interval in which one named Operator is available and Ask Siargao accepts new Travel
+Answers during the Free Controlled Beta. Account access and privacy operations remain available when
+the window is closed.
+_Avoid_: Business hours, maintenance window
 
 **General Free Availability**:
 The independently authorized release lane that removes beta traffic caps while retaining the free

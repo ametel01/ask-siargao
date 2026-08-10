@@ -9,7 +9,12 @@ import { readTripPassEnvironment } from "@/server/trip-pass/catalog";
 export type ModelCostCircuitProvider = "deepseek" | "openai";
 
 export type ModelCostCircuitResult =
-  | { status: "allowed"; amountMicros: number; provider: ModelCostCircuitProvider }
+  | {
+      status: "allowed";
+      amountMicros: number;
+      provider: ModelCostCircuitProvider;
+      settle(actualAmountMicros: number): Promise<"settled" | "over_budget">;
+    }
   | { status: "not_configured"; provider: ModelCostCircuitProvider }
   | {
       status: "blocked";
@@ -25,7 +30,8 @@ export type ModelCostCircuitOptions = {
 };
 
 const oneDayMs = 24 * 60 * 60 * 1_000;
-const defaultReservationMicros = 1;
+const defaultReservationMicros = 2_000;
+const productionGlobalModelDailyUsdLimit = 10;
 
 let defaultStore: QuotaStore | undefined;
 
@@ -42,7 +48,13 @@ export async function reserveModelCost(
     provider === "deepseek"
       ? environment.costBudgets.deepSeekDailyUsd
       : environment.costBudgets.openAiDailyUsd;
-  const globalLimitUsd = environment.costBudgets.globalDailyUsd;
+  const configuredGlobalLimitUsd = environment.costBudgets.globalDailyUsd;
+  const globalLimitUsd = isProduction(options.env)
+    ? Math.min(
+        configuredGlobalLimitUsd ?? productionGlobalModelDailyUsdLimit,
+        productionGlobalModelDailyUsdLimit,
+      )
+    : configuredGlobalLimitUsd;
 
   if (providerLimitUsd === null && globalLimitUsd === null) {
     return { status: "not_configured", provider };
@@ -85,7 +97,46 @@ export async function reserveModelCost(
       consumed.push({ key: providerKey, amount: amountMicros });
     }
 
-    return { status: "allowed", amountMicros, provider };
+    return {
+      status: "allowed",
+      amountMicros,
+      provider,
+      async settle(actualAmountMicros) {
+        const actual = normalizeActualMicros(actualAmountMicros, amountMicros);
+        const difference = actual - amountMicros;
+        if (difference === 0) {
+          return "settled";
+        }
+        if (difference < 0) {
+          await releaseConsumedBudget(
+            store,
+            consumed.map((entry) => ({ ...entry, amount: -difference })),
+          );
+          return "settled";
+        }
+
+        const adjustments: Array<{ amount: number; key: string }> = [];
+        for (const entry of consumed) {
+          const limit = entry.key.includes(":global:") ? globalLimitUsd : providerLimitUsd;
+          if (limit === null) {
+            continue;
+          }
+          const adjustment = await store.consumeBudget({
+            key: entry.key,
+            amount: difference,
+            limit: usdToMicros(limit),
+            nowMs,
+            windowMs: oneDayMs,
+          });
+          if (adjustment.status === "exceeded") {
+            await releaseConsumedBudget(store, adjustments);
+            return "over_budget";
+          }
+          adjustments.push({ key: entry.key, amount: difference });
+        }
+        return "settled";
+      },
+    };
   } catch {
     await releaseConsumedBudget(store, consumed);
     return { status: "unavailable", provider };
@@ -129,6 +180,14 @@ function parseReservationMicros(env: Record<string, string | undefined> = proces
   }
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : defaultReservationMicros;
+}
+
+function normalizeActualMicros(value: number, fallback: number) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
+}
+
+function isProduction(env: Record<string, string | undefined> = process.env) {
+  return env.NODE_ENV === "production" || env.APP_ENV === "production";
 }
 
 function usdToMicros(value: number) {

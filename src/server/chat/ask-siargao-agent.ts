@@ -72,7 +72,11 @@ import {
   selectedResearchEntityNames,
 } from "@/server/chat/required-evidence";
 import { createConfiguredChatResponsesClient } from "@/server/llm/chat-model-provider";
-import { createModelCostAccumulator, modelCostTelemetryPayload } from "@/server/llm/model-cost";
+import {
+  createModelCostAccumulator,
+  estimateModelCallCostUsd,
+  modelCostTelemetryPayload,
+} from "@/server/llm/model-cost";
 import { trackServerEvent } from "@/server/observability/events";
 import { createComponentLogger } from "@/server/observability/logger";
 import { createConfiguredWebResearchProvider } from "@/server/providers/web-search";
@@ -888,13 +892,28 @@ async function createBudgetedModelResponse({
 }) {
   assertModelCallAllowed(costAccumulator.summary().callCount, costPolicy);
   const model = typeof params.model === "string" ? params.model : "unknown";
-  assertModelCostCircuit(
-    await reserveModelCost(
-      { model, requestId: costAccumulator.summary().requestId },
-      { env: costPolicyEnv, now, store: costCircuitStore },
-    ),
+  const reservation = await reserveModelCost(
+    { model, requestId: costAccumulator.summary().requestId },
+    { env: costPolicyEnv, now, store: costCircuitStore },
   );
-  return client.responses.create(params);
+  assertModelCostCircuit(reservation);
+  try {
+    const response = await client.responses.create(params);
+    if (reservation.status === "allowed") {
+      const modeledCostUsd = response.usage ? estimateModelCallCostUsd(response.usage) : "0";
+      const actualMicros =
+        response.usage?.provider === "deepseek"
+          ? Number.parseInt((Number(modeledCostUsd) * 1_000_000).toFixed(0), 10)
+          : reservation.amountMicros;
+      await reservation.settle(actualMicros);
+    }
+    return response;
+  } catch (error) {
+    if (reservation.status === "allowed") {
+      await reservation.settle(0);
+    }
+    throw error;
+  }
 }
 
 function boundedMaxOutputTokens(value: unknown, maxOutputTokens: number) {

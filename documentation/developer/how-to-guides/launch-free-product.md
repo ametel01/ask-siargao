@@ -45,6 +45,11 @@ thereafter. Require a successful database restore drill within the previous 30 d
 
 ## 3. Assign budget and accountable people
 
+Start from the current
+[Free Controlled Beta accountability record](../reference/free-controlled-beta-accountability.md),
+then copy its assignments and limits into the dedicated free-release GitHub issue. Update the record
+and issue together when an owner, limit, or approver changes.
+
 Record the following in the dedicated free-release GitHub issue:
 
 - the approved daily provider and model spend cap and currency;

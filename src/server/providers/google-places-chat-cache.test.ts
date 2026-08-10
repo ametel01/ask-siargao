@@ -21,6 +21,28 @@ const generalLunaRestaurantSearch: GooglePlacesChatSearch = {
 };
 
 describe("Google Places chat cache", () => {
+  test("never writes raw traveler search text to durable logs", async () => {
+    const db = await openGooglePlacesChatCacheTestDatabase();
+    const logs: TestLog[] = [];
+    const privateQuery = "wheelchair access near my private villa";
+    const adapter = createCachedGooglePlacesChatContextAdapter({
+      db,
+      logger: createTestLogger(logs),
+      liveAdapter: async ({ fetchedAt, search }) =>
+        googlePlacesContext({ fetchedAt, placeCount: 0, search }),
+    });
+
+    await adapter({
+      cacheMode: "no_store",
+      fetchedAt: "2026-07-20T01:00:00.000Z",
+      search: { ...generalLunaRestaurantSearch, textQuery: privateQuery },
+    });
+
+    expect(JSON.stringify(logs)).not.toContain(privateQuery);
+    expect(JSON.stringify(logs)).toContain(`"queryLength":${privateQuery.length}`);
+    await db.close();
+  });
+
   test("bypasses cache reads and writes for no-store chat search contexts", async () => {
     const db = await openGooglePlacesChatCacheTestDatabase();
     const logs: TestLog[] = [];

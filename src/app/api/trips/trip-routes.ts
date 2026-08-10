@@ -3,8 +3,10 @@ import { z } from "zod";
 import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import { isAllowedMutationOrigin } from "@/server/security/request-origin";
 import {
   createSharedTripPlan,
+  deleteSharedTripPlanByToken,
   generateShareToken,
   hashClientTripKey,
   listSavedTripItems,
@@ -264,6 +266,28 @@ export async function sharedTripTokenResponse(
   }
 
   return Response.json({ plan }, { headers });
+}
+
+export async function revokeSharedTripTokenResponse(
+  request: Request,
+  {
+    dependencies = createDefaultTripRouteDependencies(),
+    headers,
+    token,
+  }: {
+    token: string;
+    dependencies?: TripRouteDependencies;
+    headers?: HeadersInit;
+  },
+) {
+  if (!isAllowedMutationOrigin(request)) {
+    return Response.json({ error: "invalid_request_origin" }, { status: 403, headers });
+  }
+  const revoked = await deleteSharedTripPlanByToken(dependencies.db, {
+    publicToken: token,
+    now: dependencies.now().toISOString(),
+  });
+  return Response.json({ revoked }, { headers });
 }
 
 async function listSavedTripsResponse(
