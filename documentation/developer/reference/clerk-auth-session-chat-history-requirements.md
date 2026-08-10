@@ -10,7 +10,9 @@ Production and protected staging require both to be `enabled`; untrusted preview
 and receive no Clerk secrets. `CLERK_AUTHORIZED_PARTIES` contains exact origins only. Production
 and protected staging additionally bind to their stable origin, Vercel project, and optional target
 environment or branch identity. Wildcards, generated preview hosts, and key-presence inference fail
-closed.
+closed. A Vercel Custom Environment may expose `VERCEL_ENV=production`; protected staging accepts
+that production-class runtime only when `VERCEL_TARGET_ENV` exactly matches its configured
+non-production target. A production Clerk context is rejected on that target.
 
 ## User flows
 

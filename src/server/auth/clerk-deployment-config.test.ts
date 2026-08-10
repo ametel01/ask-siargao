@@ -83,6 +83,27 @@ describe("Clerk deployment configuration", () => {
     });
   });
 
+  test("accepts a protected staging custom environment with a production-class runtime", () => {
+    expect(
+      readClerkDeploymentConfig({
+        ...completeProductionEnv,
+        CLERK_DEPLOYMENT_CONTEXT: "protected-staging",
+        CLERK_PROTECTED_STAGING_GIT_COMMIT_REF: undefined,
+        NEXT_PUBLIC_APP_URL: stagingOrigin,
+        VERCEL_ENV: "production",
+        VERCEL_TARGET_ENV: stagingTargetEnv,
+        VERCEL_URL: stagingVercelUrl,
+      }),
+    ).toMatchObject({
+      ok: true,
+      config: {
+        canonicalOrigin: stagingOrigin,
+        context: "protected-staging",
+        mode: "enabled",
+      },
+    });
+  });
+
   test("rejects missing mode in production and protected staging", () => {
     for (const context of ["production", "protected-staging"] as const) {
       const result = readClerkDeploymentConfig({
@@ -181,6 +202,31 @@ describe("Clerk deployment configuration", () => {
 
     expect(result.ok).toBe(false);
     expect(errorCodes(result)).toContain("production_platform_context_mismatch");
+  });
+
+  test("rejects a production Clerk context on a non-production custom target", () => {
+    const result = readClerkDeploymentConfig({
+      ...completeProductionEnv,
+      VERCEL_TARGET_ENV: stagingTargetEnv,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(errorCodes(result)).toContain("production_vercel_target_env_mismatch");
+  });
+
+  test("rejects protected staging on a production-class runtime without the exact staging target", () => {
+    const result = readClerkDeploymentConfig({
+      ...completeProductionEnv,
+      CLERK_DEPLOYMENT_CONTEXT: "protected-staging",
+      CLERK_PROTECTED_STAGING_GIT_COMMIT_REF: undefined,
+      NEXT_PUBLIC_APP_URL: stagingOrigin,
+      VERCEL_TARGET_ENV: "production",
+      VERCEL_URL: stagingVercelUrl,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(errorCodes(result)).toContain("protected_staging_platform_context_mismatch");
+    expect(errorCodes(result)).toContain("vercel_target_env_mismatch");
   });
 
   test("accepts protected deployments when generated Vercel deployment URLs change", () => {

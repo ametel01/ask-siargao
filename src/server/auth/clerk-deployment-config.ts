@@ -266,7 +266,16 @@ function validatePlatformContext(
   context: ClerkDeploymentContext,
   errors: ClerkConfigError[],
 ) {
-  if (env.VERCEL_ENV === "production" && context !== "production") {
+  const protectedStagingCustomEnvironment =
+    context === "protected-staging" &&
+    hasEnvValue(env.CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV) &&
+    env.VERCEL_TARGET_ENV === env.CLERK_PROTECTED_STAGING_VERCEL_TARGET_ENV;
+
+  if (
+    env.VERCEL_ENV === "production" &&
+    context !== "production" &&
+    !protectedStagingCustomEnvironment
+  ) {
     errors.push({
       code: "vercel_production_context_mismatch",
       field: "CLERK_DEPLOYMENT_CONTEXT",
@@ -291,11 +300,28 @@ function validatePlatformContext(
     });
   }
 
-  if (context === "protected-staging" && env.VERCEL_ENV !== "preview") {
+  if (
+    context === "production" &&
+    hasEnvValue(env.VERCEL_TARGET_ENV) &&
+    env.VERCEL_TARGET_ENV !== "production"
+  ) {
+    errors.push({
+      code: "production_vercel_target_env_mismatch",
+      field: "VERCEL_TARGET_ENV",
+      message: "Production Clerk deployments cannot run on a non-production Vercel target.",
+    });
+  }
+
+  if (
+    context === "protected-staging" &&
+    env.VERCEL_ENV !== "preview" &&
+    !protectedStagingCustomEnvironment
+  ) {
     errors.push({
       code: "protected_staging_platform_context_mismatch",
       field: "VERCEL_ENV",
-      message: "Protected staging Clerk deployments require VERCEL_ENV=preview.",
+      message:
+        "Protected staging Clerk deployments require VERCEL_ENV=preview or the exact configured Vercel custom target.",
     });
   }
 }
