@@ -8,15 +8,22 @@ describe("Postgres connection options", () => {
 
     expect(options).toEqual({
       connect_timeout: 10,
-      connection: {
-        statement_timeout: 0,
-      },
       idle_timeout: 30,
       max: 10,
       max_lifetime: 1_800,
       prepare: false,
       ssl: false,
     });
+  });
+
+  test("omits a disabled statement timeout for PgBouncer compatibility", () => {
+    const options = createPostgresConnectionOptions("app", {
+      DATABASE_SSL_MODE: "verify-full",
+      DATABASE_STATEMENT_TIMEOUT_MS: "0",
+      NODE_ENV: "production",
+    });
+
+    expect(options.connection).toBeUndefined();
   });
 
   test("uses production app defaults when verified TLS is configured", () => {

@@ -62,7 +62,7 @@ The app reads these environment variables.
 | `DATABASE_IDLE_TIMEOUT_SECONDS` | Server only | Postgres clients | Optional. Integer seconds greater than or equal to `0`; `0` disables idle closing. Defaults to `30`. |
 | `DATABASE_MAX_LIFETIME_SECONDS` | Server only | Postgres clients | Optional. Integer seconds greater than or equal to `0`; `0` disables lifetime closing. Defaults to `1800`. |
 | `DATABASE_SSL_MODE` | Server only | Postgres clients | Required to be `verify-full` when `NODE_ENV=production`. Outside production, allowed values are `disable`, `allow`, `prefer`, `require`, and `verify-full`, defaulting to `disable` for local Docker compatibility. |
-| `DATABASE_STATEMENT_TIMEOUT_MS` | Server only | Postgres clients | Optional. Integer milliseconds greater than or equal to `0`; `0` disables the connection-level statement timeout. Defaults to `30000` for app clients in production, `120000` for CLI/job clients in production, and `0` outside production. |
+| `DATABASE_STATEMENT_TIMEOUT_MS` | Server only | Postgres clients | Optional. Integer milliseconds greater than or equal to `0`; `0` disables and omits the connection-level startup parameter for PgBouncer compatibility. Defaults to `30000` for app clients in production, `120000` for CLI/job clients in production, and `0` outside production. |
 | `STRIPE_RESTRICTED_KEY` | Server only | Stripe Checkout API calls | Preferred server key for Checkout permissions. |
 | `STRIPE_SECRET_KEY` | Server only | Stripe Checkout API calls | Fallback when `STRIPE_RESTRICTED_KEY` is not set. |
 | `STRIPE_WEBHOOK_SECRET` | Server only | Stripe webhook verification | Required by `/api/stripe/webhook`. |

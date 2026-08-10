@@ -37,6 +37,12 @@ export function createPostgresConnectionOptions(
     profile === "cli"
       ? defaultProductionCliStatementTimeoutMs
       : defaultProductionAppStatementTimeoutMs;
+  const statementTimeout = parseIntegerEnv(
+    "DATABASE_STATEMENT_TIMEOUT_MS",
+    env.DATABASE_STATEMENT_TIMEOUT_MS,
+    isProduction ? statementTimeoutDefault : 0,
+    { minimum: 0 },
+  );
 
   return {
     connect_timeout: parseIntegerEnv(
@@ -45,14 +51,7 @@ export function createPostgresConnectionOptions(
       defaultConnectTimeoutSeconds,
       { minimum: 1 },
     ),
-    connection: {
-      statement_timeout: parseIntegerEnv(
-        "DATABASE_STATEMENT_TIMEOUT_MS",
-        env.DATABASE_STATEMENT_TIMEOUT_MS,
-        isProduction ? statementTimeoutDefault : 0,
-        { minimum: 0 },
-      ),
-    },
+    ...(statementTimeout > 0 ? { connection: { statement_timeout: statementTimeout } } : {}),
     idle_timeout: parseIntegerEnv(
       "DATABASE_IDLE_TIMEOUT_SECONDS",
       env.DATABASE_IDLE_TIMEOUT_SECONDS,
