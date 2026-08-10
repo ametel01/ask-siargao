@@ -15,7 +15,8 @@ export type OperationalAlert = {
     | "account_closure"
     | "redis_availability"
     | "paid_after_closure_refund"
-    | "live_reconciliation";
+    | "live_reconciliation"
+    | "scheduled_maintenance";
 };
 
 export type OperationalCondition =

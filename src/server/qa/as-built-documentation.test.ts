@@ -52,6 +52,7 @@ test("as-built environment example covers the production-readiness interfaces", 
     "ACCOUNT_CLOSURE_TOMBSTONE_HMAC_PREVIOUS_KEYS_JSON",
     "TRIP_PASS_IDEMPOTENCY_HMAC_KEY",
     "REDIS_URL",
+    "SENTRY_CRON_MONITOR_SLUG",
     "SENTRY_DSN",
     "OPERATOR_ACCOUNT_IDS",
   ]) {

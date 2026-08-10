@@ -2,7 +2,7 @@ import {
   authorizeVercelCron,
   cronJson,
   cronUnauthorized,
-  runOperationalCron,
+  runMonitoredOperationalCron,
 } from "@/server/operations/vercel-cron";
 
 export const dynamic = "force-dynamic";
@@ -12,5 +12,6 @@ export async function GET(request: Request) {
   if (!authorizeVercelCron(request)) {
     return cronUnauthorized();
   }
-  return cronJson(await runOperationalCron());
+  const result = await runMonitoredOperationalCron();
+  return cronJson(result, result.schedules.ok ? 200 : 503);
 }

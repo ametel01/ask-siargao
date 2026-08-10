@@ -45,6 +45,7 @@ import {
   operationalFindings,
   operationalReconciliationObservations,
   operationalReconciliationRuns,
+  operationalScheduleStates,
   operationalWorkerTasks,
   operatorRepairActions,
   paidAnswerReservations,
@@ -119,6 +120,8 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0018_operational_command_and_observation_fencing.sql");
     expect(migrationNames).toContain("0019_operational_page_intent_fencing.sql");
     expect(migrationNames).toContain("0020_shared_trip_link_expiry.sql");
+    expect(migrationNames).toContain("0021_operational_schedule_sentinel.sql");
+    expect(migrationNames).toContain("0022_operational_schedule_sentinel_authorization.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -190,6 +193,7 @@ describe("Step 3 database migration", () => {
       "llm_runs",
       "llm_tool_calls",
       "reviewer_results",
+      "operational_schedule_states",
     ];
 
     const tables = await db.query<{ table_name: string }>(
@@ -308,6 +312,8 @@ describe("Step 3 database migration", () => {
       "0018_operational_command_and_observation_fencing.sql",
       "0019_operational_page_intent_fencing.sql",
       "0020_shared_trip_link_expiry.sql",
+      "0021_operational_schedule_sentinel.sql",
+      "0022_operational_schedule_sentinel_authorization.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -391,6 +397,8 @@ describe("Step 3 database migration", () => {
       "0018_operational_command_and_observation_fencing.sql",
       "0019_operational_page_intent_fencing.sql",
       "0020_shared_trip_link_expiry.sql",
+      "0021_operational_schedule_sentinel.sql",
+      "0022_operational_schedule_sentinel_authorization.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -403,6 +411,7 @@ describe("Step 3 database migration", () => {
       "operational_findings",
       "operational_reconciliation_observations",
       "operational_reconciliation_runs",
+      "operational_schedule_states",
       "operational_worker_tasks",
       "operator_repair_actions",
     ]);
@@ -459,6 +468,8 @@ describe("Step 3 database migration", () => {
       "0018_operational_command_and_observation_fencing.sql",
       "0019_operational_page_intent_fencing.sql",
       "0020_shared_trip_link_expiry.sql",
+      "0021_operational_schedule_sentinel.sql",
+      "0022_operational_schedule_sentinel_authorization.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -579,6 +590,8 @@ describe("Step 3 database migration", () => {
       "0018_operational_command_and_observation_fencing.sql",
       "0019_operational_page_intent_fencing.sql",
       "0020_shared_trip_link_expiry.sql",
+      "0021_operational_schedule_sentinel.sql",
+      "0022_operational_schedule_sentinel_authorization.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -912,6 +925,7 @@ describe("Step 3 database migration", () => {
       operatorRepairActions,
       operationalAlertDeliveries,
       operationalWorkerTasks,
+      operationalScheduleStates,
       areas,
       routes,
       providers,

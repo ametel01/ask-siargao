@@ -56,6 +56,7 @@ describe("database authorization boundaries", () => {
     expect(applicationTables).toContain("operational_alert_deliveries");
     expect(applicationTables).toContain("operational_worker_tasks");
     expect(applicationTables).toContain("operational_reconciliation_observations");
+    expect(applicationTables).toContain("operational_schedule_states");
     expect(applicationTables).not.toContain("schema_migrations");
 
     expect(defaultReportingTables).toContain("public_pages");

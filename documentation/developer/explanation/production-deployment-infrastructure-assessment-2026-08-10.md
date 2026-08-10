@@ -216,19 +216,26 @@ External provider availability does not control readiness. Clerk, DeepSeek, Goog
 Open-Meteo, Sentry, and PostHog failures appear in asynchronous diagnostics and alerts so the app can
 degrade deliberately rather than masquerade as a dead process.
 
-Sentry Cloud sends operational alerts to email and the Operator's mobile notifications. Slack is
-deferred because it requires a higher Sentry team plan. Cron jobs emit monitored heartbeats. Launch
-evidence must demonstrate alert creation,
-delivery, acknowledgement, and recovery through the real route. PostHog Cloud remains analytics-only
-and cannot satisfy paging or health evidence.
+Sentry Cloud sends operational alerts to email. Slack and a separately evidenced mobile-delivery
+path are deferred because they require capabilities or evidence not available on the Developer
+plan. Launch evidence must demonstrate event creation, email delivery, acknowledgement, and
+recovery through the real route. PostHog Cloud remains analytics-only and cannot satisfy paging or
+health evidence.
 
-Sentry Uptime Monitoring checks both health endpoints from outside the application, and Sentry Cron
-Monitoring tracks every scheduled adapter. The application presents a truthful status banner when
-it is reachable but degraded. A separate hosted public status page is deferred until General Free
-Availability.
+The approved zero-cost monitoring design uses the Developer plan's one uptime monitor for
+`/api/health/ready` and one Cron monitor for `/api/cron/operations`. Before production exists, the
+uptime monitor targets protected staging with a dedicated Vercel automation-bypass header; at
+launch, that same monitor moves to the public production readiness URL. Liveness and staging remain
+deployment-time smoke checks. The aggregate operations Cron records weather, marine, and Places
+pruning schedule state in PostgreSQL and sends one scrubbed page per failed or stale lifecycle, so
+independent operational diagnosis does not require three more Sentry Cron monitors. The application
+presents a truthful status banner when it is reachable but degraded. A separate hosted public
+status page is deferred until General Free Availability.
 
-Scrubbed Sentry events are retained for 30 days. Allowlisted PostHog events are retained for 90 days
-in a US-hosted project, with session replay disabled. Prompts and message text are prohibited from
+Scrubbed Sentry events target 30-day retention. Allowlisted PostHog events target 90-day retention
+in a US-hosted project, with session replay disabled. The 2026-08-11 vendor review found PostHog
+configured for 12-month event retention, so production traffic remains blocked until the setting is
+reduced or a privacy-approved variance is recorded. Prompts and message text are prohibited from
 both systems. Vercel's short runtime-log window is acceptable only because material operational
 events and incidents reach Sentry.
 
@@ -354,11 +361,17 @@ The relevant implementation evidence is in
 [`vercel-cron.ts`](../../../src/server/operations/vercel-cron.ts), and the
 [ordinary CI workflow](../../../.github/workflows/ci.yml).
 
-A clean source tree or successful deployment does not close this boundary. Production Readiness also
-requires exact-SHA Foundation Gate results, protected Clerk and Stripe provider QA where applicable,
-a tested scheduler, the specified capacity test and provider canary, monitoring ownership, an
-application rollback exercise, a complete vendor register, and a successful database restore drill
-from the previous 30 days. The
+A clean source tree or successful deployment does not close this boundary. The
+[2026-08-11 monitoring and recovery drill](../reference/monitoring-and-recovery-drill-2026-08-11.md)
+completed the emergency-stop, application rollback, database restore, RPO/RTO, and representative
+secret-rotation exercises. The
+[production vendor register](../reference/production-vendor-register.md) now inventories every
+active and conditional provider, but it records unresolved legal and retention blockers.
+Production Readiness still requires exact-SHA Foundation Gate results, protected Clerk and Stripe
+provider QA where applicable, a fully monitored scheduler, the specified capacity test and provider
+canary, successful Sentry acknowledgement and email delivery, a working external readiness check,
+deployment-time liveness and staging health checks, and
+closure of the vendor-register blockers. The
 [release-candidate QA guide](../how-to-guides/run-release-candidate-qa.md) defines that evidence, while
 the [free-product](../how-to-guides/launch-free-product.md) and
 [Trip Pass](../how-to-guides/launch-trip-pass.md) guides define independent Launch Authorization.

@@ -2,6 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { pruneGooglePlacesContent } from "@/server/jobs/prune-google-places";
+import {
+  evaluateOperationalSchedules,
+  runTrackedOperationalSchedule,
+} from "@/server/operations/operational-schedule-sentinel";
 import { enqueueDueOperationalTasks } from "@/server/operations/operational-task-producer";
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
@@ -10,6 +14,11 @@ import {
   deliverPendingPageWorthyAlerts,
   type SentryOperationalSink,
 } from "@/server/operations/sentry-alerts";
+import {
+  createSentryCronHttpSink,
+  type SentryCronSink,
+  sentryEnvironment,
+} from "@/server/operations/sentry-cron";
 import { runOperationalWorker } from "@/server/operations/worker-runner";
 import { buildOpenMeteoIngestionBatch } from "@/server/providers/open-meteo";
 import { buildOpenMeteoMarineIngestionBatch } from "@/server/providers/open-meteo-marine";
@@ -28,7 +37,7 @@ export function authorizeVercelCron(request: Request, secret = process.env.CRON_
 }
 
 export async function runOperationalCron(
-  dependencies: { db?: DatabaseQueryClient; sentry?: SentryOperationalSink } = {},
+  dependencies: { db?: DatabaseQueryClient; now?: Date; sentry?: SentryOperationalSink } = {},
 ) {
   const db = dependencies.db ?? getDefaultDatabaseQueryClient();
   const sentry = dependencies.sentry ?? sentryFromEnvironment();
@@ -58,35 +67,99 @@ export async function runOperationalCron(
     },
   );
   const alerts = await deliverPendingPageWorthyAlerts({ db, sink: sentry });
-  return { alerts: alerts.checked, enqueued, worker };
+  const schedules = await evaluateOperationalSchedules({ db, now: dependencies.now });
+  const scheduleAlerts = [];
+  for (const issue of schedules.issues) {
+    scheduleAlerts.push(
+      await deliverOperationalAlertOnce(
+        {
+          alertKey: `scheduled-operation:${issue.scheduleKey}:${issue.status}:lifecycle:${issue.lifecycle}`,
+          errorCode: issue.errorCode,
+          impact: "high",
+          operation: "scheduled_maintenance",
+        },
+        { db, sink: sentry },
+      ),
+    );
+  }
+  return {
+    alerts: { pending: alerts.checked, schedules: scheduleAlerts },
+    enqueued,
+    schedules,
+    worker,
+  };
+}
+
+export async function runMonitoredOperationalCron(
+  dependencies: {
+    cron?: SentryCronSink;
+    db?: DatabaseQueryClient;
+    environment?: string;
+    now?: Date;
+    sentry?: SentryOperationalSink;
+  } = {},
+) {
+  const startedAt = performance.now();
+  const cron = dependencies.cron ?? sentryCronFromEnvironment();
+  let result: Awaited<ReturnType<typeof runOperationalCron>>;
+  try {
+    result = await runOperationalCron(dependencies);
+  } catch (error) {
+    try {
+      await cron?.send({
+        durationMs: performance.now() - startedAt,
+        environment: dependencies.environment ?? sentryEnvironment(),
+        status: "error",
+      });
+    } catch {
+      // The missing check-in is itself the signal; preserve the application failure.
+    }
+    throw error;
+  }
+  await cron?.send({
+    durationMs: performance.now() - startedAt,
+    environment: dependencies.environment ?? sentryEnvironment(),
+    status: result.schedules.ok ? "ok" : "error",
+  });
+  return result;
 }
 
 export async function runWeatherCron(
   kind: "marine" | "weather",
   db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
 ) {
-  const batch =
-    kind === "marine"
-      ? await buildOpenMeteoMarineIngestionBatch({})
-      : await buildOpenMeteoIngestionBatch({});
-  const write = async (transaction: DatabaseQueryClient) =>
-    upsertProviderFactGraphBatch(transaction, batch);
-  if (db.transaction) {
-    await db.transaction(write);
-  } else {
-    await write(db);
-  }
-  return { evidence: batch.evidence.length, facts: batch.facts.length, kind };
+  return runTrackedOperationalSchedule(
+    kind,
+    async () => {
+      const batch =
+        kind === "marine"
+          ? await buildOpenMeteoMarineIngestionBatch({})
+          : await buildOpenMeteoIngestionBatch({});
+      const write = async (transaction: DatabaseQueryClient) =>
+        upsertProviderFactGraphBatch(transaction, batch);
+      if (db.transaction) {
+        await db.transaction(write);
+      } else {
+        await write(db);
+      }
+      return { evidence: batch.evidence.length, facts: batch.facts.length, kind };
+    },
+    { db },
+  );
 }
 
 export async function runPlacesPruneCron(
   db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
 ) {
-  return pruneGooglePlacesContent({ db, batchSize: 100, maxBatches: 10 });
+  return runTrackedOperationalSchedule(
+    "places_prune",
+    () => pruneGooglePlacesContent({ db, batchSize: 100, maxBatches: 10 }),
+    { db },
+  );
 }
 
-export function cronJson(result: unknown) {
-  return Response.json(result, { headers: { "cache-control": "no-store" } });
+export function cronJson(result: unknown, status = 200) {
+  return Response.json(result, { status, headers: { "cache-control": "no-store" } });
 }
 
 export function cronUnauthorized() {
@@ -98,4 +171,13 @@ export function cronUnauthorized() {
 
 function sentryFromEnvironment() {
   return process.env.SENTRY_DSN ? createSentryHttpSink({ dsn: process.env.SENTRY_DSN }) : undefined;
+}
+
+function sentryCronFromEnvironment() {
+  return process.env.SENTRY_DSN
+    ? createSentryCronHttpSink({
+        dsn: process.env.SENTRY_DSN,
+        monitorSlug: process.env.SENTRY_CRON_MONITOR_SLUG ?? "ask-siargao-account-closure",
+      })
+    : undefined;
 }

@@ -79,6 +79,7 @@ export const applicationTables = [
   "operational_alert_deliveries",
   "operational_worker_tasks",
   "operational_reconciliation_observations",
+  "operational_schedule_states",
 ] as const;
 
 export const userOwnedTables = [

@@ -2287,6 +2287,59 @@ export const operationalWorkerTasks = pgTable(
   ],
 );
 
+export const operationalScheduleStates = pgTable(
+  "operational_schedule_states",
+  {
+    scheduleKey: text("schedule_key").primaryKey(),
+    scheduleMinutes: integer("schedule_minutes").notNull(),
+    graceMinutes: integer("grace_minutes").notNull(),
+    status: text("status").notNull().default("observing"),
+    lifecycle: bigint("lifecycle", { mode: "number" }).notNull().default(0),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    monitoringStartedAt: timestamp("monitoring_started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastStartedAt: timestamp("last_started_at", { withTimezone: true }),
+    lastSucceededAt: timestamp("last_succeeded_at", { withTimezone: true }),
+    lastFailedAt: timestamp("last_failed_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("operational_schedule_states_status_idx").on(
+      table.status,
+      table.updatedAt,
+      table.scheduleKey,
+    ),
+    check(
+      "operational_schedule_states_key_check",
+      sql`${table.scheduleKey} in ('weather', 'marine', 'places_prune')`,
+    ),
+    check(
+      "operational_schedule_states_schedule_check",
+      sql`${table.scheduleMinutes} > 0 and ${table.scheduleMinutes} <= 10080`,
+    ),
+    check(
+      "operational_schedule_states_grace_check",
+      sql`${table.graceMinutes} >= 0 and ${table.graceMinutes} <= 1440`,
+    ),
+    check(
+      "operational_schedule_states_status_check",
+      sql`${table.status} in ('observing', 'healthy', 'failed', 'stale')`,
+    ),
+    check("operational_schedule_states_lifecycle_check", sql`${table.lifecycle} >= 0`),
+    check("operational_schedule_states_failures_check", sql`${table.consecutiveFailures} >= 0`),
+    check(
+      "operational_schedule_states_error_check",
+      sql`${table.lastErrorCode} is null or ${table.lastErrorCode} ~ '^[a-z][a-z0-9_]{2,63}$'`,
+    ),
+    check(
+      "operational_schedule_states_failure_state_check",
+      sql`(${table.status} = 'failed' and ${table.consecutiveFailures} > 0 and ${table.lastFailedAt} is not null) or (${table.status} <> 'failed')`,
+    ),
+  ],
+);
+
 export const operationalReconciliationRunsRelations = relations(
   operationalReconciliationRuns,
   ({ many }) => ({ findings: many(operationalFindings) }),
@@ -2332,3 +2385,5 @@ export type OperationalAlertDelivery = typeof operationalAlertDeliveries.$inferS
 export type NewOperationalAlertDelivery = typeof operationalAlertDeliveries.$inferInsert;
 export type OperationalWorkerTask = typeof operationalWorkerTasks.$inferSelect;
 export type NewOperationalWorkerTask = typeof operationalWorkerTasks.$inferInsert;
+export type OperationalScheduleState = typeof operationalScheduleStates.$inferSelect;
+export type NewOperationalScheduleState = typeof operationalScheduleStates.$inferInsert;
