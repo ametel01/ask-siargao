@@ -17,6 +17,27 @@ import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { runInitialMigration } from "@/server/db/test-database";
 
 describe("Clerk user sync helpers", () => {
+  test("binds closure hash candidates as a JSON array for PostgreSQL drivers", async () => {
+    let boundCandidates: unknown;
+    const db: DatabaseQueryClient = {
+      async query<T>(_query: string, params: unknown[] = []) {
+        boundCandidates = params[0];
+        return { rows: [] as T[] };
+      },
+    };
+
+    await hasClosureTombstoneForClerkUser("user_json_array", db, {
+      tombstoneHashKey: "current-key",
+      tombstoneHashVersion: 2,
+      tombstonePreviousHashKeys: [{ key: "previous-key", version: 1 }],
+    });
+
+    expect(boundCandidates).toEqual([
+      { version: 2, hash: expect.any(String) },
+      { version: 1, hash: expect.any(String) },
+    ]);
+  });
+
   test("normalizes Clerk users with primary email and identity cache fields", () => {
     const user = clerkUser({
       id: "user_primary",

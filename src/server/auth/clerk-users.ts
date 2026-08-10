@@ -155,7 +155,7 @@ export async function upsertClerkUser(
 ) {
   return withDatabaseTransaction(db, async (transaction) => {
     await lockClerkUserClosureSubject(user.id, transaction);
-    const subjectCandidates = JSON.stringify(closureSubjectHashCandidates(user.id, hashPolicy));
+    const subjectCandidates = closureSubjectHashCandidates(user.id, hashPolicy);
     const result = await transaction.query<{ id: string }>(
       `
         insert into users (
@@ -293,9 +293,7 @@ export async function touchClerkUserSessionPresence(
       : readClosureSubjectHashPolicy());
   const result = await withDatabaseTransaction(db, async (transaction) => {
     await lockClerkUserClosureSubject(input.id, transaction);
-    const subjectCandidates = JSON.stringify(
-      closureSubjectHashCandidates(input.id, closureHashPolicy),
-    );
+    const subjectCandidates = closureSubjectHashCandidates(input.id, closureHashPolicy);
     return transaction.query<{ id: string; last_seen_at: Date | string; deleted_at: null }>(
       `
         insert into users (
@@ -355,7 +353,7 @@ export async function hasClosureTombstoneForClerkUser(
     typeof keyOrPolicy === "string"
       ? { tombstoneHashKey: keyOrPolicy, tombstoneHashVersion: 1 }
       : keyOrPolicy;
-  const candidates = JSON.stringify(closureSubjectHashCandidates(userId, policy));
+  const candidates = closureSubjectHashCandidates(userId, policy);
   const result = await db.query<{ id: string }>(
     `
       select id
