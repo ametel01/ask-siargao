@@ -114,6 +114,11 @@ export type RateLimiterOptions = {
   trustProxyHeaders?: boolean;
 };
 
+type DefaultRateLimiterOptions = {
+  env?: Record<string, string | undefined>;
+  redisStore?: QuotaStore;
+};
+
 type MemoryQuotaStore = QuotaStore & {
   size(): number;
 };
@@ -511,7 +516,26 @@ export function createRateLimiter(options: RateLimiterOptions = {}): RateLimiter
 }
 
 const defaultMemoryStore = createMemoryQuotaStore();
-let defaultRateLimiter = createRateLimiter({ store: defaultMemoryStore });
+let defaultRateLimiter: RateLimiter | null = null;
+
+export function createDefaultRateLimiter(options: DefaultRateLimiterOptions = {}) {
+  const env = options.env ?? process.env;
+  const productionRuntime = env.NODE_ENV === "production" || env.APP_ENV === "production";
+  const store = shouldUseRedisQuotaStore(env)
+    ? (options.redisStore ?? createRedisQuotaStore({ redisUrl: env.REDIS_URL }))
+    : defaultMemoryStore;
+
+  return createRateLimiter({
+    env: productionRuntime ? "production" : env.NODE_ENV,
+    store,
+    trustProxyHeaders: env.TRUST_PROXY_HEADERS === "true",
+  });
+}
+
+function getDefaultRateLimiter() {
+  defaultRateLimiter ??= createDefaultRateLimiter();
+  return defaultRateLimiter;
+}
 
 export function configureRateLimitStore(
   store: QuotaStore,
@@ -521,7 +545,7 @@ export function configureRateLimitStore(
 }
 
 export async function checkRateLimit(input: RateLimitInput): Promise<RateLimitResult> {
-  return defaultRateLimiter.checkRateLimit(input);
+  return getDefaultRateLimiter().checkRateLimit(input);
 }
 
 export async function rateLimitRequest(
@@ -529,7 +553,7 @@ export async function rateLimitRequest(
   policy: RateLimitPolicy,
   options?: RateLimitRequestOptions,
 ) {
-  return defaultRateLimiter.rateLimitRequest(request, policy, options);
+  return getDefaultRateLimiter().rateLimitRequest(request, policy, options);
 }
 
 export function rateLimitedJson(result: RateLimitResult) {

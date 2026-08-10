@@ -6,6 +6,7 @@ import { getServerSecret, sanitizeIntakeForMetrics } from "@/server/security/pri
 import {
   checkRateLimit,
   configureRateLimitStore,
+  createDefaultRateLimiter,
   createMemoryRateLimitStore,
   createRateLimiter,
   type QuotaStore,
@@ -28,6 +29,27 @@ describe("rate limiting", () => {
       }),
     ).toBe(true);
     expect(shouldUseRedisQuotaStore({ NODE_ENV: "production" })).toBe(false);
+  });
+
+  test("boots the production default limiter with the configured shared Redis store", async () => {
+    const redisStore = createFakeSharedRateLimitStore();
+    const limiter = createDefaultRateLimiter({
+      env: {
+        APP_ENV: "production",
+        NODE_ENV: "production",
+        REDIS_URL: "rediss://redis.example.test:6379",
+      },
+      redisStore,
+    });
+
+    const result = await limiter.checkRateLimit({
+      key: "traveler",
+      policy: "checkout",
+      now: new Date("2026-06-23T08:00:00.000Z"),
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(redisStore.size()).toBe(1);
   });
 
   test("blocks requests after the policy threshold", async () => {
