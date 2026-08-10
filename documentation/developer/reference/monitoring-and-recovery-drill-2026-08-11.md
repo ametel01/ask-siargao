@@ -4,6 +4,10 @@ This record captures the pre-production monitoring and recovery exercise run by 
 2026-08-11 PHT. It is evidence for the protected staging candidate at Git commit
 `d08d5a630d36cf810cf9157b739581e672258e3b`. It does not authorize production traffic.
 
+> Historical policy note: the staffed-window behavior recorded in this drill was current when the
+> exercise ran. ADR-0013 subsequently superseded it with Continuous Travel Answer Availability; the
+> emergency-stop and rollback evidence remains valid.
+
 ## Result
 
 | Control | Result | Evidence |

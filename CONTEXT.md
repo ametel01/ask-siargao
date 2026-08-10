@@ -114,11 +114,10 @@ The invitation-controlled set of Ask Siargao Accounts allowed to request Travel 
 Free Controlled Beta. Public knowledge remains available outside the cohort.
 _Avoid_: Waitlist, all registered users
 
-**Staffed Exposure Window**:
-The daily interval in which one named Operator is available and Ask Siargao accepts new Travel
-Answers during the Free Controlled Beta. Account access and privacy operations remain available when
-the window is closed.
-_Avoid_: Business hours, maintenance window
+**Continuous Travel Answer Availability**:
+The operating rule that Ask Siargao accepts new Travel Answers at all hours unless an emergency stop,
+traffic limit, or cost circuit closes exposure. It does not imply continuous human support.
+_Avoid_: Staffed Exposure Window, business hours
 
 **General Free Availability**:
 The independently authorized release lane that removes beta traffic caps while retaining the free

@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0013
+---
+
 # Operate Free Controlled Beta within a staffed exposure window
 
 Ask Siargao will accept new Travel Answers during the Free Controlled Beta only within a

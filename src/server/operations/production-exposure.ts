@@ -8,8 +8,6 @@ import {
 
 export const productionDailyAccountLimit = 100;
 export const productionDailyTravelAnswerLimit = 1_000;
-export const staffedExposureStartUtcHour = 0;
-export const staffedExposureEndUtcHour = 14;
 
 export type ExposureOptions = {
   env?: Record<string, string | undefined>;
@@ -36,11 +34,8 @@ export async function beginTravelAnswerExposure(
   const production = isProduction(env);
   const mode = env.TRAVEL_ANSWER_EXPOSURE_MODE?.trim().toLowerCase();
 
-  if (mode === "off" || (production && mode !== "staffed")) {
+  if (mode === "off" || (production && mode !== "open")) {
     return denied("closed", "emergency_exposure_off", 503);
-  }
-  if ((production || mode === "staffed") && !insideStaffedExposureWindow(now)) {
-    return denied("closed", "outside_staffed_exposure_window", 503);
   }
   if (!production) {
     return { status: "allowed", remaining: productionDailyTravelAnswerLimit };
@@ -96,11 +91,6 @@ export async function reserveNewAccountExposure(userId: string, options: Exposur
   } catch {
     return { status: "unavailable" as const };
   }
-}
-
-export function insideStaffedExposureWindow(now: Date) {
-  const hour = now.getUTCHours();
-  return hour >= staffedExposureStartUtcHour && hour < staffedExposureEndUtcHour;
 }
 
 function resolveProductionStore(

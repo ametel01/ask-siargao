@@ -3,26 +3,43 @@ import { describe, expect, test } from "bun:test";
 import {
   beginTravelAnswerExposure,
   createExposureMemoryStoreForTests,
-  insideStaffedExposureWindow,
   productionDailyAccountLimit,
   productionDailyTravelAnswerLimit,
   reserveNewAccountExposure,
 } from "@/server/operations/production-exposure";
 
 describe("production exposure controller", () => {
-  test("enforces the staffed 08:00-22:00 PHT window", () => {
-    expect(insideStaffedExposureWindow(new Date("2026-08-10T00:00:00.000Z"))).toBe(true);
-    expect(insideStaffedExposureWindow(new Date("2026-08-10T13:59:59.999Z"))).toBe(true);
-    expect(insideStaffedExposureWindow(new Date("2026-08-10T14:00:00.000Z"))).toBe(false);
-    expect(insideStaffedExposureWindow(new Date("2026-08-09T23:59:59.999Z"))).toBe(false);
+  test("allows production Travel Answers at every hour when exposure is open", async () => {
+    const env = {
+      NODE_ENV: "production",
+      APP_ENV: "staging",
+      REDIS_URL: "rediss://redis.example.test",
+      TRAVEL_ANSWER_EXPOSURE_MODE: "open",
+    };
+    const store = createExposureMemoryStoreForTests();
+
+    for (const now of [
+      new Date("2026-08-10T14:00:00.000Z"),
+      new Date("2026-08-10T22:55:16.924Z"),
+      new Date("2026-08-11T00:00:00.000Z"),
+    ]) {
+      expect(
+        await beginTravelAnswerExposure(`request_${now.toISOString()}`, { env, now, store }),
+      ).toMatchObject({ status: "allowed" });
+    }
   });
 
-  test("fails closed in production unless staffed exposure is explicitly enabled", async () => {
-    const result = await beginTravelAnswerExposure("request_closed", {
-      env: { NODE_ENV: "production" },
-      now: new Date("2026-08-10T04:00:00.000Z"),
-    });
-    expect(result.status).toBe("closed");
+  test("fails closed in production unless continuous exposure is explicitly open", async () => {
+    for (const mode of [undefined, "staffed", "invalid"]) {
+      const result = await beginTravelAnswerExposure("request_closed", {
+        env: { NODE_ENV: "production", TRAVEL_ANSWER_EXPOSURE_MODE: mode },
+        now: new Date("2026-08-10T04:00:00.000Z"),
+      });
+      expect(result).toMatchObject({
+        status: "closed",
+        reason: "emergency_exposure_off",
+      });
+    }
   });
 
   test("honors the emergency exposure-off switch", async () => {
@@ -37,7 +54,7 @@ describe("production exposure controller", () => {
     const env = {
       NODE_ENV: "production",
       REDIS_URL: "rediss://redis.example.test",
-      TRAVEL_ANSWER_EXPOSURE_MODE: "staffed",
+      TRAVEL_ANSWER_EXPOSURE_MODE: "open",
     };
     const now = new Date("2026-08-10T04:00:00.000Z");
     for (let index = 0; index < productionDailyTravelAnswerLimit; index += 1) {

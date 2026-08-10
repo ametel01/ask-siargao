@@ -31,8 +31,8 @@ for Google Places.
 platform, operating-model, region, and recovery trade-off.
 [ADR 0010](../../../docs/adr/0010-use-planetscale-and-redis-cloud-for-production-state.md) records the
 managed-state provider and consistency trade-off.
-[ADR 0011](../../../docs/adr/0011-operate-free-beta-within-a-staffed-exposure-window.md) records the
-availability and scheduled-execution trade-off.
+[ADR 0013](../../../docs/adr/0013-keep-travel-answers-continuously-available.md) supersedes the staffed
+window and records the continuous-availability trade-off.
 [ADR 0012](../../../docs/adr/0012-accept-authenticated-public-data-endpoints-for-free-beta.md)
 records the public state-service endpoint risk and compensating controls.
 
@@ -85,11 +85,10 @@ and cost owner. The Launch Approver remains `UNASSIGNED` because the launch cont
 eligible non-author human; this is an administrative launch blocker, not a code or infrastructure
 finding.
 
-The launch assumes one named Operator staffed from 08:00 through 22:00 Philippine time every day,
-with a 30-minute page-acknowledgement objective. A server-enforced Staffed Exposure Window accepts new
-Travel Answers only from 00:00 through 14:00 UTC. Account access and privacy operations remain
-available outside the window, and an Operator-controlled emergency override can close exposure at any
-time. The deployment does not claim 24/7 human coverage.
+The launch has one named Operator and continuous Travel Answer availability. An Operator-controlled
+emergency override can close exposure at any time, while shared traffic limits and provider cost
+circuits bound unattended activity. The deployment does not claim 24/7 human coverage or a guaranteed
+page-acknowledgement time outside the Operator's normal working hours.
 
 The existing Free Controlled Beta release contract limits exposure to 100 new Ask Siargao Accounts
 and 1,000 Travel Answers per day. It rolls back when the five-minute server-error rate remains above
@@ -101,7 +100,7 @@ Clerk production uses Restricted mode for authenticated beta access. Public know
 while Travel Answers are available only to the Beta Cohort. Invitations ramp from 25 on day one to
 50 on days two and three, then at most 100 per day, targeting an initial cohort of 300 people.
 
-The Free Controlled Beta service objectives, measured only inside the Staffed Exposure Window, are:
+The Free Controlled Beta service objectives, measured continuously, are:
 
 - 99.5 percent application availability;
 - p95 first model output within five seconds;
@@ -333,7 +332,7 @@ identified from commit `5ab8673` are closed in the current working tree:
 - Clerk webhook bodies are bounded before signature verification;
 - database grants cover every table created by the migration inventory, including operational state;
 - a durable scanner sends every page-worthy state family through the bounded Sentry delivery path;
-- the 08:00–22:00 PHT Staffed Exposure Window, emergency off control, 100-Account daily cap, and
+- continuous Travel Answer availability, the emergency off control, 100-Account daily cap, and
   1,000-Travel-Answer daily cap are enforced through shared Redis state;
 - model calls stop at USD 10 per day with reservation reconciliation, and every Google Places request
   participates in the USD 15 cost circuit;

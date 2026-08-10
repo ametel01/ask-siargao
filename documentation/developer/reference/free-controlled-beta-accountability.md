@@ -8,7 +8,7 @@ does not itself grant Launch Authorization.
 
 | Responsibility | Owner | Status |
 | --- | --- | --- |
-| Operator | Alex Metelli | Assigned for the Staffed Exposure Window. |
+| Operator | Alex Metelli | Assigned as sole Operator; Travel Answer availability is continuous, but human coverage is not. |
 | Evidence Owner | Alex Metelli | Assigned to assemble and attest exact-candidate Release Evidence. |
 | Launch Approver | `UNASSIGNED` | Administrative blocker: the approver must be an eligible non-author human and cannot be Alex Metelli while he is the candidate author, Evidence Owner, and Operator. |
 | Rollback owner | Alex Metelli | Assigned to exercise and execute application rollback. |
@@ -16,8 +16,8 @@ does not itself grant Launch Authorization.
 | Cost owner | Alex Metelli | Assigned to monitor provider and infrastructure spend and enforce the approved stops. |
 
 Role concentration is accepted for beta preparation because Ask Siargao is currently operated by one
-developer. It does not create 24/7 coverage and does not remove the independent Launch Approver
-requirement.
+developer. Continuous Travel Answer Availability does not create 24/7 human coverage and does not
+remove the independent Launch Approver requirement.
 
 ## Approved limits
 
