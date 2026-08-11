@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type { Logger } from "pino";
 
 import {
@@ -26,7 +24,6 @@ import {
   type AgentToolExecutionRequest,
   type AgentToolResult,
   type AgentTurnResult,
-  agentItineraryArtifactId,
   type ChatClientGeolocationContext,
   createAgentToolCallAudit,
   createAgentTurnResult,
@@ -50,7 +47,6 @@ import {
 import {
   conditionJudgmentRepairCall,
   conditionJudgmentRepairInstruction,
-  conditionRealityCheckProposal,
 } from "@/server/chat/condition-tools";
 import {
   assertModelCostCircuit,
@@ -69,12 +65,13 @@ import type {
   LocalItineraryRequest,
 } from "@/server/chat/itinerary-tools";
 import {
+  inspectRealityCheckRequest,
   parseRealityCheckProposal,
+  type RealityCheckLifecycleArtifacts,
   type RealityCheckRecognition,
-  type RealityCheckValidationResult,
-  recognizeRealityCheckRequest,
+  realityCheckDecisionToolNames,
+  resolveRealityCheckLifecycle,
   type ValidatedRealityCheck,
-  validateRealityCheckProposal,
 } from "@/server/chat/reality-check";
 import {
   nightlifePlacesEnrichmentIsUnavailable,
@@ -206,9 +203,12 @@ export async function runAskSiargaoAgentTurn(
     requireStructuredFinalOutput,
   });
   const chatEvidencePolicy = buildChatEvidencePolicy(resolved);
+  const inspectedRealityCheck = inspectRealityCheckRequest(resolved);
   const realityCheckRecognition = requireStructuredFinalOutput
-    ? recognizeRuntimeRealityCheck(resolved)
+    ? inspectedRealityCheck.recognition
     : { explicit: false, missingContext: [] };
+  const realityCheckNeedsContext =
+    requireStructuredFinalOutput && inspectedRealityCheck.requiresClarification;
   const { requiredEvidencePlan } = chatEvidencePolicy;
   const tools = selectAgentResponseTools(
     buildAgentResponseTools(memorySnapshot, {
@@ -362,6 +362,7 @@ export async function runAskSiargaoAgentTurn(
         chatEvidencePolicy,
         hostedMemoryFileNames,
         logger,
+        realityCheckNeedsContext,
         realityCheckRecognition,
         request: resolved,
         requireStructuredFinalOutput,
@@ -502,10 +503,15 @@ export async function runAskSiargaoAgentTurn(
         toolCalls,
         toolResults,
       });
-      const realityCheckOutcome = resolveRealityCheckOutcome({
+      const requiredEvidenceCardIds = requiredEvidenceAllowedCardIds(
+        chatEvidencePolicy,
+        toolResults,
+      );
+      const realityCheckOutcome = resolveRuntimeRealityCheck({
         finalPayload,
         recognition: realityCheckRecognition,
         requestId: resolved.requestId,
+        requiredEvidenceAllowedCardIds: requiredEvidenceCardIds,
         toolCalls,
         toolResults,
       });
@@ -535,23 +541,12 @@ export async function runAskSiargaoAgentTurn(
               : finalPayload.displayDecisionSummaryIds,
           }
         : finalPayload;
-      const realityCheckAllowedArtifacts = allowedRealityCheckArtifacts({
-        finalPayload: sanitizedFinalPayload,
-        recognition: realityCheckRecognition,
-        toolResults,
-      });
       const artifactFilteredFinalPayload =
-        sanitizedFinalPayload && realityCheckAllowedArtifacts
+        sanitizedFinalPayload && realityCheckOutcome.artifacts
           ? {
               ...sanitizedFinalPayload,
-              displayCardIds: filterAllowedArtifactIds(
-                sanitizedFinalPayload.displayCardIds,
-                realityCheckAllowedArtifacts.cardIds,
-              ),
-              displayItineraryIds: filterAllowedArtifactIds(
-                sanitizedFinalPayload.displayItineraryIds,
-                realityCheckAllowedArtifacts.itineraryIds,
-              ),
+              displayCardIds: realityCheckOutcome.artifacts.displayCardIds,
+              displayItineraryIds: realityCheckOutcome.artifacts.displayItineraryIds,
             }
           : sanitizedFinalPayload;
       const modelCost = costAccumulator.summary();
@@ -576,11 +571,8 @@ export async function runAskSiargaoAgentTurn(
           : {}),
         ...(artifactFilteredFinalPayload ? { finalPayload: artifactFilteredFinalPayload } : {}),
         allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
-        allowedCardIds: combinedAllowedCardIds(
-          requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
-          realityCheckAllowedArtifacts?.cardIds,
-        ),
-        allowedItineraryIds: realityCheckAllowedArtifacts?.itineraryIds,
+        allowedCardIds: realityCheckOutcome.artifacts?.allowedCardIds ?? requiredEvidenceCardIds,
+        allowedItineraryIds: realityCheckOutcome.artifacts?.allowedItineraryIds,
         artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
         repairCount,
       });
@@ -1293,192 +1285,53 @@ function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefine
 type RuntimeRealityCheckOutcome = {
   explicit: boolean;
   answer?: string;
+  artifacts?: RealityCheckLifecycleArtifacts;
   summary?: DecisionSummary;
   validated?: ValidatedRealityCheck;
 };
 
-function allowedRealityCheckArtifacts(input: {
-  finalPayload: AgentFinalPayload | undefined;
-  recognition: RealityCheckRecognition;
-  toolResults: readonly AgentToolResult[];
-}) {
-  if (
-    !input.finalPayload ||
-    (input.recognition.kind !== "immediate_plan" &&
-      input.recognition.kind !== "surf_session" &&
-      input.recognition.kind !== "disruption_recovery") ||
-    input.recognition.missingContext.length > 0
-  ) {
-    return undefined;
-  }
-
-  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
-  const allowedToolNames =
-    input.recognition.kind === "disruption_recovery"
-      ? disruptionReplacementToolNames
-      : currentConditionDependentToolNames;
-  const allowedResults = input.toolResults.filter(
-    (result) =>
-      result.status === "success" &&
-      Boolean(result.toolCallId && usedToolCallIds.has(result.toolCallId)) &&
-      allowedToolNames.has(result.name),
-  );
-  return {
-    cardIds: uniqueText(
-      allowedResults.flatMap((result) => result.cards?.map((card) => card.id) ?? []),
-    ),
-    itineraryIds: uniqueText(
-      allowedResults.flatMap((result) => result.itineraries?.map(agentItineraryArtifactId) ?? []),
-    ),
-  };
-}
-
-function combinedAllowedCardIds(
-  requiredEvidenceIds: readonly string[] | undefined,
-  realityCheckIds: readonly string[] | undefined,
-) {
-  if (!requiredEvidenceIds) {
-    return realityCheckIds;
-  }
-  if (!realityCheckIds) {
-    return requiredEvidenceIds;
-  }
-  const realityCheckIdSet = new Set(realityCheckIds);
-  return requiredEvidenceIds.filter((id) => realityCheckIdSet.has(id));
-}
-
-function filterAllowedArtifactIds(ids: readonly string[], allowedIds: readonly string[]) {
-  const allowedIdSet = new Set(allowedIds);
-  return ids.filter((id) => allowedIdSet.has(id));
-}
-
-function recognizeRuntimeRealityCheck(request: AgentRuntimeRequest) {
-  const userTurns: string[] = [];
-  for (const message of request.messages) {
-    if (message.role === "user") {
-      userTurns.push(message.content);
-    }
-  }
-  return recognizeRealityCheckRequest({
-    latestUserTurn: userTurns.at(-1) ?? "",
-    recentUserContext: userTurns.slice(0, -1).slice(-3).join("\n"),
-  });
-}
-
-function resolveRealityCheckOutcome(input: {
+function resolveRuntimeRealityCheck(input: {
   finalPayload: AgentFinalPayload | undefined;
   recognition: RealityCheckRecognition;
   requestId: string;
+  requiredEvidenceAllowedCardIds: readonly string[] | undefined;
   toolCalls: readonly AgentToolCallAudit[];
   toolResults: readonly AgentToolResult[];
 }): RuntimeRealityCheckOutcome {
-  if (!input.recognition.explicit) {
+  const lifecycle = resolveRealityCheckLifecycle({
+    requestId: input.requestId,
+    recognition: input.recognition,
+    finalPayload: input.finalPayload,
+    toolCalls: input.toolCalls,
+    toolResults: input.toolResults,
+    requiredEvidenceAllowedCardIds: input.requiredEvidenceAllowedCardIds,
+  });
+
+  if (lifecycle.state === "not_requested") {
     return { explicit: false };
   }
-  if (!input.recognition.kind || input.recognition.missingContext.length > 0) {
-    return {
-      explicit: true,
-      answer: realityCheckClarification(input.recognition),
-    };
+  if (lifecycle.state === "needs_context") {
+    return { explicit: true };
   }
-  const conditionFallback = acceptedConditionRealityCheckFallback(input);
-  if (!input.finalPayload?.realityCheck) {
-    if (conditionFallback) {
-      return resolvedValidatedRealityCheck(conditionFallback, input.requestId);
-    }
+  if (lifecycle.state === "unresolved" || !lifecycle.validated || !lifecycle.summary) {
     return {
       explicit: true,
-      answer: unresolvedRealityCheckAnswer(input.recognition),
+      ...(lifecycle.artifacts ? { artifacts: lifecycle.artifacts } : {}),
     };
   }
 
-  const validation = validateRealityCheckProposal({
-    expectedKind: input.recognition.kind,
-    proposal: input.finalPayload.realityCheck,
-    usedToolCallIds: input.finalPayload.usedToolCallIds,
-    toolCalls: input.toolCalls,
-    toolResults: input.toolResults,
-  });
-  const validated = acceptedRealityCheck(validation) ?? conditionFallback;
-  if (!validated) {
-    return {
-      explicit: true,
-      answer: unresolvedRealityCheckAnswer(input.recognition),
-    };
-  }
-
-  return resolvedValidatedRealityCheck(validated, input.requestId);
-}
-
-function resolvedValidatedRealityCheck(
-  validated: ValidatedRealityCheck,
-  requestId: string,
-): RuntimeRealityCheckOutcome {
-  const summary = buildRealityCheckDecisionSummary(validated, requestId);
   return {
     explicit: true,
-    answer: renderRealityCheckAnswer(validated.proposal),
-    summary,
-    validated,
+    ...(lifecycle.repair
+      ? { answer: renderRealityCheckFallbackAnswer(lifecycle.validated.proposal) }
+      : {}),
+    artifacts: lifecycle.artifacts,
+    summary: lifecycle.summary,
+    validated: lifecycle.validated,
   };
 }
 
-function acceptedConditionRealityCheckFallback(input: {
-  finalPayload: AgentFinalPayload | undefined;
-  recognition: RealityCheckRecognition;
-  toolCalls: readonly AgentToolCallAudit[];
-  toolResults: readonly AgentToolResult[];
-}) {
-  const proposal = conditionRealityCheckProposal({
-    finalPayload: input.finalPayload,
-    recognition: input.recognition,
-    toolResults: input.toolResults,
-  });
-  if (!proposal) {
-    return undefined;
-  }
-
-  const validation = validateRealityCheckProposal({
-    expectedKind: proposal.kind,
-    proposal,
-    usedToolCallIds: input.finalPayload?.usedToolCallIds ?? [],
-    toolCalls: input.toolCalls,
-    toolResults: input.toolResults,
-  });
-  return acceptedRealityCheck(validation);
-}
-
-function acceptedRealityCheck(
-  validation: RealityCheckValidationResult,
-): ValidatedRealityCheck | undefined {
-  return validation.status === "valid" ? validation.value : validation.fallback;
-}
-
-function buildRealityCheckDecisionSummary(
-  validated: ValidatedRealityCheck,
-  requestId: string,
-): DecisionSummary {
-  const proposal = validated.proposal;
-  const fingerprint = createHash("sha256")
-    .update(`${requestId}\u0000${proposal.kind}\u0000${proposal.subject}`)
-    .digest("hex")
-    .slice(0, 16);
-  return {
-    id: `reality_check:${proposal.kind}:${fingerprint}`,
-    kind: proposal.kind,
-    verdict: proposal.verdict,
-    subject: proposal.subject,
-    bestAction: proposal.bestAction,
-    basis: proposal.basis,
-    ...(proposal.fallback ? { fallback: proposal.fallback } : {}),
-    ...(proposal.avoid ? { avoid: proposal.avoid } : {}),
-    ...(proposal.timing ? { timing: proposal.timing } : {}),
-    ...(proposal.area ? { area: proposal.area } : {}),
-    sources: validated.sources,
-  };
-}
-
-function renderRealityCheckAnswer(proposal: ValidatedRealityCheck["proposal"]) {
+function renderRealityCheckFallbackAnswer(proposal: ValidatedRealityCheck["proposal"]) {
   const verdictLabel = proposal.verdict.replaceAll("_", " ");
   return [
     `**${verdictLabel}: ${proposal.subject}**`,
@@ -1488,69 +1341,6 @@ function renderRealityCheckAnswer(proposal: ValidatedRealityCheck["proposal"]) {
     ...(proposal.avoid ? [`Avoid: ${proposal.avoid}`] : []),
     ...(proposal.timing ? [`Timing: ${proposal.timing}`] : []),
     ...(proposal.area ? [`Area: ${proposal.area}`] : []),
-  ].join("\n\n");
-}
-
-function realityCheckClarification(recognition: RealityCheckRecognition) {
-  const missing = recognition.missingContext[0];
-  if (missing === "subject") {
-    return "Which accommodation should I reality-check? Send its name or listing link.";
-  }
-  if (missing === "plan") {
-    return "Send the itinerary stops and timing you want me to reality-check.";
-  }
-  if (missing === "activity") {
-    return "What activity or trip should I reality-check for today or tomorrow?";
-  }
-  if (missing === "skill_level") {
-    return "What is the surfer's level: beginner, intermediate, or advanced?";
-  }
-  if (missing === "location") {
-    return "Which Siargao surf spot or area should I reality-check?";
-  }
-  if (missing === "timing") {
-    return "When do you want to surf: today or tomorrow, and roughly what time?";
-  }
-  if (missing === "disruption") {
-    return "What was cancelled or became unavailable, and when did you plan to do it?";
-  }
-  return "Please add the specific plan you want me to reality-check.";
-}
-
-function unresolvedRealityCheckAnswer(recognition: RealityCheckRecognition) {
-  if (recognition.kind === "immediate_plan") {
-    return [
-      "**needs confirmation: today's Siargao plan**",
-      "Keep the outing short and flexible, with a nearby covered option, rather than cancelling it outright.",
-      "Live conditions were not established, so this is planning guidance rather than a checked go/no-go verdict.",
-      "Check the visible sky and any local warnings before leaving. Avoid entering the water if there is thunder or lightning, and get a local check before surfing or swimming.",
-    ].join("\n\n");
-  }
-  if (recognition.kind === "surf_session") {
-    return [
-      "**needs confirmation: surf session**",
-      "Do not treat the session as cleared yet. Check the exact break with a local coach or experienced surfer before paddling out.",
-      "Match the decision to your level, tide, swell, wind, reef exposure, and any thunder or lightning. If those cannot be confirmed, watch from shore or choose a coached session instead.",
-    ].join("\n\n");
-  }
-  if (recognition.kind === "accommodation") {
-    return [
-      "**needs confirmation: accommodation**",
-      "Keep the property on the shortlist, but do not make a non-refundable booking until its exact identity, location, current price, and availability are confirmed.",
-      "Also confirm the room-specific details that matter most to you, such as road noise, backup power, Wi-Fi, and transport access.",
-    ].join("\n\n");
-  }
-  if (recognition.kind === "itinerary") {
-    return [
-      "**needs confirmation: itinerary**",
-      "Keep the plan flexible and protect the time-critical leg first.",
-      "Confirm current travel times, opening or departure times, and weather-sensitive stops before committing. Drop the least important stop if the route has no useful buffer.",
-    ].join("\n\n");
-  }
-  return [
-    "**needs confirmation: replacement plan**",
-    "Choose the closest low-commitment Siargao option that still works if conditions or availability change.",
-    "Confirm the replacement directly before leaving, keep a nearby covered alternative, and avoid making a non-refundable commitment until the key detail is checked.",
   ].join("\n\n");
 }
 
@@ -1781,6 +1571,7 @@ function buildAgentRepairAdapters({
   chatEvidencePolicy,
   hostedMemoryFileNames,
   logger,
+  realityCheckNeedsContext,
   realityCheckRecognition,
   request,
   requireStructuredFinalOutput,
@@ -1788,6 +1579,7 @@ function buildAgentRepairAdapters({
   chatEvidencePolicy: ReturnType<typeof buildChatEvidencePolicy>;
   hostedMemoryFileNames: ReadonlySet<string>;
   logger: ReturnType<typeof createComponentLogger>;
+  realityCheckNeedsContext: boolean;
   realityCheckRecognition: RealityCheckRecognition;
   request: AgentRuntimeRequest;
   requireStructuredFinalOutput: boolean;
@@ -1815,7 +1607,7 @@ function buildAgentRepairAdapters({
     {
       name: "condition-judgment",
       createRepair: ({ toolCalls }) => {
-        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+        if (realityCheckNeedsContext) {
           return undefined;
         }
         const repairCall = conditionJudgmentRepairCall(request, toolCalls);
@@ -1873,7 +1665,7 @@ function buildAgentRepairAdapters({
     {
       name: "browser-location-surf-ranking",
       createRepair: ({ toolCalls, toolResults }) => {
-        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+        if (realityCheckNeedsContext) {
           return undefined;
         }
         const repairCall = missingSurfSpotRankingRepairCall(request, toolCalls, toolResults);
@@ -1911,7 +1703,7 @@ function buildAgentRepairAdapters({
     {
       name: "memory-load",
       createRepair: ({ finalText, toolCalls, toolResults }) => {
-        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+        if (realityCheckNeedsContext) {
           return undefined;
         }
         const repairCall = missingClearMemoryLoadRepairCall(
@@ -1938,7 +1730,7 @@ function buildAgentRepairAdapters({
     {
       name: "surf-final-payload",
       createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
-        if (realityCheckRequiresClarification(realityCheckRecognition)) {
+        if (realityCheckNeedsContext) {
           return undefined;
         }
         const repair = missingSurfSpotRankingPayloadRepair(
@@ -2112,26 +1904,21 @@ function buildAgentRepairAdapters({
           return undefined;
         }
         const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
-        const validation = finalPayload?.realityCheck
-          ? validateRealityCheckProposal({
-              expectedKind: realityCheckRecognition.kind,
-              proposal: finalPayload.realityCheck,
-              usedToolCallIds: finalPayload.usedToolCallIds,
-              toolCalls,
-              toolResults,
-            })
-          : undefined;
-        if (validation?.status === "valid") {
+        const lifecycle = resolveRealityCheckLifecycle({
+          requestId: request.requestId ?? "reality_check_repair",
+          recognition: realityCheckRecognition,
+          finalPayload,
+          toolCalls,
+          toolResults,
+        });
+        if (!lifecycle.repair) {
           return undefined;
         }
 
         return {
           type: "retry",
           payloadKey: "validationRepairRealityCheck",
-          payload: {
-            expectedKind: realityCheckRecognition.kind,
-            reason: validation?.reason ?? "missing_reality_check",
-          },
+          payload: lifecycle.repair,
           instruction:
             "Validation repair: this is an explicit on-demand reality check, but the final payload omitted or could not support its realityCheck proposal. Return final JSON with a realityCheck object matching the response contract. Reference only completed toolCallIds that also appear in usedToolCallIds. A keep, change, or avoid verdict needs successful source-backed evidence; current plan and surf verdicts need successful current-condition evidence. If the required provider check failed, use needs_confirmation and a concrete safe next action. Do not invent source objects or artifact IDs.",
         };
@@ -2162,10 +1949,6 @@ function buildAgentRepairAdapters({
       },
     },
   ];
-}
-
-function realityCheckRequiresClarification(recognition: RealityCheckRecognition) {
-  return recognition.explicit && recognition.missingContext.length > 0;
 }
 
 function repairToolOutputPayload(output: AgentRepairToolOutput) {
@@ -3498,21 +3281,6 @@ const currentConditionUpstreamToolNames = new Set([
   "get_tide_forecast",
 ]);
 
-const currentConditionDependentToolNames = new Set([
-  "rank_surf_spots_nearby",
-  "search_local_guide",
-  "search_places",
-  "get_place_details",
-]);
-
-const disruptionReplacementToolNames = new Set([
-  "plan_local_itinerary",
-  "search_local_guide",
-  "search_places",
-  "get_place_details",
-  "query_local_facts",
-]);
-
 const disruptionUpstreamToolNames = new Set([
   ...currentConditionUpstreamToolNames,
   "query_local_facts",
@@ -3523,14 +3291,14 @@ function currentConditionDependencyPlan(input: {
   runtimeRequest: AgentRuntimeRequest;
   toolResults: readonly AgentToolResult[];
 }) {
-  const recognition = recognizeRuntimeRealityCheck(input.runtimeRequest);
+  const recognition = inspectRealityCheckRequest(input.runtimeRequest).recognition;
   if (recognition.kind === "disruption_recovery" && recognition.missingContext.length === 0) {
     const upstreamCalls = input.functionCalls.filter((functionCall) =>
       disruptionUpstreamToolNames.has(functionCall.name),
     );
     const hasDependentCall = input.functionCalls.some(
       (functionCall) =>
-        disruptionReplacementToolNames.has(functionCall.name) &&
+        realityCheckDecisionToolNames("disruption_recovery").has(functionCall.name) &&
         !disruptionUpstreamToolNames.has(functionCall.name),
     );
     if (upstreamCalls.length > 0 && hasDependentCall) {
@@ -3542,14 +3310,18 @@ function currentConditionDependencyPlan(input: {
       };
     }
   }
+  const currentConditionKind =
+    recognition.kind === "immediate_plan" || recognition.kind === "surf_session"
+      ? recognition.kind
+      : undefined;
   if (
-    (recognition.kind !== "immediate_plan" && recognition.kind !== "surf_session") ||
+    !currentConditionKind ||
     recognition.missingContext.length > 0 ||
     input.toolResults.some((result) => {
       if (result.status !== "success") {
         return false;
       }
-      return recognition.kind === "surf_session"
+      return currentConditionKind === "surf_session"
         ? result.name === "get_condition_judgment"
         : currentConditionUpstreamToolNames.has(result.name);
     })
@@ -3561,7 +3333,7 @@ function currentConditionDependencyPlan(input: {
     currentConditionUpstreamToolNames.has(functionCall.name),
   );
   const hasDependentCall = input.functionCalls.some((functionCall) =>
-    currentConditionDependentToolNames.has(functionCall.name),
+    realityCheckDecisionToolNames(currentConditionKind).has(functionCall.name),
   );
   if (upstreamCalls.length === 0 || !hasDependentCall) {
     return undefined;

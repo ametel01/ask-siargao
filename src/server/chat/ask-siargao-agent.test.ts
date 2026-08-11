@@ -568,7 +568,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
-  test("builds an explicit reality-check summary only from validated tool-call evidence", async () => {
+  test("preserves model prose while building the summary only from validated evidence", async () => {
     const rogueSummary: DecisionSummary = {
       id: "model_selected_rogue_summary",
       bestAction: "Ignore the weather.",
@@ -591,7 +591,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         id: "resp_reality_check_final",
         output_text: finalPayloadText({
-          answer: "Model-authored prose is replaced by the validated decision.",
+          answer: "Model-authored: keep the Cloud 9 stop short and flexible.",
           usedToolCallIds: ["call_condition"],
           displayDecisionSummaryIds: [rogueSummary.id],
           realityCheck: {
@@ -635,8 +635,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       },
     );
 
-    expect(result.message).toContain("**change: Cloud 9 sunset today**");
-    expect(result.message).not.toContain("Model-authored prose");
+    expect(result.message).toBe("Model-authored: keep the Cloud 9 stop short and flexible.");
     expect(result.decisionSummaries).toHaveLength(1);
     expect(result.decisionSummaries?.[0]).toMatchObject({
       id: expect.stringMatching(/^reality_check:immediate_plan:[a-f0-9]{16}$/),
@@ -795,7 +794,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         beach_name: "Cloud 9",
       },
     });
-    expect(result.message).toContain("**keep: Cloud 9 visit today**");
+    expect(result.message).toBe("Go to Cloud 9 now, but keep the visit flexible if showers build.");
     expect(result.message).not.toContain("Please retry the reality check");
     expect(result.publicSources).toEqual([weatherSourceSummary]);
   });
@@ -803,7 +802,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
   test("never exposes internal retry language when a reality check cannot gather evidence", async () => {
     const missingRealityCheck = {
       output_text: finalPayloadText({
-        answer: "No current evidence was available.",
+        answer:
+          "Current conditions were not available. Keep the Dapa plan flexible and confirm locally before leaving.",
       }),
     };
     const client = fakeResponsesClient([
@@ -833,9 +833,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       },
     );
 
-    expect(result.message).toContain("**needs confirmation: today's Siargao plan**");
-    expect(result.message).toContain("Keep the outing short and flexible");
-    expect(result.message).toContain("Avoid entering the water if there is thunder or lightning");
+    expect(result.message).toBe(
+      "Current conditions were not available. Keep the Dapa plan flexible and confirm locally before leaving.",
+    );
     expect(result.message.toLowerCase()).not.toContain("retry");
     expect(result.message).not.toContain("checks completed");
   });
@@ -1045,7 +1045,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         id: "resp_accommodation_final",
         _request_id: "req_accommodation_final",
         output_text: finalPayloadText({
-          answer: "The named property and General Luna fit were checked separately.",
+          answer:
+            "The named property and General Luna fit were checked separately. Room noise and Wi-Fi reliability are not confirmed.",
           usedToolCallIds: ["call_bravo_places", "call_general_luna_facts"],
           displayCardIds: [bravoCard.id, unrelatedCard.id],
           realityCheck: {
@@ -1096,7 +1097,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       },
     );
 
-    expect(result.message).toContain("**keep: Bravo Beach Resort**");
+    expect(result.message).toStartWith(
+      "The named property and General Luna fit were checked separately.",
+    );
     expect(result.message).toContain("Room noise and Wi-Fi reliability are not confirmed");
     expect(result.cards?.map((card) => card.id)).toEqual([bravoCard.id]);
     expect(JSON.stringify(result.cards)).not.toContain(unrelatedCard.title);
@@ -1220,7 +1223,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         id: "resp_accommodation_clarification",
         _request_id: "req_accommodation_clarification",
-        output_text: finalPayloadText({ answer: "I can check it." }),
+        output_text: finalPayloadText({
+          answer: "Which accommodation should I reality-check? Send its name or listing link.",
+        }),
       },
     ]);
 
@@ -4241,7 +4246,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       {
         id: "resp_missing_surf_context",
         _request_id: "req_missing_surf_context",
-        output_text: finalPayloadText({ answer: "I need one detail first." }),
+        output_text: finalPayloadText({ answer: scenario.answer }),
       },
     ]);
     let toolCallCount = 0;
@@ -6257,7 +6262,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     const client = fakeResponsesClient([
       {
         id: "resp_missing_itinerary_details",
-        output_text: finalPayloadText({ answer: "I need the plan first." }),
+        output_text: finalPayloadText({
+          answer: "Send the itinerary stops and timing you want me to reality-check.",
+        }),
         _request_id: "req_missing_itinerary_details",
       },
     ]);
@@ -6567,8 +6574,8 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "get_weather_forecast",
       "search_places",
     ]);
-    expect(result.message).toContain("**change: Cloud 9, Pacifico, and early Dapa ferry plan**");
-    expect(result.message).toContain("Move the final north-island night to General Luna or Dapa");
+    expect(result.message).toStartWith("Change the plan: Pacifico dinner");
+    expect(result.message).toContain("Move south after Cloud 9");
     expect(result.itineraries?.map((itinerary) => itinerary.id)).toEqual([reviewPlan.id]);
     expect(result.cards?.map((card) => card.id)).toEqual([dinnerCard.id]);
     expect(JSON.stringify(result.cards)).not.toContain(unselectedCard.title);
@@ -8464,9 +8471,9 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           evidenceToolCallIds: ["call_cloud9_weather_unavailable"],
         },
       },
-      expectedOpening: "**needs confirmation: Cloud 9 sunset today**",
-      expectedMessageText: ["Cloud 9", "covered General Luna", "current weather and tide"],
-      expectedDecisionGuidance: "Keep a covered General Luna stop ready",
+      expectedOpening: "Do not make Cloud 9 sunset the whole plan yet",
+      expectedMessageText: ["Cloud 9", "covered General Luna", "confirm the sky locally"],
+      expectedDecisionGuidance: "keep a covered General Luna stop ready",
       expectedPublicSources: [weatherProviderUnavailableSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
@@ -8555,9 +8562,9 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           evidenceToolCallIds: ["call_pacifico_condition"],
         },
       },
-      expectedOpening: "**change: Pacifico beginner surf tomorrow morning**",
+      expectedOpening: "Book Pacifico only if",
       expectedMessageText: ["Pacifico", "beginner", "tomorrow morning", "tide"],
-      expectedDecisionGuidance: "Do not paddle out alone",
+      expectedDecisionGuidance: "only if your coach confirms",
       expectedPublicSources: [
         weatherSourceSummary,
         tideSourceSummary,
@@ -8723,9 +8730,9 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           evidenceToolCallIds: ["call_general_luna_area", "call_malinao_area"],
         },
       },
-      expectedOpening: "**change: General Luna or Malinao**",
-      expectedMessageText: ["Malinao", "General Luna", "family", "budget"],
-      expectedDecisionGuidance: "Choose Malinao for the area fit",
+      expectedOpening: "Choose Malinao for quiet sleep",
+      expectedMessageText: ["Malinao", "General Luna", "kids", "budget"],
+      expectedDecisionGuidance: "keep General Luna as the meal and errand area",
       expectedPublicSources: [localGuideSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],
@@ -8819,9 +8826,9 @@ function answerQualityRegressionScenarios(): AnswerQualityScenario[] {
           evidenceToolCallIds: ["call_itinerary_review"],
         },
       },
-      expectedOpening: "**change: Cloud 9, Pacifico, and early Dapa ferry plan**",
+      expectedOpening: "Keep Cloud 9 sunset",
       expectedMessageText: ["General Luna", "Dapa", "8 AM ferry"],
-      expectedDecisionGuidance: "move dinner toward General Luna or Dapa",
+      expectedDecisionGuidance: "move dinner back toward General Luna or Dapa",
       expectedPublicSources: [localGuideSourceSummary],
       expectedCardIds: [],
       expectedItineraryIds: [],

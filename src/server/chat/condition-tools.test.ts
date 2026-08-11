@@ -8,7 +8,6 @@ import {
   conditionJudgmentRepairCall,
   conditionJudgmentRequestSchema,
   conditionJudgmentSchema,
-  conditionRealityCheckProposal,
   conditionRecommendations,
   conditionRiskLevels,
   conditionSignalKinds,
@@ -301,54 +300,6 @@ describe("condition judgment contracts", () => {
         }),
       ]),
     ).toMatchObject({ name: "get_condition_judgment", arguments: required });
-  });
-
-  test("derives a reality-check proposal from a used governed judgment", () => {
-    const summary = {
-      id: "condition_decision:visit:cloud_9:today",
-      bestAction: "Keep the Cloud 9 visit flexible.",
-      basis: "Checked conditions are mixed.",
-      fallback: "Keep a covered stop nearby.",
-      timing: "today",
-      area: "Cloud 9",
-      sources: [weatherSource],
-    };
-
-    expect(
-      conditionRealityCheckProposal({
-        finalPayload: {
-          answer: "Go, but keep it flexible.",
-          usedMemoryFiles: [],
-          usedToolCallIds: ["condition_call"],
-          displayCardIds: [],
-          displayActionIds: [],
-          displayItineraryIds: [],
-          displayDecisionSummaryIds: [],
-        },
-        recognition: { explicit: true, kind: "immediate_plan", missingContext: [] },
-        toolResults: [
-          {
-            toolCallId: "condition_call",
-            name: "get_condition_judgment",
-            status: "success",
-            text: "Condition judgment.",
-            data: { judgment: { recommendation: "flexible" } },
-            sources: [weatherSource],
-            decisionSummaries: [summary],
-          },
-        ],
-      }),
-    ).toEqual({
-      kind: "immediate_plan",
-      verdict: "change",
-      subject: "Cloud 9 today",
-      bestAction: "Keep the Cloud 9 visit flexible.",
-      basis: "Checked conditions are mixed.",
-      fallback: "Keep a covered stop nearby.",
-      timing: "today",
-      area: "Cloud 9",
-      evidenceToolCallIds: ["condition_call"],
-    });
   });
 
   test("uses the matching named beach candidate for curated local caveats", async () => {

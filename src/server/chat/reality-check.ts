@@ -1,5 +1,12 @@
+import { createHash } from "node:crypto";
+
 import { z } from "zod";
 
+import {
+  type AgentToolResult,
+  agentItineraryArtifactId,
+  type DecisionSummary,
+} from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 
 export const realityCheckExecutionMode = "on_demand" as const;
@@ -36,6 +43,23 @@ export type RealityCheckRecognition = {
 export type RealityCheckRecognitionInput = {
   latestUserTurn: string;
   recentUserContext?: string;
+};
+
+export type RealityCheckAccommodationContext = {
+  areas: readonly string[];
+  content: string;
+  propertyName?: string;
+  needsCurrentWebEvidence: boolean;
+};
+
+export type RealityCheckRequestInspection = {
+  recognition: RealityCheckRecognition;
+  latestUserTurn: string;
+  recentUserContext: string;
+  content: string;
+  requiresClarification: boolean;
+  requiresConditionJudgment: boolean;
+  accommodation?: RealityCheckAccommodationContext;
 };
 
 export type RealityCheckProposal = {
@@ -88,6 +112,28 @@ export type RealityCheckValidationResult =
       reason: RealityCheckValidationReason;
       fallback?: ValidatedRealityCheck;
     };
+
+export type RealityCheckLifecycleArtifacts = {
+  displayCardIds: readonly string[];
+  displayItineraryIds: readonly string[];
+  allowedCardIds: readonly string[];
+  allowedItineraryIds: readonly string[];
+};
+
+export type RealityCheckLifecycleResult = {
+  state: "not_requested" | "needs_context" | "unresolved" | "resolved";
+  recognition: RealityCheckRecognition;
+  artifacts?: RealityCheckLifecycleArtifacts;
+  repair?: {
+    expectedKind: RealityCheckKind;
+    reason: RealityCheckValidationReason | "missing_reality_check";
+  };
+  summary?: DecisionSummary;
+  validated?: ValidatedRealityCheck;
+};
+
+type RealityCheckLifecycleToolResult = RealityCheckEvidenceCall &
+  Pick<AgentToolResult, "cards" | "data" | "decisionSummaries" | "itineraries">;
 
 const optionalNullableText = (maxLength: number) =>
   z.preprocess(
@@ -281,6 +327,302 @@ export function validateRealityCheckProposal(input: {
     status: "valid",
     value: { proposal: input.proposal, sources, sourceState },
   };
+}
+
+export function resolveRealityCheckLifecycle(input: {
+  requestId: string;
+  recognition: RealityCheckRecognition;
+  finalPayload:
+    | {
+        usedToolCallIds: readonly string[];
+        displayCardIds: readonly string[];
+        displayItineraryIds: readonly string[];
+        realityCheck?: RealityCheckProposal;
+      }
+    | undefined;
+  toolCalls: readonly RealityCheckEvidenceCall[];
+  toolResults: readonly RealityCheckLifecycleToolResult[];
+  requiredEvidenceAllowedCardIds?: readonly string[];
+}): RealityCheckLifecycleResult {
+  if (!input.recognition.explicit) {
+    return { state: "not_requested", recognition: input.recognition };
+  }
+  if (!input.recognition.kind || input.recognition.missingContext.length > 0) {
+    return { state: "needs_context", recognition: input.recognition };
+  }
+
+  const artifacts = realityCheckArtifacts(input);
+  const proposalValidation = input.finalPayload?.realityCheck
+    ? validateRealityCheckProposal({
+        expectedKind: input.recognition.kind,
+        proposal: input.finalPayload.realityCheck,
+        usedToolCallIds: input.finalPayload.usedToolCallIds,
+        toolCalls: input.toolCalls,
+        toolResults: input.toolResults,
+      })
+    : undefined;
+  const repair = !input.finalPayload?.realityCheck
+    ? { expectedKind: input.recognition.kind, reason: "missing_reality_check" as const }
+    : proposalValidation?.status === "invalid"
+      ? { expectedKind: input.recognition.kind, reason: proposalValidation.reason }
+      : undefined;
+  const validated = acceptedRealityCheck(proposalValidation);
+  const fallback = validated
+    ? undefined
+    : validateRealityCheckFallback({
+        expectedKind: input.recognition.kind,
+        fallbackProposal: conditionRealityCheckFallbackProposal({
+          finalPayload: input.finalPayload,
+          recognition: input.recognition,
+          toolResults: input.toolResults,
+        }),
+        finalPayload: input.finalPayload,
+        toolCalls: input.toolCalls,
+        toolResults: input.toolResults,
+      });
+  const accepted = validated ?? fallback;
+  if (!accepted) {
+    return {
+      state: "unresolved",
+      recognition: input.recognition,
+      ...(artifacts ? { artifacts } : {}),
+      ...(repair ? { repair } : {}),
+    };
+  }
+
+  return {
+    state: "resolved",
+    recognition: input.recognition,
+    validated: accepted,
+    summary: buildRealityCheckDecisionSummary(accepted, input.requestId),
+    ...(artifacts ? { artifacts } : {}),
+    ...(repair ? { repair } : {}),
+  };
+}
+
+function conditionRealityCheckFallbackProposal(input: {
+  finalPayload: { usedToolCallIds: readonly string[] } | undefined;
+  recognition: RealityCheckRecognition;
+  toolResults: readonly RealityCheckLifecycleToolResult[];
+}): RealityCheckProposal | undefined {
+  if (
+    !input.finalPayload ||
+    (input.recognition.kind !== "immediate_plan" && input.recognition.kind !== "surf_session")
+  ) {
+    return undefined;
+  }
+  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
+  const result = [...input.toolResults]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.name === "get_condition_judgment" &&
+        candidate.status === "success" &&
+        Boolean(candidate.toolCallId && usedToolCallIds.has(candidate.toolCallId)),
+    );
+  const summary = result?.decisionSummaries?.[0];
+  const recommendation = conditionRecommendationFromResult(result);
+  const verdict = conditionRecommendationVerdict(recommendation);
+  if (!result?.toolCallId || !summary || !verdict) {
+    return undefined;
+  }
+  const subject = [summary.area, summary.timing].filter(Boolean).join(" ");
+  if (!subject) {
+    return undefined;
+  }
+  return {
+    kind: input.recognition.kind,
+    verdict,
+    subject,
+    bestAction: summary.bestAction,
+    basis: summary.basis,
+    ...(summary.fallback ? { fallback: summary.fallback } : {}),
+    ...(summary.avoid ? { avoid: summary.avoid } : {}),
+    ...(summary.timing ? { timing: summary.timing } : {}),
+    ...(summary.area ? { area: summary.area } : {}),
+    evidenceToolCallIds: [result.toolCallId],
+  };
+}
+
+function conditionRecommendationFromResult(result: RealityCheckLifecycleToolResult | undefined) {
+  if (!isRecord(result?.data)) {
+    return undefined;
+  }
+  const judgment = result.data.judgment;
+  return isRecord(judgment) && typeof judgment.recommendation === "string"
+    ? judgment.recommendation
+    : undefined;
+}
+
+function conditionRecommendationVerdict(
+  value: string | undefined,
+): RealityCheckVerdict | undefined {
+  if (value === "good") return "keep";
+  if (value === "flexible") return "change";
+  if (value === "avoid") return "avoid";
+  if (value === "needs_local_confirmation") return "needs_confirmation";
+  return undefined;
+}
+
+function acceptedRealityCheck(
+  validation: RealityCheckValidationResult | undefined,
+): ValidatedRealityCheck | undefined {
+  if (!validation) {
+    return undefined;
+  }
+  return validation.status === "valid" ? validation.value : validation.fallback;
+}
+
+function validateRealityCheckFallback(input: {
+  expectedKind: RealityCheckKind;
+  fallbackProposal: RealityCheckProposal | undefined;
+  finalPayload: { usedToolCallIds: readonly string[] } | undefined;
+  toolCalls: readonly RealityCheckEvidenceCall[];
+  toolResults: readonly RealityCheckEvidenceCall[];
+}) {
+  if (!input.fallbackProposal) {
+    return undefined;
+  }
+  return acceptedRealityCheck(
+    validateRealityCheckProposal({
+      expectedKind: input.expectedKind,
+      proposal: input.fallbackProposal,
+      usedToolCallIds: input.finalPayload?.usedToolCallIds ?? [],
+      toolCalls: input.toolCalls,
+      toolResults: input.toolResults,
+    }),
+  );
+}
+
+function buildRealityCheckDecisionSummary(
+  validated: ValidatedRealityCheck,
+  requestId: string,
+): DecisionSummary {
+  const proposal = validated.proposal;
+  const fingerprint = createHash("sha256")
+    .update(`${requestId}\u0000${proposal.kind}\u0000${proposal.subject}`)
+    .digest("hex")
+    .slice(0, 16);
+  return {
+    id: `reality_check:${proposal.kind}:${fingerprint}`,
+    kind: proposal.kind,
+    verdict: proposal.verdict,
+    subject: proposal.subject,
+    bestAction: proposal.bestAction,
+    basis: proposal.basis,
+    ...(proposal.fallback ? { fallback: proposal.fallback } : {}),
+    ...(proposal.avoid ? { avoid: proposal.avoid } : {}),
+    ...(proposal.timing ? { timing: proposal.timing } : {}),
+    ...(proposal.area ? { area: proposal.area } : {}),
+    sources: validated.sources,
+  };
+}
+
+const currentConditionDependentToolNames = new Set([
+  "rank_surf_spots_nearby",
+  "search_local_guide",
+  "search_places",
+  "get_place_details",
+]);
+
+const disruptionReplacementToolNames = new Set([
+  "plan_local_itinerary",
+  "search_local_guide",
+  "search_places",
+  "get_place_details",
+  "query_local_facts",
+]);
+
+const accommodationEvidenceToolNames = new Set([
+  "search_places",
+  "get_place_details",
+  "query_local_facts",
+  "research_web",
+]);
+
+const itineraryEvidenceToolNames = new Set([
+  "plan_local_itinerary",
+  "search_local_guide",
+  "search_places",
+  "get_place_details",
+  "get_condition_judgment",
+  "get_weather_forecast",
+  "query_local_facts",
+]);
+
+function realityCheckArtifacts(input: {
+  recognition: RealityCheckRecognition;
+  finalPayload:
+    | {
+        usedToolCallIds: readonly string[];
+        displayCardIds: readonly string[];
+        displayItineraryIds: readonly string[];
+      }
+    | undefined;
+  toolResults: readonly RealityCheckLifecycleToolResult[];
+  requiredEvidenceAllowedCardIds?: readonly string[];
+}): RealityCheckLifecycleArtifacts | undefined {
+  if (
+    !input.finalPayload ||
+    !input.recognition.kind ||
+    input.recognition.missingContext.length > 0
+  ) {
+    return undefined;
+  }
+
+  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
+  const allowedToolNames = realityCheckDecisionToolNames(input.recognition.kind);
+  const allowedResults = input.toolResults.filter(
+    (result) =>
+      result.status === "success" &&
+      Boolean(result.toolCallId && usedToolCallIds.has(result.toolCallId)) &&
+      allowedToolNames.has(result.name),
+  );
+  const realityCheckCardIds = uniqueText(
+    allowedResults.flatMap((result) => result.cards?.map((card) => card.id) ?? []),
+  );
+  const allowedCardIds = intersectAllowedIds(
+    input.requiredEvidenceAllowedCardIds,
+    realityCheckCardIds,
+  );
+  const allowedItineraryIds = uniqueText(
+    allowedResults.flatMap((result) => result.itineraries?.map(agentItineraryArtifactId) ?? []),
+  );
+  return {
+    displayCardIds: filterAllowedIds(input.finalPayload.displayCardIds, allowedCardIds),
+    displayItineraryIds: filterAllowedIds(
+      input.finalPayload.displayItineraryIds,
+      allowedItineraryIds,
+    ),
+    allowedCardIds,
+    allowedItineraryIds,
+  };
+}
+
+export function realityCheckDecisionToolNames(kind: RealityCheckKind): ReadonlySet<string> {
+  if (kind === "accommodation") {
+    return accommodationEvidenceToolNames;
+  }
+  if (kind === "itinerary") {
+    return itineraryEvidenceToolNames;
+  }
+  if (kind === "disruption_recovery") {
+    return disruptionReplacementToolNames;
+  }
+  return currentConditionDependentToolNames;
+}
+
+function intersectAllowedIds(first: readonly string[] | undefined, second: readonly string[]) {
+  if (!first) {
+    return second;
+  }
+  const secondSet = new Set(second);
+  return first.filter((id) => secondSet.has(id));
+}
+
+function filterAllowedIds(ids: readonly string[], allowedIds: readonly string[]) {
+  const allowedIdSet = new Set(allowedIds);
+  return ids.filter((id) => allowedIdSet.has(id));
 }
 
 const currentEvidenceToolNames = new Set([
@@ -505,6 +847,68 @@ export function recognizeRealityCheckRequest(
   };
 }
 
+export function inspectRealityCheckRequest(input: {
+  messages: readonly { role: string; content: string }[];
+  deterministicSignals?: Record<string, unknown>;
+}): RealityCheckRequestInspection {
+  const userTurns = input.messages.flatMap((message) =>
+    message.role === "user" ? [message.content] : [],
+  );
+  const latestUserTurn = userTurns.at(-1) ?? "";
+  const recentUserContext = userTurns.slice(0, -1).slice(-3).join(" ");
+  const recognition = recognizeRealityCheckRequest({ latestUserTurn, recentUserContext });
+  const content = [recentUserContext, latestUserTurn].filter(Boolean).join(" ");
+  const requiresClarification = recognition.explicit && recognition.missingContext.length > 0;
+  const requiresConditionJudgment =
+    recognition.explicit &&
+    !requiresClarification &&
+    (recognition.kind === "immediate_plan" || recognition.kind === "surf_session");
+  const accommodation = accommodationContext({
+    content,
+    deterministicSignals: input.deterministicSignals,
+    recognition,
+  });
+
+  return {
+    recognition,
+    latestUserTurn,
+    recentUserContext,
+    content,
+    requiresClarification,
+    requiresConditionJudgment,
+    ...(accommodation ? { accommodation } : {}),
+  };
+}
+
+function accommodationContext(input: {
+  content: string;
+  deterministicSignals?: Record<string, unknown>;
+  recognition: RealityCheckRecognition;
+}): RealityCheckRequestInspection["accommodation"] {
+  if (input.recognition.kind !== "accommodation" || input.recognition.missingContext.length > 0) {
+    return undefined;
+  }
+  const storedAccommodation = readNestedText(input.deterministicSignals, [
+    "context",
+    "tripContext",
+    "accommodation",
+  ]);
+  const propertyName = storedAccommodation ?? extractNamedAccommodation(input.content);
+  const areas = extractAccommodationAreas(input.content);
+  if (!propertyName && areas.length === 0) {
+    return undefined;
+  }
+  return {
+    areas,
+    content: input.content,
+    ...(propertyName ? { propertyName } : {}),
+    needsCurrentWebEvidence:
+      /\b(?:availability|available\s+(?:for|on)|current\s+(?:price|rate)|prices?|rates?|book(?:ing)?\s+(?:for|on)|vacancy|vacancies)\b/iu.test(
+        input.content,
+      ),
+  };
+}
+
 function recognizeRealityCheckKind(latestUserTurn: string): RealityCheckKind | undefined {
   if (isDisruptionRecoveryRequest(latestUserTurn)) {
     return "disruption_recovery";
@@ -659,6 +1063,54 @@ function hasNamedDisruption(value: string) {
 
 function normalizedRecognitionText(value: string, maxLength: number) {
   return value.replaceAll(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+const accommodationAreaLabels = [
+  "General Luna",
+  "Cloud 9",
+  "Malinao",
+  "Pacifico",
+  "Dapa",
+  "Del Carmen",
+  "Alegria",
+] as const;
+
+function extractAccommodationAreas(content: string) {
+  const normalized = normalizeLookupKey(content);
+  return accommodationAreaLabels.filter((area) => normalized.includes(normalizeLookupKey(area)));
+}
+
+function extractNamedAccommodation(content: string) {
+  const matches = content.matchAll(
+    /\b([A-Z][\p{L}\d&'’.-]*(?:\s+[A-Z][\p{L}\d&'’.-]*){0,6}\s+(?:Hotel|Hostel|Resort|Homestay|Villa|Lodge|Inn|Suites?))\b/gu,
+  );
+  return [...matches]
+    .map((match) =>
+      match[1]
+        ?.replaceAll(/\s+/g, " ")
+        .replace(/^(?:reality[- ]check|check|review|please)\s+/iu, "")
+        .trim(),
+    )
+    .find((value): value is string => Boolean(value && value.length <= 120));
+}
+
+function readNestedText(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return typeof current === "string" && current.trim() ? current.trim().slice(0, 120) : undefined;
+}
+
+function normalizeLookupKey(value: string) {
+  return value.replaceAll(/\s+/g, " ").trim().toLowerCase();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function uniqueText(values: readonly string[]) {

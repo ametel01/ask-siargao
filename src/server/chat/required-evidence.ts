@@ -6,7 +6,10 @@ import type {
   RecommendationCard,
   RecommendationCardKind,
 } from "@/server/chat/agent-runtime";
-import { recognizeRealityCheckRequest } from "@/server/chat/reality-check";
+import {
+  inspectRealityCheckRequest,
+  type RealityCheckAccommodationContext,
+} from "@/server/chat/reality-check";
 
 export type RequiredEvidencePlan = {
   requiredToolCalls: readonly RequiredEvidenceToolCall[];
@@ -65,7 +68,7 @@ export type RequiredLocalFactsEvidenceToolCall = RequiredEvidenceToolCallBase & 
 
 export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): RequiredEvidencePlan {
   const latestContent = latestUserContent(request);
-  const accommodationContext = accommodationRealityCheckContext(request);
+  const accommodationContext = inspectRealityCheckRequest(request).accommodation;
   if (accommodationContext) {
     return buildAccommodationRealityCheckEvidencePlan(accommodationContext);
   }
@@ -79,52 +82,8 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
   return { requiredToolCalls: [] };
 }
 
-type AccommodationRealityCheckContext = {
-  areas: readonly string[];
-  content: string;
-  propertyName?: string;
-};
-
-function accommodationRealityCheckContext(
-  request: AgentRuntimeRequest,
-): AccommodationRealityCheckContext | undefined {
-  const userTurns: string[] = [];
-  for (const message of request.messages) {
-    if (message.role === "user") {
-      userTurns.push(message.content);
-    }
-  }
-  const latestUserTurn = userTurns.at(-1) ?? "";
-  const recentUserContext = userTurns.slice(0, -1).slice(-3).join(" ");
-  const recognition = recognizeRealityCheckRequest({ latestUserTurn, recentUserContext });
-  if (
-    !recognition.explicit ||
-    recognition.kind !== "accommodation" ||
-    recognition.missingContext.length > 0
-  ) {
-    return undefined;
-  }
-
-  const content = [recentUserContext, latestUserTurn].filter(Boolean).join(" ");
-  const storedAccommodation = readNestedString(request.deterministicSignals, [
-    "context",
-    "tripContext",
-    "accommodation",
-  ]);
-  const propertyName = storedAccommodation ?? extractNamedAccommodation(content);
-  const areas = extractAccommodationAreas(content);
-  if (!propertyName && areas.length === 0) {
-    return undefined;
-  }
-  return {
-    areas,
-    content,
-    ...(propertyName ? { propertyName } : {}),
-  };
-}
-
 function buildAccommodationRealityCheckEvidencePlan(
-  context: AccommodationRealityCheckContext,
+  context: RealityCheckAccommodationContext,
 ): RequiredEvidencePlan {
   const requiredToolCalls: RequiredEvidenceToolCall[] = [];
   if (context.propertyName) {
@@ -159,7 +118,7 @@ function buildAccommodationRealityCheckEvidencePlan(
     });
   }
 
-  if (needsCurrentAccommodationWebEvidence(context.content)) {
+  if (context.needsCurrentWebEvidence) {
     requiredToolCalls.push({
       name: "research_web",
       purpose: "accommodation_current_public_claims",
@@ -565,52 +524,6 @@ function inferPlacesRepairLocation(content: string): {
     center: { latitude: 9.784, longitude: 126.158 },
     radiusMeters: 8_000,
   };
-}
-
-const accommodationAreaNames = [
-  "General Luna",
-  "Cloud 9",
-  "Malinao",
-  "Pacifico",
-  "Dapa",
-  "Del Carmen",
-  "Alegria",
-] as const;
-
-function extractAccommodationAreas(content: string) {
-  const normalized = normalizeLookupKey(content);
-  return accommodationAreaNames.filter((area) => normalized.includes(normalizeLookupKey(area)));
-}
-
-function extractNamedAccommodation(content: string) {
-  const matches = content.matchAll(
-    /\b([A-Z][\p{L}\d&'’.-]*(?:\s+[A-Z][\p{L}\d&'’.-]*){0,6}\s+(?:Hotel|Hostel|Resort|Homestay|Villa|Lodge|Inn|Suites?))\b/gu,
-  );
-  return [...matches]
-    .map((match) =>
-      match[1]
-        ?.replaceAll(/\s+/g, " ")
-        .replace(/^(?:reality[- ]check|check|review|please)\s+/iu, "")
-        .trim(),
-    )
-    .find((value): value is string => Boolean(value && value.length <= 120));
-}
-
-function needsCurrentAccommodationWebEvidence(content: string) {
-  return /\b(?:availability|available\s+(?:for|on)|current\s+(?:price|rate)|prices?|rates?|book(?:ing)?\s+(?:for|on)|vacancy|vacancies)\b/iu.test(
-    content,
-  );
-}
-
-function readNestedString(value: unknown, path: readonly string[]) {
-  let current = value;
-  for (const segment of path) {
-    if (!isRecord(current)) {
-      return undefined;
-    }
-    current = current[segment];
-  }
-  return typeof current === "string" && current.trim() ? current.trim().slice(0, 120) : undefined;
 }
 
 function finalPayloadUsesResearchToolCall(

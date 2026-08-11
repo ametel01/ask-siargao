@@ -2,8 +2,8 @@ import { createAgentTurnResult } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { displayReadyStoredChatTurn } from "@/server/chat/public-turn-assembly";
 import {
-  recognizeRealityCheckRequest,
-  validateRealityCheckProposal,
+  inspectRealityCheckRequest,
+  resolveRealityCheckLifecycle,
 } from "@/server/chat/reality-check";
 
 export const realityCheckEvaluationArtifactPath =
@@ -76,10 +76,14 @@ const placesSource = {
 
 export function buildRealityCheckEvaluationArtifact() {
   const scenarios = productCases.map((scenario, index) => {
-    const recognition = recognizeRealityCheckRequest({
-      latestUserTurn: scenario.prompt,
-      ...("recentUserContext" in scenario ? { recentUserContext: scenario.recentUserContext } : {}),
-    });
+    const recognition = inspectRealityCheckRequest({
+      messages: [
+        ...("recentUserContext" in scenario
+          ? [{ role: "user", content: scenario.recentUserContext }]
+          : []),
+        { role: "user", content: scenario.prompt },
+      ],
+    }).recognition;
     const passed =
       recognition.explicit &&
       recognition.kind === scenario.expectedKind &&
@@ -140,9 +144,9 @@ export function buildRealityCheckEvaluationArtifact() {
 }
 
 function evaluateMissingInput() {
-  const recognition = recognizeRealityCheckRequest({
-    latestUserTurn: "Reality-check this hotel before I book.",
-  });
+  const recognition = inspectRealityCheckRequest({
+    messages: [{ role: "user", content: "Reality-check this hotel before I book." }],
+  }).recognition;
   const passed =
     recognition.explicit &&
     recognition.kind === "accommodation" &&
@@ -156,17 +160,26 @@ function evaluateMissingInput() {
 }
 
 function evaluateProviderFailure() {
-  const validation = validateRealityCheckProposal({
-    expectedKind: "accommodation",
-    proposal: {
+  const lifecycle = resolveRealityCheckLifecycle({
+    requestId: "evaluation_provider_failure",
+    recognition: {
+      explicit: true,
       kind: "accommodation",
-      verdict: "keep",
-      subject: "Example Hotel",
-      bestAction: "Keep the booking.",
-      basis: "The property is a good fit.",
-      evidenceToolCallIds: ["call_places_failed"],
+      missingContext: [],
     },
-    usedToolCallIds: ["call_places_failed"],
+    finalPayload: {
+      usedToolCallIds: ["call_places_failed"],
+      displayCardIds: [],
+      displayItineraryIds: [],
+      realityCheck: {
+        kind: "accommodation",
+        verdict: "keep",
+        subject: "Example Hotel",
+        bestAction: "Keep the booking.",
+        basis: "The property is a good fit.",
+        evidenceToolCallIds: ["call_places_failed"],
+      },
+    },
     toolCalls: [
       {
         toolCallId: "call_places_failed",
@@ -185,31 +198,40 @@ function evaluateProviderFailure() {
     ],
   });
   const passed =
-    validation.status === "invalid" &&
-    validation.fallback?.proposal.verdict === "needs_confirmation";
+    lifecycle.state === "resolved" &&
+    lifecycle.repair?.reason === "insufficient_source_evidence" &&
+    lifecycle.validated?.proposal.verdict === "needs_confirmation";
   return {
     id: "provider_failure_downgrade",
     expected: "reject the positive verdict and downgrade to needs_confirmation",
-    observed:
-      validation.status === "invalid"
-        ? `${validation.reason}:${validation.fallback?.proposal.verdict ?? "no_fallback"}`
-        : validation.value.proposal.verdict,
+    observed: lifecycle.repair
+      ? `${lifecycle.repair.reason}:${lifecycle.validated?.proposal.verdict ?? "no_fallback"}`
+      : lifecycle.validated?.proposal.verdict,
     status: passed ? "pass" : "fail",
   };
 }
 
 function evaluatePartialEvidence() {
-  const validation = validateRealityCheckProposal({
-    expectedKind: "immediate_plan",
-    proposal: {
+  const lifecycle = resolveRealityCheckLifecycle({
+    requestId: "evaluation_partial_evidence",
+    recognition: {
+      explicit: true,
       kind: "immediate_plan",
-      verdict: "change",
-      subject: "Cloud 9 visit today",
-      bestAction: "Move the visit later and keep an indoor fallback.",
-      basis: "The checked rain signal conflicts with the current timing.",
-      evidenceToolCallIds: ["call_condition_ok", "call_places_failed"],
+      missingContext: [],
     },
-    usedToolCallIds: ["call_condition_ok", "call_places_failed"],
+    finalPayload: {
+      usedToolCallIds: ["call_condition_ok", "call_places_failed"],
+      displayCardIds: [],
+      displayItineraryIds: [],
+      realityCheck: {
+        kind: "immediate_plan",
+        verdict: "change",
+        subject: "Cloud 9 visit today",
+        bestAction: "Move the visit later and keep an indoor fallback.",
+        basis: "The checked rain signal conflicts with the current timing.",
+        evidenceToolCallIds: ["call_condition_ok", "call_places_failed"],
+      },
+    },
     toolCalls: [
       {
         toolCallId: "call_condition_ok",
@@ -239,11 +261,11 @@ function evaluatePartialEvidence() {
       },
     ],
   });
-  const passed = validation.status === "valid" && validation.value.sourceState === "partial";
+  const passed = lifecycle.state === "resolved" && lifecycle.validated?.sourceState === "partial";
   return {
     id: "partial_evidence_label",
     expected: "retain the supported decision and label its evidence partial",
-    observed: validation.status === "valid" ? validation.value.sourceState : validation.reason,
+    observed: lifecycle.validated?.sourceState ?? lifecycle.repair?.reason ?? lifecycle.state,
     status: passed ? "pass" : "fail",
   };
 }

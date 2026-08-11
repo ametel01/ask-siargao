@@ -2,7 +2,7 @@ import type { AgentRuntimeRequest, AskSiargaoAgentToolName } from "@/server/chat
 import type { AgentResponseToolDefinition } from "@/server/chat/agent-tool-catalogue";
 import { conditionToolNamesForAgentTurn } from "@/server/chat/condition-tools";
 import { interpretPlaceIntent } from "@/server/chat/place-intent";
-import { recognizeRealityCheckRequest } from "@/server/chat/reality-check";
+import { inspectRealityCheckRequest } from "@/server/chat/reality-check";
 import type { RequiredEvidencePlan } from "@/server/chat/required-evidence";
 
 const memoryTools = ["load_agent_memory_file", "search_agent_memory"] as const;
@@ -21,17 +21,7 @@ export function selectAgentResponseTools(
   const selected = new Set<AskSiargaoAgentToolName>(memoryTools);
   const latestUserTurn =
     request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
-  const recentUserContext = request.messages
-    .filter((message) => message.role === "user")
-    .slice(0, -1)
-    .slice(-3)
-    .map((message) => message.content)
-    .join(" ");
-  const realityCheck = recognizeRealityCheckRequest({ latestUserTurn, recentUserContext });
-  const conditionRealityCheck =
-    realityCheck.explicit &&
-    realityCheck.missingContext.length === 0 &&
-    (realityCheck.kind === "immediate_plan" || realityCheck.kind === "surf_session");
+  const realityCheck = inspectRealityCheckRequest(request);
   const placeIntent = interpretPlaceIntent(request.messages);
 
   if (placeIntent) {
@@ -45,7 +35,7 @@ export function selectAgentResponseTools(
     }
   }
   addTools(selected, conditionToolNamesForAgentTurn(request));
-  if (conditionRealityCheck) selected.add("get_condition_judgment");
+  if (realityCheck.requiresConditionJudgment) selected.add("get_condition_judgment");
   if (surfIntent(latestUserTurn)) {
     selected.add("rank_surf_spots_nearby");
     selected.add("search_local_guide");
@@ -62,7 +52,7 @@ export function selectAgentResponseTools(
     selected.add("research_web");
     addTools(selected, placesTools);
   }
-  if (webResearchIntent(latestUserTurn) && !conditionRealityCheck) {
+  if (webResearchIntent(latestUserTurn) && !realityCheck.requiresConditionJudgment) {
     selected.add("research_web");
   }
   if (localFactsIntent(latestUserTurn)) {

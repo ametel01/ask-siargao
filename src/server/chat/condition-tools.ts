@@ -1,19 +1,12 @@
 import { z } from "zod";
 
 import type {
-  AgentFinalPayload,
   AgentRuntimeRequest,
   AgentToolCallAudit,
-  AgentToolResult,
   AskSiargaoAgentToolName,
   DecisionSummary,
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
-import type {
-  RealityCheckProposal,
-  RealityCheckRecognition,
-  RealityCheckVerdict,
-} from "@/server/chat/reality-check";
 import type {
   LocalGuideSearchFilters,
   LocalGuideSearchResult,
@@ -397,50 +390,6 @@ export function conditionToolNamesForAgentTurn(
     return ["get_weather_forecast"];
   }
   return [];
-}
-
-export function conditionRealityCheckProposal(input: {
-  finalPayload: AgentFinalPayload | undefined;
-  recognition: RealityCheckRecognition;
-  toolResults: readonly AgentToolResult[];
-}): RealityCheckProposal | undefined {
-  if (
-    !input.finalPayload ||
-    (input.recognition.kind !== "immediate_plan" && input.recognition.kind !== "surf_session")
-  ) {
-    return undefined;
-  }
-  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
-  const result = [...input.toolResults]
-    .reverse()
-    .find(
-      (candidate) =>
-        candidate.name === "get_condition_judgment" &&
-        candidate.status === "success" &&
-        Boolean(candidate.toolCallId && usedToolCallIds.has(candidate.toolCallId)),
-    );
-  const summary = result?.decisionSummaries?.[0];
-  const recommendation = conditionRecommendationFromResult(result);
-  const verdict = conditionRecommendationVerdict(recommendation);
-  if (!result?.toolCallId || !summary || !verdict) {
-    return undefined;
-  }
-  const subject = [summary.area, summary.timing].filter(Boolean).join(" ");
-  if (!subject) {
-    return undefined;
-  }
-  return {
-    kind: input.recognition.kind,
-    verdict,
-    subject,
-    bestAction: summary.bestAction,
-    basis: summary.basis,
-    ...(summary.fallback ? { fallback: summary.fallback } : {}),
-    ...(summary.avoid ? { avoid: summary.avoid } : {}),
-    ...(summary.timing ? { timing: summary.timing } : {}),
-    ...(summary.area ? { area: summary.area } : {}),
-    evidenceToolCallIds: [result.toolCallId],
-  };
 }
 
 export function precipitationProbabilityRiskLevel(value: number | null | undefined) {
@@ -1446,26 +1395,6 @@ function hasScopedLocalItineraryContent(content: string) {
       )) ||
     (/\b(?:route|sequence)\b/i.test(content) && /\bstops?\b/i.test(content))
   );
-}
-
-function conditionRecommendationFromResult(result: AgentToolResult | undefined) {
-  if (!isConditionRecord(result?.data)) {
-    return undefined;
-  }
-  const judgment = result.data.judgment;
-  return isConditionRecord(judgment) && typeof judgment.recommendation === "string"
-    ? judgment.recommendation
-    : undefined;
-}
-
-function conditionRecommendationVerdict(
-  value: string | undefined,
-): RealityCheckVerdict | undefined {
-  if (value === "good") return "keep";
-  if (value === "flexible") return "change";
-  if (value === "avoid") return "avoid";
-  if (value === "needs_local_confirmation") return "needs_confirmation";
-  return undefined;
 }
 
 function readConditionStringPath(value: unknown, path: readonly string[]) {

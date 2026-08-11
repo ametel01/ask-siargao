@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  inspectRealityCheckRequest,
   parseRealityCheckProposal,
   realityCheckExecutionMode,
   realityCheckKinds,
   realityCheckVerdicts,
   recognizeRealityCheckRequest,
+  resolveRealityCheckLifecycle,
   validateRealityCheckProposal,
 } from "@/server/chat/reality-check";
 
@@ -83,6 +85,42 @@ describe("reality check contract", () => {
         recentUserContext: "Day one is Cloud 9, Pacifico, then dinner in Dapa.",
       }),
     ).toEqual({ explicit: true, kind: "itinerary", missingContext: [] });
+  });
+
+  test("assembles one ready request context for every Reality Check caller", () => {
+    expect(
+      inspectRealityCheckRequest({
+        messages: [
+          {
+            role: "user",
+            content: "We are considering Bravo Beach Resort in General Luna.",
+          },
+          { role: "assistant", content: "What would you like checked?" },
+          {
+            role: "user",
+            content: "Reality-check this hotel's current price and availability before I book.",
+          },
+        ],
+        deterministicSignals: {
+          context: { tripContext: { accommodation: "Bravo Beach Resort" } },
+        },
+      }),
+    ).toEqual({
+      recognition: { explicit: true, kind: "accommodation", missingContext: [] },
+      latestUserTurn: "Reality-check this hotel's current price and availability before I book.",
+      recentUserContext: "We are considering Bravo Beach Resort in General Luna.",
+      content:
+        "We are considering Bravo Beach Resort in General Luna. Reality-check this hotel's current price and availability before I book.",
+      requiresClarification: false,
+      requiresConditionJudgment: false,
+      accommodation: {
+        areas: ["General Luna"],
+        content:
+          "We are considering Bravo Beach Resort in General Luna. Reality-check this hotel's current price and availability before I book.",
+        propertyName: "Bravo Beach Resort",
+        needsCurrentWebEvidence: true,
+      },
+    });
   });
 
   test.each([
@@ -253,6 +291,372 @@ describe("reality check contract", () => {
         proposal: baseProposal,
         sources: [checkedSource],
         sourceState: "checked",
+      },
+    });
+  });
+
+  test("resolves one public summary and governs mixed artifact selections without writing prose", () => {
+    const recognition = recognizeRealityCheckRequest({
+      latestUserTurn: "Should we still go to Cloud 9 today?",
+    });
+    const result = resolveRealityCheckLifecycle({
+      requestId: "request_reality_check",
+      recognition,
+      finalPayload: {
+        usedToolCallIds: ["call_weather", "call_allowed", "call_unrelated"],
+        displayCardIds: ["card_current", "card_unrelated"],
+        displayItineraryIds: [],
+        realityCheck: baseProposal,
+      },
+      toolCalls: [
+        {
+          toolCallId: "call_weather",
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [],
+        },
+        {
+          toolCallId: "call_allowed",
+          name: "search_local_guide",
+          status: "success",
+          sources: [],
+        },
+        {
+          toolCallId: "call_unrelated",
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [],
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call_weather",
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [checkedSource],
+        },
+        {
+          toolCallId: "call_allowed",
+          name: "search_local_guide",
+          status: "success",
+          sources: [checkedSource],
+          cards: [
+            {
+              id: "card_current",
+              kind: "place",
+              title: "Current option",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "checked",
+            },
+          ],
+        },
+        {
+          toolCallId: "call_unrelated",
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [checkedSource],
+          cards: [
+            {
+              id: "card_unrelated",
+              kind: "place",
+              title: "Unrelated option",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "checked",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      state: "resolved",
+      summary: {
+        id: expect.stringMatching(/^reality_check:immediate_plan:[a-f0-9]{16}$/),
+        kind: "immediate_plan",
+        verdict: "keep",
+        subject: "Cloud 9 sunset today",
+        sources: [checkedSource],
+      },
+      artifacts: {
+        displayCardIds: ["card_current"],
+        displayItineraryIds: [],
+        allowedCardIds: ["card_current"],
+        allowedItineraryIds: [],
+      },
+    });
+    expect(result).not.toHaveProperty("answer");
+  });
+
+  test("classifies one repair while accepting a provider-failure fallback", () => {
+    const result = resolveRealityCheckLifecycle({
+      requestId: "request_provider_failure",
+      recognition: recognizeRealityCheckRequest({
+        latestUserTurn: "Should we still go to Cloud 9 today?",
+      }),
+      finalPayload: {
+        usedToolCallIds: ["call_weather"],
+        displayCardIds: [],
+        displayItineraryIds: [],
+        realityCheck: baseProposal,
+      },
+      toolCalls: [
+        {
+          toolCallId: "call_weather",
+          name: "get_weather_forecast",
+          status: "error",
+          sources: [unavailableSource],
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call_weather",
+          name: "get_weather_forecast",
+          status: "error",
+          sources: [unavailableSource],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      state: "resolved",
+      repair: {
+        expectedKind: "immediate_plan",
+        reason: "insufficient_source_evidence",
+      },
+      validated: {
+        proposal: { verdict: "needs_confirmation" },
+        sourceState: "unavailable",
+      },
+      summary: { verdict: "needs_confirmation", sources: [unavailableSource] },
+    });
+  });
+
+  test("derives the governed condition fallback inside the recognized lifecycle", () => {
+    const result = resolveRealityCheckLifecycle({
+      requestId: "request_condition_fallback",
+      recognition: recognizeRealityCheckRequest({
+        latestUserTurn: "Should we still go to Cloud 9 today?",
+      }),
+      finalPayload: {
+        usedToolCallIds: ["call_condition"],
+        displayCardIds: [],
+        displayItineraryIds: [],
+      },
+      toolCalls: [
+        {
+          toolCallId: "call_condition",
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [],
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call_condition",
+          name: "get_condition_judgment",
+          status: "success",
+          sources: [checkedSource],
+          data: { judgment: { recommendation: "flexible" } },
+          decisionSummaries: [
+            {
+              id: "condition_decision:visit:cloud_9:today",
+              bestAction: "Keep the Cloud 9 visit flexible.",
+              basis: "Checked conditions are mixed.",
+              fallback: "Keep a covered stop nearby.",
+              timing: "today",
+              area: "Cloud 9",
+              sources: [checkedSource],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      state: "resolved",
+      recognition: { kind: "immediate_plan" },
+      repair: { expectedKind: "immediate_plan", reason: "missing_reality_check" },
+      validated: {
+        proposal: {
+          kind: "immediate_plan",
+          verdict: "change",
+          subject: "Cloud 9 today",
+          evidenceToolCallIds: ["call_condition"],
+        },
+      },
+      summary: { kind: "immediate_plan", verdict: "change", subject: "Cloud 9 today" },
+    });
+  });
+
+  test("does not auto-select eligible or ineligible artifacts when display IDs are omitted", () => {
+    const result = resolveRealityCheckLifecycle({
+      requestId: "request_omitted_artifacts",
+      recognition: recognizeRealityCheckRequest({
+        latestUserTurn: "Should we still go to Cloud 9 today?",
+      }),
+      finalPayload: {
+        usedToolCallIds: ["call_weather", "call_guide", "call_itinerary"],
+        displayCardIds: [],
+        displayItineraryIds: [],
+        realityCheck: baseProposal,
+      },
+      toolCalls: [
+        {
+          toolCallId: "call_weather",
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [],
+        },
+        {
+          toolCallId: "call_guide",
+          name: "search_local_guide",
+          status: "success",
+          sources: [],
+        },
+        {
+          toolCallId: "call_itinerary",
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [],
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call_weather",
+          name: "get_weather_forecast",
+          status: "success",
+          sources: [checkedSource],
+        },
+        {
+          toolCallId: "call_guide",
+          name: "search_local_guide",
+          status: "success",
+          sources: [checkedSource],
+          cards: [
+            {
+              id: "card_eligible",
+              kind: "place",
+              title: "Eligible fallback",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "checked",
+            },
+          ],
+        },
+        {
+          toolCallId: "call_itinerary",
+          name: "plan_local_itinerary",
+          status: "success",
+          sources: [checkedSource],
+          cards: [
+            {
+              id: "card_ineligible",
+              kind: "place",
+              title: "Ineligible plan card",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "checked",
+            },
+          ],
+          itineraries: [
+            {
+              id: "itinerary_ineligible",
+              title: "Ineligible itinerary",
+              durationLabel: "Half day",
+              stops: [],
+              fallbackStops: [],
+              skip: [],
+              sources: [checkedSource],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      state: "resolved",
+      artifacts: {
+        displayCardIds: [],
+        displayItineraryIds: [],
+        allowedCardIds: ["card_eligible"],
+        allowedItineraryIds: [],
+      },
+    });
+  });
+
+  test("filters adversarial mixed accommodation cards at the lifecycle boundary", () => {
+    const placesSource = {
+      label: "live_checked" as const,
+      sourceName: "Google Places",
+      checked: ["property identity"],
+      notChecked: ["room quality"],
+    };
+    const result = resolveRealityCheckLifecycle({
+      requestId: "request_accommodation_cards",
+      recognition: {
+        explicit: true,
+        kind: "accommodation",
+        missingContext: [],
+      },
+      finalPayload: {
+        usedToolCallIds: ["call_places"],
+        displayCardIds: ["card_bravo", "card_unrelated"],
+        displayItineraryIds: [],
+        realityCheck: {
+          kind: "accommodation",
+          verdict: "keep",
+          subject: "Bravo Beach Resort",
+          bestAction: "Keep Bravo Beach Resort on the shortlist.",
+          basis: "The checked listing confirms the property identity.",
+          evidenceToolCallIds: ["call_places"],
+        },
+      },
+      toolCalls: [
+        {
+          toolCallId: "call_places",
+          name: "search_places",
+          status: "success",
+          sources: [],
+        },
+      ],
+      toolResults: [
+        {
+          toolCallId: "call_places",
+          name: "search_places",
+          status: "success",
+          sources: [placesSource],
+          cards: [
+            {
+              id: "card_bravo",
+              kind: "place",
+              title: "Bravo Beach Resort",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "checked",
+            },
+            {
+              id: "card_unrelated",
+              kind: "place",
+              title: "Unrelated Resort",
+              fitReasons: [],
+              caveats: [],
+              sourceLabel: "checked",
+            },
+          ],
+        },
+      ],
+      requiredEvidenceAllowedCardIds: ["card_bravo"],
+    });
+
+    expect(result).toMatchObject({
+      state: "resolved",
+      artifacts: {
+        displayCardIds: ["card_bravo"],
+        allowedCardIds: ["card_bravo"],
+        displayItineraryIds: [],
+        allowedItineraryIds: [],
       },
     });
   });
