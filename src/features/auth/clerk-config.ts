@@ -4,7 +4,12 @@ type PublicClerkEnv = {
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?: string | undefined;
 };
 
-export function readPublicClerkAuthMode(env: PublicClerkEnv = process.env as PublicClerkEnv) {
+const buildTimePublicClerkEnv: PublicClerkEnv = {
+  NEXT_PUBLIC_CLERK_AUTH_MODE: process.env.NEXT_PUBLIC_CLERK_AUTH_MODE,
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+};
+
+export function readPublicClerkAuthMode(env: PublicClerkEnv = buildTimePublicClerkEnv) {
   return env.NEXT_PUBLIC_CLERK_AUTH_MODE === "enabled" &&
     hasEnvValue(env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
     ? "enabled"
