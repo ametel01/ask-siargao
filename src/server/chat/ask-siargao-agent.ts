@@ -38,13 +38,6 @@ import {
   executeAgentTool,
 } from "@/server/chat/agent-tools";
 import {
-  applyChatEvidenceFinalPayloadPolicy,
-  buildChatEvidencePolicy,
-  buildChatEvidenceRepair,
-  finalPayloadSatisfiesChatEvidencePolicy,
-  requiredEvidenceAllowedCardIds,
-} from "@/server/chat/chat-evidence-policy";
-import {
   conditionJudgmentRepairCall,
   conditionJudgmentRepairInstruction,
 } from "@/server/chat/condition-tools";
@@ -74,11 +67,8 @@ import {
   type ValidatedRealityCheck,
 } from "@/server/chat/reality-check";
 import {
-  nightlifePlacesEnrichmentIsUnavailable,
-  type RequiredEvidencePlan,
-  researchPlacesEnrichmentIsUnavailable,
-  selectedNightlifeEventVenueNames,
-  selectedResearchEntityNames,
+  buildRequiredEvidencePolicy,
+  type RequiredEvidencePolicy,
 } from "@/server/chat/required-evidence";
 import { createConfiguredChatResponsesClient } from "@/server/llm/chat-model-provider";
 import {
@@ -202,14 +192,13 @@ export async function runAskSiargaoAgentTurn(
   const instructions = buildAskSiargaoAgentInstructions(memorySnapshot, {
     requireStructuredFinalOutput,
   });
-  const chatEvidencePolicy = buildChatEvidencePolicy(resolved);
+  const requiredEvidencePolicy = buildRequiredEvidencePolicy(resolved);
   const inspectedRealityCheck = inspectRealityCheckRequest(resolved);
   const realityCheckRecognition = requireStructuredFinalOutput
     ? inspectedRealityCheck.recognition
     : { explicit: false, missingContext: [] };
   const realityCheckNeedsContext =
     requireStructuredFinalOutput && inspectedRealityCheck.requiresClarification;
-  const { requiredEvidencePlan } = chatEvidencePolicy;
   const tools = selectAgentResponseTools(
     buildAgentResponseTools(memorySnapshot, {
       vectorStoreId: agentMemoryVectorStoreId,
@@ -217,7 +206,7 @@ export async function runAskSiargaoAgentTurn(
       includeMemoryFallbackWithFileSearch: dependencies.includeAgentMemoryFallbackWithFileSearch,
     }),
     resolved,
-    requiredEvidencePlan,
+    requiredEvidencePolicy.requiredToolNames,
   );
   const responseInclude = agentMemoryVectorStoreId ? ["file_search_call.results"] : undefined;
   const terminalFallbackResult = (
@@ -259,8 +248,8 @@ export async function runAskSiargaoAgentTurn(
       toolResults,
       decisionSummaries: fallback.decisionSummaries,
       finalPayload: fallback.finalPayload,
-      allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
-      allowedCardIds: requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
+      allowedCardKinds: requiredEvidencePolicy.admit(toolResults).allowedCardKinds,
+      allowedCardIds: requiredEvidencePolicy.admit(toolResults).allowedCardIds,
       artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
       repairCount,
       completionStatus: fallback.completionStatus,
@@ -359,7 +348,7 @@ export async function runAskSiargaoAgentTurn(
     const finalText = response.output_text?.trim();
     if (finalText) {
       const repairAdapters = buildAgentRepairAdapters({
-        chatEvidencePolicy,
+        requiredEvidencePolicy,
         hostedMemoryFileNames,
         logger,
         realityCheckNeedsContext,
@@ -392,7 +381,7 @@ export async function runAskSiargaoAgentTurn(
                   functionCalls,
                   logger,
                   now: dependencies.now ?? (() => new Date()),
-                  requiredEvidencePlan,
+                  requiredEvidencePolicy,
                   runtimeRequest: resolved,
                   requestId: resolved.requestId,
                   toolResults,
@@ -496,17 +485,13 @@ export async function runAskSiargaoAgentTurn(
         );
         continue;
       }
-      const finalPayload = applyChatEvidenceFinalPayloadPolicy({
-        finalPayload: parsedFinalPayload,
-        policy: chatEvidencePolicy,
-        request: resolved,
+      const finalPayload = requiredEvidencePolicy.applyFinalPayload(
+        parsedFinalPayload,
         toolCalls,
         toolResults,
-      });
-      const requiredEvidenceCardIds = requiredEvidenceAllowedCardIds(
-        chatEvidencePolicy,
-        toolResults,
       );
+      const admissibleEvidence = requiredEvidencePolicy.admit(toolResults);
+      const requiredEvidenceCardIds = admissibleEvidence.allowedCardIds;
       const realityCheckOutcome = resolveRuntimeRealityCheck({
         finalPayload,
         recognition: realityCheckRecognition,
@@ -570,7 +555,7 @@ export async function runAskSiargaoAgentTurn(
           ? { decisionSummaries: [realityCheckOutcome.summary] }
           : {}),
         ...(artifactFilteredFinalPayload ? { finalPayload: artifactFilteredFinalPayload } : {}),
-        allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
+        allowedCardKinds: admissibleEvidence.allowedCardKinds,
         allowedCardIds: realityCheckOutcome.artifacts?.allowedCardIds ?? requiredEvidenceCardIds,
         allowedItineraryIds: realityCheckOutcome.artifacts?.allowedItineraryIds,
         artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
@@ -726,7 +711,7 @@ export async function runAskSiargaoAgentTurn(
       functionCalls,
       logger,
       now: dependencies.now ?? (() => new Date()),
-      requiredEvidencePlan,
+      requiredEvidencePolicy,
       runtimeRequest: resolved,
       requestId: resolved.requestId,
       toolResults,
@@ -1568,7 +1553,7 @@ function currentTurnMemoryFileNames(toolResults: readonly AgentToolResult[]) {
 }
 
 function buildAgentRepairAdapters({
-  chatEvidencePolicy,
+  requiredEvidencePolicy,
   hostedMemoryFileNames,
   logger,
   realityCheckNeedsContext,
@@ -1576,7 +1561,7 @@ function buildAgentRepairAdapters({
   request,
   requireStructuredFinalOutput,
 }: {
-  chatEvidencePolicy: ReturnType<typeof buildChatEvidencePolicy>;
+  requiredEvidencePolicy: RequiredEvidencePolicy;
   hostedMemoryFileNames: ReadonlySet<string>;
   logger: ReturnType<typeof createComponentLogger>;
   realityCheckNeedsContext: boolean;
@@ -1588,20 +1573,16 @@ function buildAgentRepairAdapters({
     finalText: string,
     toolCalls: readonly AgentToolCallAudit[],
     toolResults: readonly AgentToolResult[],
-  ) =>
-    applyChatEvidenceFinalPayloadPolicy({
-      finalPayload: parseFinalPayloadOrLegacyText(finalText, {
-        logger,
-        requireStructuredFinalOutput,
-        hostedMemoryFileNames,
-        toolCalls,
-        toolResults,
-      }),
-      policy: chatEvidencePolicy,
-      request,
+  ) => {
+    const finalPayload = parseFinalPayloadOrLegacyText(finalText, {
+      logger,
+      requireStructuredFinalOutput,
+      hostedMemoryFileNames,
       toolCalls,
       toolResults,
     });
+    return requiredEvidencePolicy.applyFinalPayload(finalPayload, toolCalls, toolResults);
+  };
 
   return [
     {
@@ -1645,11 +1626,7 @@ function buildAgentRepairAdapters({
     {
       name: "required-evidence-tools",
       createRepair: ({ toolCalls, toolResults }) => {
-        const repair = buildChatEvidenceRepair({
-          policy: chatEvidencePolicy,
-          toolCalls,
-          toolResults,
-        });
+        const repair = requiredEvidencePolicy.repair(toolCalls, toolResults);
         if (!repair) {
           return undefined;
         }
@@ -1874,14 +1851,7 @@ function buildAgentRepairAdapters({
       name: "required-evidence-final-payload",
       createRepair: ({ finalText, toolCalls, toolResults }) => {
         const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
-        if (
-          finalPayloadSatisfiesChatEvidencePolicy(
-            chatEvidencePolicy,
-            finalPayload,
-            toolCalls,
-            toolResults,
-          )
-        ) {
+        if (requiredEvidencePolicy.finalPayloadSatisfies(finalPayload, toolCalls, toolResults)) {
           return undefined;
         }
 
@@ -3092,47 +3062,24 @@ function normalizeRequiredToolArguments(value: unknown): string {
 }
 
 async function executeAndAuditToolBatch({
+  requiredEvidencePolicy,
   executeTool,
   functionCalls,
   logger,
   now,
-  requiredEvidencePlan,
   runtimeRequest,
   requestId,
   toolResults,
 }: {
+  requiredEvidencePolicy: RequiredEvidencePolicy;
   executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
   functionCalls: readonly ParsedFunctionCall[];
   logger: ReturnType<typeof createComponentLogger>;
   now: () => Date;
-  requiredEvidencePlan: RequiredEvidencePlan;
   runtimeRequest: AgentRuntimeRequest;
   requestId: string;
   toolResults: readonly AgentToolResult[];
 }): Promise<ExecutedAgentToolOutput[]> {
-  const requiredDependencyIndex = firstRequiredDependencyIndex(functionCalls, requiredEvidencePlan);
-  if (requiredDependencyIndex >= 0) {
-    const dependencyOutput = await executeAndAuditTool({
-      executeTool,
-      functionCall: functionCalls[requiredDependencyIndex] as ParsedFunctionCall,
-      logger,
-      now,
-      runtimeRequest,
-      requestId,
-    });
-    const remainingOutputs = await executeAndAuditToolBatch({
-      executeTool,
-      functionCalls: functionCalls.filter((_, index) => index !== requiredDependencyIndex),
-      logger,
-      now,
-      requiredEvidencePlan,
-      runtimeRequest,
-      requestId,
-      toolResults: [...toolResults, dependencyOutput.result],
-    });
-    return [dependencyOutput, ...remainingOutputs];
-  }
-
   const conditionDependencyPlan = currentConditionDependencyPlan({
     functionCalls,
     runtimeRequest,
@@ -3152,11 +3099,11 @@ async function executeAndAuditToolBatch({
       ),
     );
     const remainingOutputs = await executeAndAuditToolBatch({
+      requiredEvidencePolicy,
       executeTool,
       functionCalls: conditionDependencyPlan.downstreamCalls,
       logger,
       now,
-      requiredEvidencePlan,
       runtimeRequest,
       requestId,
       toolResults: [...toolResults, ...conditionOutputs.map((output) => output.result)],
@@ -3164,114 +3111,29 @@ async function executeAndAuditToolBatch({
     return [...conditionOutputs, ...remainingOutputs];
   }
 
-  const researchIndex = functionCalls.findIndex(
-    (functionCall) => functionCall.name === "research_web",
-  );
-  const hasResearchDependentCalls = functionCalls.some((functionCall) =>
-    requiredEvidencePlan.requiredToolCalls.some(
-      (requiredCall) =>
-        requiredCall.name === functionCall.name && requiredCall.dependsOn?.includes("research_web"),
-    ),
-  );
-
-  if (researchIndex >= 0 && hasResearchDependentCalls) {
-    const researchOutput = await executeAndAuditTool({
-      executeTool,
-      functionCall: functionCalls[researchIndex] as ParsedFunctionCall,
-      logger,
-      now,
-      runtimeRequest,
-      requestId,
-    });
-    const researchBackedToolResults = [...toolResults, researchOutput.result];
-    const remainingFunctionCalls = functionCalls.filter((_, index) => index !== researchIndex);
-    if (!researchWebResultIsAvailable(researchOutput.result)) {
-      const skippedOutputs = remainingFunctionCalls.map((functionCall) =>
-        skippedResearchDependentToolOutput({
-          functionCall,
-          logger,
-          now,
-          reason:
-            "Skipped dependent enrichment because required public web research did not return usable evidence.",
-        }),
-      );
-      return [researchOutput, ...skippedOutputs];
-    }
-
-    const remainingOutputs = await executeAndAuditToolBatch({
-      executeTool,
-      functionCalls: remainingFunctionCalls,
-      logger,
-      now,
-      requiredEvidencePlan,
-      runtimeRequest,
-      requestId,
-      toolResults: researchBackedToolResults,
-    });
-    return [researchOutput, ...remainingOutputs];
-  }
-
-  const nightlifeEventIndex = functionCalls.findIndex(
-    (functionCall) => functionCall.name === "search_nightlife_events",
-  );
-  const hasPlacesEnrichment = functionCalls.some(
-    (functionCall) => functionCall.name === "search_places",
-  );
-
-  if (nightlifeEventIndex >= 0 && hasPlacesEnrichment) {
-    const nightlifeEventOutput = await executeAndAuditTool({
-      executeTool,
-      functionCall: functionCalls[nightlifeEventIndex] as ParsedFunctionCall,
-      logger,
-      now,
-      runtimeRequest,
-      requestId,
-    });
-    const eventBackedToolResults = [...toolResults, nightlifeEventOutput.result];
-    const remainingFunctionCalls: AgentFunctionCallExecutionPlan[] = [];
-    for (const [index, functionCall] of functionCalls.entries()) {
-      if (index === nightlifeEventIndex) {
-        continue;
-      }
-      remainingFunctionCalls.push(
-        evidenceBackedPlacesFunctionCall(
-          functionCall,
-          requiredEvidencePlan,
-          eventBackedToolResults,
-        ),
-      );
-    }
-    const remainingOutputs = await Promise.all(
-      remainingFunctionCalls.map((functionCall) =>
-        executeOrSkipPlacesTool({
-          executeTool,
-          functionCall,
-          logger,
-          now,
-          runtimeRequest,
-          requestId,
-        }),
-      ),
-    );
-    return [nightlifeEventOutput, ...remainingOutputs];
-  }
-
-  return Promise.all(
-    functionCalls.map((functionCall) =>
-      executeOrSkipPlacesTool({
+  const { outputs } = await requiredEvidencePolicy.execute({
+    functionCalls,
+    toolResults,
+    now,
+    execute: (functionCall) =>
+      executeAndAuditTool({
         executeTool,
-        functionCall: evidenceBackedPlacesFunctionCall(
-          functionCall,
-          requiredEvidencePlan,
-          toolResults,
-        ),
+        functionCall,
         logger,
         now,
         runtimeRequest,
         requestId,
       }),
-    ),
-  );
+    resultOf: (output) => output.result,
+    skip: (functionCall, result) =>
+      auditSkippedToolOutput({
+        functionCall,
+        result,
+        logger,
+        now,
+      }),
+  });
+  return [...outputs];
 }
 
 const currentConditionUpstreamToolNames = new Set([
@@ -3347,230 +3209,25 @@ function currentConditionDependencyPlan(input: {
   };
 }
 
-function firstRequiredDependencyIndex(
-  functionCalls: readonly ParsedFunctionCall[],
-  requiredEvidencePlan: RequiredEvidencePlan,
-) {
-  return functionCalls.findIndex((functionCall) =>
-    functionCalls.some((candidateDependentCall) =>
-      requiredEvidencePlan.requiredToolCalls.some(
-        (requiredCall) =>
-          requiredCall.name === candidateDependentCall.name &&
-          requiredCall.dependsOn?.includes(functionCall.name) === true,
-      ),
-    ),
-  );
-}
-
-function researchWebResultIsAvailable(result: AgentToolResult) {
-  return (
-    result.name === "research_web" &&
-    result.status === "success" &&
-    isRecord(result.data) &&
-    result.data.status === "available"
-  );
-}
-
-type AgentFunctionCallExecutionPlan =
-  | {
-      kind: "execute";
-      functionCall: ParsedFunctionCall;
-    }
-  | {
-      kind: "skip_places_enrichment";
-      functionCall: ParsedFunctionCall;
-      reason: string;
-      sourceName: string;
-      notChecked: readonly string[];
-    };
-
 type ExecutedAgentToolOutput = {
   audit: AgentToolCallAudit;
   functionCall: ParsedFunctionCall;
   result: AgentToolResult;
 };
 
-function evidenceBackedPlacesFunctionCall(
-  functionCall: ParsedFunctionCall,
-  requiredEvidencePlan: RequiredEvidencePlan,
-  toolResults: readonly AgentToolResult[],
-): AgentFunctionCallExecutionPlan {
-  if (functionCall.name !== "search_places") {
-    return { kind: "execute", functionCall };
-  }
-
-  const requiredPlacesCall = requiredEvidencePlan.requiredToolCalls.find(
-    (requiredCall) => requiredCall.name === "search_places",
-  );
-  if (!requiredPlacesCall) {
-    return { kind: "execute", functionCall };
-  }
-
-  const researchEntityNames = selectedResearchEntityNames(toolResults);
-  if (
-    researchPlacesEnrichmentIsUnavailable(requiredPlacesCall, requiredEvidencePlan, toolResults)
-  ) {
-    return {
-      kind: "skip_places_enrichment",
-      functionCall,
-      reason:
-        "Skipped Google Places enrichment because public web research did not select entities for place-detail lookup.",
-      sourceName: "Google Places research-selected entity enrichment",
-      notChecked: [
-        "venue identity, map links, opening-hour signals, ratings, and review counts for research-selected entities",
-      ],
-    };
-  }
-  if (researchEntityNames.length > 0) {
-    return entityBackedPlacesFunctionCall(
-      functionCall,
-      requiredPlacesCall.arguments,
-      researchEntityNames,
-      "Siargao place details",
-    );
-  }
-
-  const hasNightlifeEventRequirement = requiredEvidencePlan.requiredToolCalls.some(
-    (requiredCall) => requiredCall.name === "search_nightlife_events",
-  );
-  if (!hasNightlifeEventRequirement) {
-    return { kind: "execute", functionCall };
-  }
-
-  const venueNames = selectedNightlifeEventVenueNames(toolResults);
-  if (
-    nightlifePlacesEnrichmentIsUnavailable(requiredPlacesCall, requiredEvidencePlan, toolResults)
-  ) {
-    return {
-      kind: "skip_places_enrichment",
-      functionCall,
-      reason:
-        "Skipped Google Places nightlife enrichment because no selected event-route venues were available.",
-      sourceName: "Google Places nightlife venue enrichment",
-      notChecked: [
-        "venue identity, map links, opening-hour signals, ratings, and review counts for selected event-route venues",
-      ],
-    };
-  }
-  if (venueNames.length === 0) {
-    return { kind: "execute", functionCall };
-  }
-
-  return entityBackedPlacesFunctionCall(
-    functionCall,
-    requiredPlacesCall.arguments,
-    venueNames,
-    "General Luna Siargao nightlife venues",
-  );
-}
-
-function entityBackedPlacesFunctionCall(
-  functionCall: ParsedFunctionCall,
-  requiredArguments: Record<string, unknown>,
-  entityNames: readonly string[],
-  querySuffix: string,
-): AgentFunctionCallExecutionPlan {
-  const requiredConstraints = isRecord(requiredArguments.constraints)
-    ? requiredArguments.constraints
-    : {};
-  return {
-    kind: "execute",
-    functionCall: {
-      ...functionCall,
-      arguments: {
-        ...requiredArguments,
-        ...functionCall.arguments,
-        query: `${entityNames.join(" ")} ${querySuffix}`,
-        center: isRecord(functionCall.arguments.center)
-          ? functionCall.arguments.center
-          : requiredArguments.center,
-        radius_meters:
-          typeof functionCall.arguments.radius_meters === "number"
-            ? functionCall.arguments.radius_meters
-            : requiredArguments.radius_meters,
-        constraints: {
-          ...requiredConstraints,
-          ...(isRecord(functionCall.arguments.constraints)
-            ? functionCall.arguments.constraints
-            : {}),
-          page_size: Math.min(Math.max(entityNames.length, 1), 8),
-        },
-      },
-    },
-  };
-}
-
-async function executeOrSkipPlacesTool({
-  executeTool,
+function auditSkippedToolOutput({
   functionCall,
   logger,
   now,
-  runtimeRequest,
-  requestId,
-}: {
-  executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
-  functionCall: AgentFunctionCallExecutionPlan;
-  logger: ReturnType<typeof createComponentLogger>;
-  now: () => Date;
-  runtimeRequest: AgentRuntimeRequest;
-  requestId: string;
-}) {
-  if (functionCall.kind === "execute") {
-    return executeAndAuditTool({
-      executeTool,
-      functionCall: functionCall.functionCall,
-      logger,
-      now,
-      runtimeRequest,
-      requestId,
-    });
-  }
-
-  return skippedPlacesToolOutput({
-    functionCall: functionCall.functionCall,
-    logger,
-    now,
-    notChecked: functionCall.notChecked,
-    reason: functionCall.reason,
-    sourceName: functionCall.sourceName,
-  });
-}
-
-function skippedPlacesToolOutput({
-  functionCall,
-  logger,
-  notChecked,
-  now,
-  reason,
-  sourceName,
+  result,
 }: {
   functionCall: ParsedFunctionCall;
   logger: ReturnType<typeof createComponentLogger>;
-  notChecked: readonly string[];
   now: () => Date;
-  reason: string;
-  sourceName: string;
+  result: AgentToolResult;
 }): ExecutedAgentToolOutput {
   const startedAt = now();
   const completedAt = now();
-  const result = {
-    name: "search_places",
-    toolCallId: functionCall.callId,
-    status: "error",
-    errorCode: "provider_unavailable",
-    text: reason,
-    sources: [
-      {
-        label: "provider_unavailable",
-        sourceName,
-        sourceProfileId: "source_google_places",
-        fetchedAt: completedAt.toISOString(),
-        confidence: "low",
-        checked: [],
-        notChecked: [...notChecked],
-      },
-    ],
-  } satisfies AgentToolResult;
   const audit = createAgentToolCallAudit({
     toolCallId: functionCall.callId,
     name: functionCall.name,
@@ -3593,63 +3250,6 @@ function skippedPlacesToolOutput({
       sourceProfileIds: audit.sourceProfileIds,
     },
     "Ask Siargao agent tool call skipped.",
-  );
-
-  return { audit, functionCall, result };
-}
-
-function skippedResearchDependentToolOutput({
-  functionCall,
-  logger,
-  now,
-  reason,
-}: {
-  functionCall: ParsedFunctionCall;
-  logger: ReturnType<typeof createComponentLogger>;
-  now: () => Date;
-  reason: string;
-}): ExecutedAgentToolOutput {
-  const startedAt = now();
-  const completedAt = now();
-  const result = {
-    name: functionCall.name,
-    toolCallId: functionCall.callId,
-    status: "error",
-    errorCode: "provider_unavailable",
-    text: reason,
-    sources: [
-      {
-        label: "provider_unavailable",
-        sourceName: `${functionCall.name} dependent enrichment`,
-        fetchedAt: completedAt.toISOString(),
-        confidence: "low",
-        checked: [],
-        notChecked: ["dependent enrichment after required public web research"],
-      },
-    ],
-  } satisfies AgentToolResult;
-  const audit = createAgentToolCallAudit({
-    toolCallId: functionCall.callId,
-    name: functionCall.name,
-    arguments: publicToolArguments(functionCall),
-    result,
-    startedAt,
-    completedAt,
-    providerOperation: providerOperationForTool(functionCall.name),
-  });
-
-  logger.info(
-    {
-      toolCallId: functionCall.callId,
-      toolName: functionCall.name,
-      durationMs: audit.durationMs,
-      status: audit.status,
-      errorCode: audit.errorCode,
-      providerOperation: audit.providerOperation,
-      sourceLabels: audit.sources.map((source) => source.label),
-      sourceProfileIds: audit.sourceProfileIds,
-    },
-    "Ask Siargao agent dependent tool call skipped after terminal web research.",
   );
 
   return { audit, functionCall, result };

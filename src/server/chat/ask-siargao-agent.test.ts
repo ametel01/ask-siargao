@@ -1635,14 +1635,14 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
 
     expect(result.message).toContain("scooter rental");
     expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
-      ["call_scooter_web", "research_web"],
       ["call_scooter_places", "search_places"],
+      ["call_scooter_web", "research_web"],
     ]);
     expect(result.cards).toEqual([scooterPlaceCard]);
-    expect(result.publicSources).toEqual([scooterWebSource, placesSourceSummary]);
+    expect(result.publicSources).toEqual([placesSourceSummary]);
   });
 
-  test("repairs motorbike rental answers that skip Places lookup after web research", async () => {
+  test("runs the Places prerequisite when a motorbike answer requests web fallback first", async () => {
     const motorbikeWebSource: AnswerSourceSummary = {
       label: "official_checked",
       sourceName: "Public motorbike rental operator",
@@ -1695,7 +1695,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         output_text: finalPayloadText({
           answer:
             "For motorbike rental in General Luna, start with General Luna Motorbike Rental and confirm availability, helmet, deposit, and current daily rate before paying. If you want, I can also pull map links and phone numbers.",
-          usedToolCallIds: ["call_motorbike_web", "auto_required_evidence_search_places_1"],
+          usedToolCallIds: ["call_motorbike_web"],
           displayCardIds: [motorbikePlaceCard.id],
         }),
         _request_id: "req_motorbike_rental_repaired_final",
@@ -1714,7 +1714,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
             "",
             "My pick: start with **General Luna Motorbike Rental** from the checked Places result, then use Golden Bell or Siargao Scooter Rentals as backups. Take a walkaround video and check brakes, horn, lights, tire tread, helmet fit, and registration copy before riding off.",
           ].join("\n"),
-          usedToolCallIds: ["call_motorbike_web", "auto_required_evidence_search_places_1"],
+          usedToolCallIds: ["call_motorbike_web"],
           displayCardIds: [motorbikePlaceCard.id],
         }),
         _request_id: "req_motorbike_rental_quality_repaired_final",
@@ -1740,7 +1740,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         };
       }
       if (request.name === "search_places") {
-        expect(request.toolCallId).toBe("auto_required_evidence_search_places_1");
+        expect(request.toolCallId).toBe("call_motorbike_web");
         expect(request.arguments).toMatchObject({
           query: "motorbike rental in General Luna Siargao",
           center: { latitude: 9.784, longitude: 126.158 },
@@ -1771,11 +1771,10 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.message).toContain("| Rental shop | Area | Price signal | Contact / notes |");
     expect(result.message).toContain("My pick");
     expect(result.toolCalls.map((toolCall) => [toolCall.toolCallId, toolCall.name])).toEqual([
-      ["call_motorbike_web", "research_web"],
-      ["auto_required_evidence_search_places_1", "search_places"],
+      ["call_motorbike_web", "search_places"],
     ]);
     expect(result.cards).toEqual([motorbikePlaceCard]);
-    expect(result.publicSources).toEqual([motorbikeWebSource, placesSourceSummary]);
+    expect(result.publicSources).toEqual([placesSourceSummary]);
     expect(client.requests).toHaveLength(4);
     expect(JSON.stringify(parseFirstInput(client.requests[3]?.input))).toContain(
       "validationRepairStructuredAnswerQuality",
@@ -2117,7 +2116,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(result.message).toContain("| Rental shop | Area | Why it fits | Contact / notes |");
     expect(result.message).toContain("My pick");
     expect(result.message).not.toContain("If you want");
-    expect(result.publicSources).toEqual([motorbikeWebSource]);
+    expect(result.publicSources).toEqual([placesSourceSummary]);
     expect(JSON.stringify(parseFirstInput(client.requests[2]?.input))).toContain(
       "legacy_answer_punts_on_available_evidence",
     );
@@ -2340,7 +2339,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
-  test("keeps successful Places evidence when model-selected web research fails", async () => {
+  test("keeps successful Places evidence and skips the batched web fallback", async () => {
     const webUnavailableSource: AnswerSourceSummary = {
       label: "provider_unavailable",
       sourceName: "Public web research",
@@ -2429,11 +2428,11 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "I could not verify current public web evidence for this request.",
     );
     expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
-      ["research_web", "error"],
       ["search_places", "success"],
+      ["research_web", "error"],
     ]);
     expect(result.cards).toEqual([scooterPlaceCard]);
-    expect(result.publicSources).toEqual([webUnavailableSource, placesSourceSummary]);
+    expect(result.publicSources).toEqual([placesSourceSummary]);
   });
 
   test("keeps successful web research when model-selected Places lookup fails", async () => {
@@ -2535,11 +2534,11 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
 
     expect(result.message).toContain("Public web research found");
     expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
-      ["research_web", "success"],
       ["search_places", "error"],
+      ["research_web", "success"],
     ]);
     expect(result.cards).toBeUndefined();
-    expect(result.publicSources).toEqual([scooterWebSource, placesUnavailableSource]);
+    expect(result.publicSources).toEqual([placesUnavailableSource, scooterWebSource]);
   });
 
   test("does not auto-inject required evidence before model tool choice", async () => {

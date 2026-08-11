@@ -3,7 +3,9 @@ import { describe, expect, test } from "bun:test";
 import type { AgentToolCallAudit, AgentToolResult } from "@/server/chat/agent-runtime";
 import {
   buildRequiredEvidencePlan,
+  buildRequiredEvidencePolicy,
   buildRequiredEvidenceRepair,
+  executeRequiredEvidence,
   finalPayloadSatisfiesRequiredEvidence,
   missingRequiredEvidenceToolCalls,
   type RequiredEvidencePlan,
@@ -249,6 +251,55 @@ describe("required evidence planning", () => {
     ).toEqual([]);
   });
 
+  test("does not start a terminal-only web fallback when batched Places evidence succeeds", async () => {
+    const plan = buildRequiredEvidencePlan({
+      requestId: "request_required_evidence_vehicle_rental_batch",
+      messages: [{ role: "user", content: "Where can I rent a scooter in General Luna?" }],
+    });
+    const executedToolNames: string[] = [];
+
+    const { outputs } = await executeRequiredEvidence({
+      plan,
+      functionCalls: [
+        { callId: "call_web", name: "research_web", arguments: {} },
+        {
+          callId: "call_places",
+          name: "search_places",
+          arguments: plan.requiredToolCalls[0]?.arguments ?? {},
+        },
+      ],
+      toolResults: [],
+      execute: async (functionCall) => {
+        executedToolNames.push(functionCall.name);
+        return {
+          functionCall,
+          result: {
+            name: functionCall.name,
+            toolCallId: functionCall.callId,
+            status: "success" as const,
+            text: "Google Places returned checked scooter rental evidence.",
+            sources: [
+              {
+                label: "live_checked" as const,
+                sourceName: "Google Places",
+                checked: ["place identity"],
+                notChecked: ["deposit terms"],
+              },
+            ],
+          } as AgentToolResult,
+        };
+      },
+      resultOf: (output) => output.result,
+      skip: (functionCall, result) => ({ functionCall, result }),
+    });
+
+    expect(executedToolNames).toEqual(["search_places"]);
+    expect(outputs.map((output) => [output.functionCall.name, output.result.data])).toEqual([
+      ["search_places", undefined],
+      ["research_web", { status: "not_applicable" }],
+    ]);
+  });
+
   test("enforces explicit research-before-Places contracts when supplied directly", () => {
     const plan = researchBackedPlacePlan();
 
@@ -286,6 +337,109 @@ describe("required evidence planning", () => {
     ]);
   });
 
+  test("executes prerequisites before enriching research-selected places", async () => {
+    const policy = buildRequiredEvidencePolicy({
+      requestId: "request_required_evidence_deep_seam",
+      messages: [
+        { role: "user", content: "What is the current dinner pop-up in General Luna tonight?" },
+      ],
+    });
+    const events: string[] = [];
+    let researchCompleted = false;
+    let completeResearch: (() => void) | undefined;
+    const pendingResearch = new Promise<void>((resolve) => {
+      completeResearch = resolve;
+    });
+
+    const execution = policy.execute({
+      functionCalls: [
+        {
+          callId: "call_places",
+          name: "search_places",
+          arguments: { query: "broad dinner search" },
+        },
+        {
+          callId: "call_research",
+          name: "research_web",
+          arguments: { query: "current dinner research" },
+        },
+      ],
+      toolResults: [],
+      execute: async (functionCall) => {
+        events.push(`${functionCall.name}:start`);
+        if (functionCall.name === "research_web") {
+          await pendingResearch;
+          researchCompleted = true;
+          events.push("research_web:end");
+          return {
+            functionCall,
+            result: researchToolResult({
+              entities: [{ name: "Roots Siargao", kind: "place", needsPlacesEnrichment: true }],
+            }),
+          };
+        }
+
+        expect(researchCompleted).toBe(true);
+        expect(functionCall.arguments.query).toContain("Roots Siargao");
+        events.push("search_places:end");
+        return {
+          functionCall,
+          result: {
+            name: "search_places",
+            toolCallId: functionCall.callId,
+            status: "success" as const,
+            text: "Google Places returned the research-selected place.",
+            sources: [
+              {
+                label: "live_checked" as const,
+                sourceName: "Google Places",
+                checked: ["place details"],
+                notChecked: [],
+              },
+            ],
+            cards: [
+              {
+                id: "place_roots",
+                kind: "place" as const,
+                title: "Roots Siargao",
+                fitReasons: [],
+                caveats: [],
+                sourceLabel: "Google Places - live checked",
+              },
+              {
+                id: "place_random",
+                kind: "place" as const,
+                title: "Random Bar",
+                fitReasons: [],
+                caveats: [],
+                sourceLabel: "Google Places - live checked",
+              },
+            ],
+          },
+        };
+      },
+      resultOf: (output) => output.result,
+      skip: (functionCall, result) => ({ functionCall, result }),
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(["research_web:start"]);
+    completeResearch?.();
+    const { admissibleEvidence, outputs } = await execution;
+
+    expect(events).toEqual([
+      "research_web:start",
+      "research_web:end",
+      "search_places:start",
+      "search_places:end",
+    ]);
+    expect(outputs.map((output) => output.functionCall.name)).toEqual([
+      "research_web",
+      "search_places",
+    ]);
+    expect(admissibleEvidence.allowedCardIds).toEqual(["place_roots"]);
+  });
+
   test("treats insufficient web evidence as completed but not satisfying checked evidence", () => {
     const plan = currentResearchOnlyPlan();
     const toolCalls = [
@@ -317,6 +471,45 @@ describe("required evidence planning", () => {
         [researchToolResult({ entities: [] })],
       ),
     ).toEqual([]);
+  });
+
+  test("terminates dependent Places execution when research selects no entities", async () => {
+    const plan = researchBackedPlacePlan();
+    const executedToolNames: string[] = [];
+
+    const { outputs } = await executeRequiredEvidence({
+      plan,
+      functionCalls: [
+        { callId: "call_research", name: "research_web", arguments: {} },
+        { callId: "call_places", name: "search_places", arguments: {} },
+      ],
+      toolResults: [],
+      execute: async (functionCall) => {
+        executedToolNames.push(functionCall.name);
+        return {
+          functionCall,
+          result: researchToolResult({ entities: [] }),
+        };
+      },
+      resultOf: (output) => output.result,
+      skip: (functionCall, result) => ({ functionCall, result }),
+      now: () => new Date("2026-08-12T01:00:00.000Z"),
+    });
+
+    expect(executedToolNames).toEqual(["research_web"]);
+    expect(outputs[1]).toMatchObject({
+      functionCall: { callId: "call_places", name: "search_places" },
+      result: {
+        status: "error",
+        errorCode: "provider_unavailable",
+        sources: [
+          {
+            label: "provider_unavailable",
+            sourceName: "Google Places research-selected entity enrichment",
+          },
+        ],
+      },
+    });
   });
 
   test("accepts only Places cards that match research-selected entities", () => {

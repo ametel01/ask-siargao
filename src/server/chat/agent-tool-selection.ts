@@ -3,7 +3,7 @@ import type { AgentResponseToolDefinition } from "@/server/chat/agent-tool-catal
 import { conditionToolNamesForAgentTurn } from "@/server/chat/condition-tools";
 import { interpretPlaceIntent } from "@/server/chat/place-intent";
 import { inspectRealityCheckRequest } from "@/server/chat/reality-check";
-import type { RequiredEvidencePlan } from "@/server/chat/required-evidence";
+import type { RequiredEvidenceToolCall } from "@/server/chat/required-evidence";
 
 const memoryTools = ["load_agent_memory_file", "search_agent_memory"] as const;
 const placesTools = ["search_places", "get_place_details", "search_local_guide"] as const;
@@ -16,7 +16,7 @@ const localFactsTools = [
 export function selectAgentResponseTools(
   tools: readonly AgentResponseToolDefinition[],
   request: AgentRuntimeRequest,
-  requiredEvidencePlan: RequiredEvidencePlan,
+  requiredEvidenceToolNames: readonly RequiredEvidenceToolCall["name"][],
 ) {
   const selected = new Set<AskSiargaoAgentToolName>(memoryTools);
   const latestUserTurn =
@@ -63,9 +63,9 @@ export function selectAgentResponseTools(
     selected.add("get_source_evidence");
   }
 
-  for (const requiredCall of requiredEvidencePlan.requiredToolCalls) {
-    selected.add(requiredCall.name);
-    addPairedTools(selected, requiredCall.name);
+  for (const requiredToolName of requiredEvidenceToolNames) {
+    selected.add(requiredToolName);
+    addPairedTools(selected, requiredToolName);
   }
 
   if (selected.size === memoryTools.length) {

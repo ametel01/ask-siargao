@@ -28,6 +28,52 @@ export type RequiredEvidenceRepairFunctionCall = {
   arguments: Record<string, unknown>;
 };
 
+export type RequiredEvidenceExecutionOptions<TOutput> = {
+  plan: RequiredEvidencePlan;
+  functionCalls: readonly RequiredEvidenceRepairFunctionCall[];
+  toolResults: readonly AgentToolResult[];
+  execute: (functionCall: RequiredEvidenceRepairFunctionCall) => Promise<TOutput>;
+  resultOf: (output: TOutput) => AgentToolResult;
+  skip: (
+    functionCall: RequiredEvidenceRepairFunctionCall,
+    result: AgentToolResult,
+  ) => TOutput | Promise<TOutput>;
+  now?: () => Date;
+};
+
+export type RequiredEvidenceAdmissibleEvidence = {
+  toolResults: readonly AgentToolResult[];
+  allowedCardKinds?: readonly RecommendationCardKind[];
+  allowedCardIds?: readonly string[];
+};
+
+export type RequiredEvidenceExecutionResult<TOutput> = {
+  outputs: readonly TOutput[];
+  admissibleEvidence: RequiredEvidenceAdmissibleEvidence;
+};
+
+export type RequiredEvidencePolicy = {
+  requiredToolNames: readonly RequiredEvidenceToolCall["name"][];
+  execute<TOutput>(
+    options: Omit<RequiredEvidenceExecutionOptions<TOutput>, "plan">,
+  ): Promise<RequiredEvidenceExecutionResult<TOutput>>;
+  repair(
+    toolCalls: readonly AgentToolCallAudit[],
+    toolResults?: readonly AgentToolResult[],
+  ): RequiredEvidenceRepair | undefined;
+  applyFinalPayload(
+    finalPayload: AgentFinalPayload | undefined,
+    toolCalls: readonly AgentToolCallAudit[],
+    toolResults: readonly AgentToolResult[],
+  ): AgentFinalPayload | undefined;
+  finalPayloadSatisfies(
+    finalPayload: AgentFinalPayload | undefined,
+    toolCalls: readonly AgentToolCallAudit[],
+    toolResults: readonly AgentToolResult[],
+  ): boolean;
+  admit(toolResults: readonly AgentToolResult[]): RequiredEvidenceAdmissibleEvidence;
+};
+
 type RequiredEvidenceToolCallBase = {
   arguments: Record<string, unknown>;
   acceptedSourceLabels: readonly string[];
@@ -80,6 +126,86 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
   }
 
   return { requiredToolCalls: [] };
+}
+
+export function buildRequiredEvidencePolicy(request: AgentRuntimeRequest): RequiredEvidencePolicy {
+  const plan = buildRequiredEvidencePlan(request);
+  return {
+    requiredToolNames: [...new Set(plan.requiredToolCalls.map((call) => call.name))],
+    execute: (options) => executeRequiredEvidence({ plan, ...options }),
+    repair: (toolCalls, toolResults = []) =>
+      buildRequiredEvidenceRepair({ plan, toolCalls, toolResults }),
+    applyFinalPayload: (finalPayload, toolCalls, toolResults) =>
+      ensureFinalPayloadUsesVehicleRentalEvidence(finalPayload, request, toolCalls, toolResults),
+    finalPayloadSatisfies: (finalPayload, toolCalls, toolResults) =>
+      finalPayloadSatisfiesRequiredEvidence(plan, finalPayload, toolCalls, toolResults),
+    admit: (toolResults) => admissibleRequiredEvidence(plan, toolResults),
+  };
+}
+
+export async function executeRequiredEvidence<TOutput>({
+  plan,
+  functionCalls,
+  toolResults,
+  execute,
+  resultOf,
+  skip,
+  now = () => new Date(),
+}: RequiredEvidenceExecutionOptions<TOutput>): Promise<RequiredEvidenceExecutionResult<TOutput>> {
+  const outputs = await executeRequiredEvidenceOutputs({
+    plan,
+    functionCalls,
+    toolResults,
+    execute,
+    resultOf,
+    skip,
+    now,
+  });
+  return {
+    outputs,
+    admissibleEvidence: admissibleRequiredEvidence(plan, [
+      ...toolResults,
+      ...outputs.map(resultOf),
+    ]),
+  };
+}
+
+async function executeRequiredEvidenceOutputs<TOutput>({
+  plan,
+  functionCalls,
+  toolResults,
+  execute,
+  resultOf,
+  skip,
+  now = () => new Date(),
+}: RequiredEvidenceExecutionOptions<TOutput>): Promise<TOutput[]> {
+  const dependencyIndex = firstRequiredDependencyIndex(functionCalls, plan);
+  if (dependencyIndex >= 0) {
+    const dependencyCall = functionCalls[dependencyIndex];
+    if (!dependencyCall) {
+      return [];
+    }
+    const dependencyOutput = await execute(dependencyCall);
+    const remainingOutputs = await executeRequiredEvidenceOutputs({
+      plan,
+      functionCalls: functionCalls.filter((_, index) => index !== dependencyIndex),
+      toolResults: [...toolResults, resultOf(dependencyOutput)],
+      execute,
+      resultOf,
+      skip,
+      now,
+    });
+    return [dependencyOutput, ...remainingOutputs];
+  }
+
+  return Promise.all(
+    functionCalls.map(async (functionCall) => {
+      const execution = requiredEvidenceFunctionCall(functionCall, plan, toolResults, now);
+      return execution.kind === "execute"
+        ? execute(execution.functionCall)
+        : skip(execution.functionCall, execution.result);
+    }),
+  );
 }
 
 function buildAccommodationRealityCheckEvidencePlan(
@@ -262,6 +388,76 @@ export function requiredEvidencePlaceCardIds(
           )
         : [],
     ),
+  );
+}
+
+function admissibleRequiredEvidence(
+  plan: RequiredEvidencePlan,
+  toolResults: readonly AgentToolResult[],
+): RequiredEvidenceAdmissibleEvidence {
+  const hasRequiredPlaces = plan.requiredToolCalls.some(
+    (requiredCall) => requiredCall.name === "search_places",
+  );
+  return {
+    toolResults,
+    ...(plan.allowedCardKinds ? { allowedCardKinds: plan.allowedCardKinds } : {}),
+    ...(hasRequiredPlaces
+      ? { allowedCardIds: requiredEvidencePlaceCardIds(plan, toolResults) }
+      : {}),
+  };
+}
+
+function ensureFinalPayloadUsesVehicleRentalEvidence(
+  finalPayload: AgentFinalPayload | undefined,
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+) {
+  if (!finalPayload || !isVehicleRentalLookup(latestUserContent(request))) {
+    return finalPayload;
+  }
+
+  const evidenceToolCallIds = preferredVehicleRentalEvidenceToolCallIds(toolCalls, toolResults);
+  const evidenceToolCallIdSet = new Set(evidenceToolCallIds);
+  if (
+    evidenceToolCallIds.length === 0 ||
+    finalPayload.usedToolCallIds.some((toolCallId) => evidenceToolCallIdSet.has(toolCallId))
+  ) {
+    return finalPayload;
+  }
+
+  return {
+    ...finalPayload,
+    usedToolCallIds: evidenceToolCallIds,
+  };
+}
+
+function preferredVehicleRentalEvidenceToolCallIds(
+  toolCalls: readonly AgentToolCallAudit[],
+  toolResults: readonly AgentToolResult[],
+) {
+  const ids: string[] = [];
+  const latestAvailableResearch = [...toolResults].reverse().find(researchWebResultIsAvailable);
+  if (latestAvailableResearch?.toolCallId) {
+    ids.push(latestAvailableResearch.toolCallId);
+  }
+
+  const latestSuccessfulPlaces = [...toolCalls]
+    .reverse()
+    .find((toolCall) => toolCall.name === "search_places" && toolCall.status === "success");
+  if (latestSuccessfulPlaces?.toolCallId) {
+    ids.push(latestSuccessfulPlaces.toolCallId);
+  }
+
+  return ids;
+}
+
+function researchWebResultIsAvailable(result: AgentToolResult) {
+  return (
+    result.name === "research_web" &&
+    result.status === "success" &&
+    isRecord(result.data) &&
+    result.data.status === "available"
   );
 }
 
@@ -448,6 +644,239 @@ function buildVehicleRentalEvidencePlan(content: string): RequiredEvidencePlan {
       },
     ],
     allowedCardKinds: ["place"],
+  };
+}
+
+type RequiredEvidenceFunctionCallExecution =
+  | {
+      kind: "execute";
+      functionCall: RequiredEvidenceRepairFunctionCall;
+    }
+  | {
+      kind: "skip";
+      functionCall: RequiredEvidenceRepairFunctionCall;
+      result: AgentToolResult;
+    };
+
+function firstRequiredDependencyIndex(
+  functionCalls: readonly RequiredEvidenceRepairFunctionCall[],
+  plan: RequiredEvidencePlan,
+) {
+  return functionCalls.findIndex((functionCall) =>
+    functionCalls.some((candidateDependentCall) =>
+      plan.requiredToolCalls.some(
+        (requiredCall) =>
+          requiredCall.name === candidateDependentCall.name &&
+          (requiredCall.dependsOn?.includes(functionCall.name) === true ||
+            requiredCall.runAfterTerminal?.includes(functionCall.name) === true ||
+            plan.requiredToolCalls.some(
+              (candidatePrerequisite) =>
+                candidatePrerequisite.name === functionCall.name &&
+                candidatePrerequisite.runBefore?.includes(requiredCall.name) === true,
+            )),
+      ),
+    ),
+  );
+}
+
+function requiredEvidenceFunctionCall(
+  functionCall: RequiredEvidenceRepairFunctionCall,
+  plan: RequiredEvidencePlan,
+  toolResults: readonly AgentToolResult[],
+  now: () => Date,
+): RequiredEvidenceFunctionCallExecution {
+  const terminalDependentCall = plan.requiredToolCalls.find(
+    (requiredCall) =>
+      requiredCall.name === functionCall.name && requiredCall.runAfterTerminal?.length,
+  );
+  const terminalDependencyState = terminalDependentCall
+    ? terminalDependenciesEvidenceState(terminalDependentCall, plan, toolResults)
+    : undefined;
+  if (terminalDependentCall && terminalDependencyState === "missing") {
+    const prerequisiteName = terminalDependentCall.runAfterTerminal?.[0];
+    const prerequisiteCall = plan.requiredToolCalls.find(
+      (requiredCall) => requiredCall.name === prerequisiteName,
+    );
+    if (prerequisiteCall) {
+      return {
+        kind: "execute",
+        functionCall: {
+          callId: functionCall.callId,
+          name: prerequisiteCall.name,
+          arguments: prerequisiteCall.arguments,
+        },
+      };
+    }
+  }
+  if (terminalDependentCall && terminalDependencyState === "non_terminal") {
+    return {
+      kind: "skip",
+      functionCall,
+      result: {
+        name: functionCall.name,
+        toolCallId: functionCall.callId,
+        status: "error",
+        errorCode: "not_applicable",
+        text: "Skipped terminal-only fallback because its prerequisite did not end in terminal evidence.",
+        data: { status: "not_applicable" },
+        sources: [],
+      },
+    };
+  }
+
+  if (functionCall.name !== "search_places") {
+    return { kind: "execute", functionCall };
+  }
+
+  const requiredPlacesCall = plan.requiredToolCalls.find(
+    (requiredCall) => requiredCall.name === "search_places",
+  );
+  if (!requiredPlacesCall) {
+    return { kind: "execute", functionCall };
+  }
+
+  const researchEntityNames = selectedResearchEntityNames(toolResults);
+  if (researchPlacesEnrichmentIsUnavailable(requiredPlacesCall, plan, toolResults)) {
+    return skippedPlacesExecution(
+      functionCall,
+      now,
+      "Skipped Google Places enrichment because public web research did not select entities for place-detail lookup.",
+      "Google Places research-selected entity enrichment",
+      [
+        "venue identity, map links, opening-hour signals, ratings, and review counts for research-selected entities",
+      ],
+    );
+  }
+  if (researchEntityNames.length > 0) {
+    return entityBackedPlacesExecution(
+      functionCall,
+      requiredPlacesCall.arguments,
+      researchEntityNames,
+      "Siargao place details",
+    );
+  }
+
+  if (
+    !plan.requiredToolCalls.some((requiredCall) => requiredCall.name === "search_nightlife_events")
+  ) {
+    return { kind: "execute", functionCall };
+  }
+
+  const venueNames = selectedNightlifeEventVenueNames(toolResults);
+  if (nightlifePlacesEnrichmentIsUnavailable(requiredPlacesCall, plan, toolResults)) {
+    return skippedPlacesExecution(
+      functionCall,
+      now,
+      "Skipped Google Places nightlife enrichment because no selected event-route venues were available.",
+      "Google Places nightlife venue enrichment",
+      [
+        "venue identity, map links, opening-hour signals, ratings, and review counts for selected event-route venues",
+      ],
+    );
+  }
+  if (venueNames.length === 0) {
+    return { kind: "execute", functionCall };
+  }
+
+  return entityBackedPlacesExecution(
+    functionCall,
+    requiredPlacesCall.arguments,
+    venueNames,
+    "General Luna Siargao nightlife venues",
+  );
+}
+
+function terminalDependenciesEvidenceState(
+  requiredCall: RequiredEvidenceToolCall,
+  plan: RequiredEvidencePlan,
+  toolResults: readonly AgentToolResult[],
+): "missing" | "terminal" | "non_terminal" {
+  let hasMissingDependency = false;
+  const allTerminal = (requiredCall.runAfterTerminal ?? []).every((dependencyName) => {
+    const dependencyCall = plan.requiredToolCalls.find((call) => call.name === dependencyName);
+    if (!dependencyCall) {
+      return false;
+    }
+    const dependencyResults = toolResults.filter((result) => result.name === dependencyName);
+    if (dependencyResults.length === 0) {
+      hasMissingDependency = true;
+      return false;
+    }
+    const terminalLabels = new Set(dependencyCall.terminalSourceLabels);
+    return dependencyResults.some((result) =>
+      result.sources.some((source) => terminalLabels.has(source.label)),
+    );
+  });
+  if (allTerminal) {
+    return "terminal";
+  }
+  return hasMissingDependency ? "missing" : "non_terminal";
+}
+
+function entityBackedPlacesExecution(
+  functionCall: RequiredEvidenceRepairFunctionCall,
+  requiredArguments: Record<string, unknown>,
+  entityNames: readonly string[],
+  querySuffix: string,
+): RequiredEvidenceFunctionCallExecution {
+  const requiredConstraints = isRecord(requiredArguments.constraints)
+    ? requiredArguments.constraints
+    : {};
+  return {
+    kind: "execute",
+    functionCall: {
+      ...functionCall,
+      arguments: {
+        ...requiredArguments,
+        ...functionCall.arguments,
+        query: `${entityNames.join(" ")} ${querySuffix}`,
+        center: isRecord(functionCall.arguments.center)
+          ? functionCall.arguments.center
+          : requiredArguments.center,
+        radius_meters:
+          typeof functionCall.arguments.radius_meters === "number"
+            ? functionCall.arguments.radius_meters
+            : requiredArguments.radius_meters,
+        constraints: {
+          ...requiredConstraints,
+          ...(isRecord(functionCall.arguments.constraints)
+            ? functionCall.arguments.constraints
+            : {}),
+          page_size: Math.min(Math.max(entityNames.length, 1), 8),
+        },
+      },
+    },
+  };
+}
+
+function skippedPlacesExecution(
+  functionCall: RequiredEvidenceRepairFunctionCall,
+  now: () => Date,
+  reason: string,
+  sourceName: string,
+  notChecked: readonly string[],
+): RequiredEvidenceFunctionCallExecution {
+  return {
+    kind: "skip",
+    functionCall,
+    result: {
+      name: "search_places",
+      toolCallId: functionCall.callId,
+      status: "error",
+      errorCode: "provider_unavailable",
+      text: reason,
+      sources: [
+        {
+          label: "provider_unavailable",
+          sourceName,
+          sourceProfileId: "source_google_places",
+          fetchedAt: now().toISOString(),
+          confidence: "low",
+          checked: [],
+          notChecked: [...notChecked],
+        },
+      ],
+    },
   };
 }
 

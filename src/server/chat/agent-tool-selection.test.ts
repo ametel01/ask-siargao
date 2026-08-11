@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { loadAgentMemorySnapshot } from "@/server/chat/agent-memory";
 import { selectAgentResponseTools } from "@/server/chat/agent-tool-selection";
 import { buildAgentResponseTools } from "@/server/chat/agent-tools";
-import { buildRequiredEvidencePlan } from "@/server/chat/required-evidence";
+import { buildRequiredEvidencePolicy } from "@/server/chat/required-evidence";
 
 describe("agent tool selection", () => {
   test("keeps a general planning turn compact", () => {
@@ -106,7 +106,7 @@ function selectedNames(content: string) {
   const tools = selectAgentResponseTools(
     buildAgentResponseTools(loadAgentMemorySnapshot(), { vectorStoreId: "" }),
     request,
-    buildRequiredEvidencePlan(request),
+    buildRequiredEvidencePolicy(request).requiredToolNames,
   );
   return tools.flatMap((tool) => (tool.type === "function" ? [tool.name] : [tool.type]));
 }
