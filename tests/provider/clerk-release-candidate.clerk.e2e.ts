@@ -109,7 +109,8 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
   const anonymousContext = await newProtectedContext(browser);
   const anonymous = await anonymousContext.newPage();
   await anonymous.goto("/settings");
-  expect((await anonymous.request.get("/api/me/profile")).status()).toBe(401);
+  // Clerk's protected-route perimeter hides the API before its handler-level 401 can run.
+  expect((await anonymous.request.get("/api/me/profile")).status()).toBe(404);
   await anonymousContext.close();
 
   await safeProviderStep("Clerk sign-out", () => clerk.signOut({ page }));
