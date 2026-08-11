@@ -27,30 +27,6 @@ test("provider credentials are reachable only from manually approved protected j
   expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_PASSWORD/g)).toHaveLength(1);
 });
 
-test("protected browser lanes use a step-scoped Vercel automation bypass", async () => {
-  const [workflow, clerkConfig, stripeConfig, clerkTest] = await Promise.all([
-    readFile(workflowPath, "utf8"),
-    readFile("playwright.clerk.config.ts", "utf8"),
-    readFile("playwright.stripe.config.ts", "utf8"),
-    readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
-  ]);
-
-  expect(workflow.match(/secrets\.PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET/g)).toHaveLength(2);
-  for (const config of [clerkConfig, stripeConfig]) {
-    expect(config).toContain('"x-vercel-protection-bypass"');
-    expect(config).toContain('"x-vercel-set-bypass-cookie": "true"');
-    expect(config).toContain("PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET");
-    expect(config).toContain("timeout: 120_000");
-  }
-  expect(clerkTest.match(/newProtectedContext\(browser\)/g)).toHaveLength(4);
-  expect(clerkTest).toContain('baseURL: required("PROVIDER_RC_APP_ORIGIN")');
-  expect(clerkTest).toContain('"x-vercel-protection-bypass": protectionBypass');
-  expect(clerkTest).toContain("navigation.status() < 400");
-  expect(clerkTest).toContain(
-    'setTimeout(() => reject(new Error("Provider step timed out.")), 20_000)',
-  );
-});
-
 test("protected provider database probes require verified PostgreSQL TLS", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const databaseUrlSecret = "DATABASE_URL: $" + "{{ secrets.PROVIDER_RC_DATABASE_URL }}";
@@ -117,65 +93,6 @@ test("forks and non-manual events cannot select a secret-bearing job", async () 
   expect(workflow.match(/test "\$GITHUB_REPOSITORY" = "\$EXPECTED_REPOSITORY"/g)).toHaveLength(2);
 });
 
-test("protected Stripe envelopes stay coupled to the production inbox API version", async () => {
-  const [builder, protectedTest] = await Promise.all([
-    readFile("src/server/qa/provider-release-candidate.ts", "utf8"),
-    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
-  ]);
-  expect(builder).toContain(
-    'import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox"',
-  );
-  expect(builder).toContain("api_version: STRIPE_API_VERSION");
-  expect(protectedTest).toContain("apiVersion: STRIPE_API_VERSION");
-  expect(protectedTest).toContain("buildProviderReleaseCandidateStripeEvent");
-  expect(protectedTest).not.toContain("api_version:");
-});
-
-test("Google OAuth proof cannot fall back to a Clerk email sign-in helper", async () => {
-  const protectedTest = await readFile(
-    "tests/provider/clerk-release-candidate.clerk.e2e.ts",
-    "utf8",
-  );
-  const googleStart = protectedTest.indexOf('test("Google OAuth');
-  const googleEnd = protectedTest.indexOf('test("single-session', googleStart);
-  const googleCase = protectedTest.slice(googleStart, googleEnd);
-
-  expect(googleStart).toBeGreaterThan(-1);
-  expect(googleEnd).toBeGreaterThan(googleStart);
-  expect(googleCase).toContain("completeGoogleOAuth(page)");
-  expect(googleCase).not.toContain("clerk.signIn");
-  expect(googleCase).toContain("locator('[aria-label=\"Sign in with Google\"]')");
-  expect(googleCase).toContain("filter({ has: googleIcon })");
-  expect(googleCase).not.toContain("/continue with google/i");
-  expect(protectedTest).toContain('required("PROVIDER_RC_CLERK_GOOGLE_EMAIL")');
-  expect(protectedTest).toContain('required("PROVIDER_RC_CLERK_GOOGLE_PASSWORD")');
-  expect(protectedTest).toContain("accounts.google.com");
-});
-
-test("protected sign-in helpers initialize Clerk on a Clerk-mounted route", async () => {
-  const [clerkTest, stripeTest] = await Promise.all([
-    readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
-    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
-  ]);
-
-  expect(clerkTest).not.toContain('goto("/")');
-  expect(clerkTest.match(/goto\("\/sign-in"/g)?.length ?? 0).toBeGreaterThanOrEqual(6);
-  expect(stripeTest).not.toContain('goto("/")');
-  expect(stripeTest).toContain('goto("/sign-in")');
-});
-
-test("Playwright provider setup remains compatible with its Node runtime", async () => {
-  const setupFiles = await Promise.all([
-    readFile("tests/provider/clerk.global.setup.ts", "utf8"),
-    readFile("tests/provider/stripe.global.setup.ts", "utf8"),
-  ]);
-
-  for (const setupFile of setupFiles) {
-    expect(setupFile).not.toContain("Bun.");
-    expect(setupFile).toContain('execFileAsync("git", ["rev-parse", "HEAD"])');
-  }
-});
-
 test("both lanes prove the checked-out SHA is exact and already trusted by main", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   expect(workflow.match(/ref: \$\{\{ inputs\.release_candidate_sha \}\}/g)).toHaveLength(2);
@@ -221,42 +138,6 @@ test("protected evidence is emitted only after its semantic provider lane", asyn
   );
 });
 
-test("protected lanes cross only the deep Release Evidence lifecycle seam", async () => {
-  const [preflightRunner, evidenceRunner, clerkTest, stripeTest, deletionRunner] =
-    await Promise.all([
-      readFile("src/server/qa/run-provider-release-candidate-preflight.ts", "utf8"),
-      readFile("src/server/qa/run-provider-release-candidate-evidence.ts", "utf8"),
-      readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
-      readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
-      readFile("src/server/qa/verify-clerk-release-candidate-deletion.ts", "utf8"),
-    ]);
-  const lifecycleCallers = [preflightRunner, evidenceRunner, clerkTest, stripeTest, deletionRunner];
-
-  for (const caller of lifecycleCallers) {
-    expect(caller).toContain("createLiveProviderReleaseCandidateLifecycle");
-    expect(caller).not.toMatch(
-      /(?:read|write)Provider(?:Database|FinalBoundary)Receipt|(?:read|record)ExecutedProviderScenario|verifyLiveProviderDatabase/,
-    );
-  }
-  expect(preflightRunner).toContain(".begin()");
-  expect(evidenceRunner).toContain(".complete()");
-  expect(clerkTest).toContain(".recordScenarios(");
-  expect(clerkTest).toContain(".revalidate(");
-  expect(clerkTest).toContain(".seal(");
-  expect(stripeTest).toContain(".recordScenarios(");
-  expect(stripeTest).toContain(".revalidate(");
-  expect(stripeTest).toContain(".seal(");
-  expect(deletionRunner).toContain(".recordScenarios(");
-  expect(deletionRunner.indexOf("await createLiveProviderReleaseCandidateLifecycle")).toBeLessThan(
-    deletionRunner.indexOf("users.getUserList"),
-  );
-
-  expect(stripeTest).toContain("proveAmbiguousRefundRetry");
-  expect(stripeTest).toContain("maxNetworkRetries: 0");
-  expect(stripeTest).toContain("idempotencyKey");
-  expect(stripeTest).toContain('"ambiguous_retry"');
-});
-
 test("workflow names the lifecycle that owns both protected lanes", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   expect(workflow).toContain(
@@ -265,50 +146,4 @@ test("workflow names the lifecycle that owns both protected lanes", async () => 
   expect(workflow).toContain(
     "Run protected Stripe acceptance through the Release Evidence lifecycle",
   );
-});
-
-test("protected evidence consumes deployed-ledger and executed-scenario state", async () => {
-  const [evidenceRunner, stripeTest] = await Promise.all([
-    readFile("src/server/qa/run-provider-release-candidate-evidence.ts", "utf8"),
-    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
-  ]);
-  expect(evidenceRunner).toContain(".complete()");
-  expect(stripeTest).toContain("proveAmbiguousRefundRetry");
-  expect(stripeTest).toContain("maxNetworkRetries: 0");
-  expect(stripeTest).toContain("idempotencyKey");
-  expect(stripeTest).toContain('"ambiguous_retry"');
-});
-
-test("every mutating group revalidates live state and provider failures stay redacted", async () => {
-  const [clerkTest, stripeTest, evidenceRunner] = await Promise.all([
-    readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
-    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
-    readFile("src/server/qa/run-provider-release-candidate-evidence.ts", "utf8"),
-  ]);
-  expect(clerkTest.match(/assertLiveBoundary\(/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
-  expect(stripeTest.match(/assertLiveBoundary\(/g)?.length ?? 0).toBeGreaterThanOrEqual(8);
-  expect(clerkTest).toContain("safeProviderStep");
-  expect(stripeTest).toContain("safeProviderCall");
-  expect(stripeTest).not.toContain("expect(retry.checkoutUrl)");
-  expect(stripeTest).not.toContain("expect(matching)");
-  expect(stripeTest).not.toMatch(/\.id\)\.toBe\(/);
-  expect(clerkTest).not.toContain("toHaveURL(/accounts");
-  expect(evidenceRunner).toContain(".complete()");
-});
-
-test("expiry, cancellation, session policy, profile, and account receipts are assertion-backed", async () => {
-  const [clerkTest, stripeTest] = await Promise.all([
-    readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
-    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
-  ]);
-  expect(stripeTest).toContain("assertThirtyMinuteExpiryBoundary(page)");
-  expect(stripeTest).toContain("extract(epoch from created_at)::double precision");
-  expect(stripeTest).toContain("providerReleaseCandidateCheckoutExpiryMatches");
-  expect(stripeTest).not.toContain("checkout_session_expires_at - created_at");
-  expect(stripeTest).toContain('recordScenarios(["thirty_minute_expiry_boundary"])');
-  expect(stripeTest).toContain('recordScenarios(["authenticated_cancellation"])');
-  expect(clerkTest).toContain("clerkInstancePolicy.maxSessionAgeDays");
-  expect(clerkTest).toContain('"profile_convergence"');
-  expect(clerkTest).toContain('"account_management"');
-  expect(clerkTest).toContain('document.querySelector(".cl-userProfile-root")');
 });

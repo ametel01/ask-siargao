@@ -5,14 +5,22 @@ import postgres from "postgres";
 import { Webhook } from "standardwebhooks";
 
 import { clerkInstancePolicy } from "@/server/auth/clerk-instance-policy";
-import type { ProviderReleaseCandidateScenario } from "@/server/qa/provider-release-candidate";
-import { createLiveProviderReleaseCandidateLifecycle } from "@/server/qa/provider-release-candidate-live-boundary";
+import { createLiveProtectedProviderHarness } from "@/server/qa/provider-release-candidate-live-boundary";
 
 test.describe.configure({ mode: "serial" });
 
+const providerHarness = await createLiveProtectedProviderHarness("clerk", {
+  providerTimeoutMs: 20_000,
+});
+const {
+  newBrowserContext: newProtectedContext,
+  providerCall: safeProviderStep,
+  recordScenarios,
+  requiredEnvironment,
+  revalidate: assertLiveBoundary,
+} = providerHarness;
 const emailCodeUser = requiredTestEmail("PROVIDER_RC_CLERK_EMAIL_CODE_USER");
 const closureUser = requiredTestEmail("PROVIDER_RC_CLERK_CLOSURE_USER");
-const releaseEvidenceLifecycle = await createLiveProviderReleaseCandidateLifecycle("clerk");
 
 test("email-code, verified-email, session persistence, route/API denial, and sign-out", async ({
   browser,
@@ -142,7 +150,9 @@ test("Google OAuth is offered by the dedicated Clerk test instance", async ({ br
     "Google OAuth did not reach the configured provider.",
   );
   await safeProviderStep("Google OAuth callback", () => completeGoogleOAuth(page));
-  await expect(page).toHaveURL(new RegExp(`^${escapeRegExp(required("PROVIDER_RC_APP_ORIGIN"))}`));
+  await expect(page).toHaveURL(
+    new RegExp(`^${escapeRegExp(requiredEnvironment("PROVIDER_RC_APP_ORIGIN"))}`),
+  );
   expect((await page.request.get("/api/me/profile")).status()).toBe(200);
   const verifiedGoogleAccount = await page.evaluate(() =>
     window.Clerk.user?.externalAccounts.some(
@@ -158,12 +168,12 @@ test("Google OAuth is offered by the dedicated Clerk test instance", async ({ br
 async function completeGoogleOAuth(page: Page) {
   const email = page.locator('input[type="email"]');
   await expect(email).toBeVisible();
-  await email.fill(required("PROVIDER_RC_CLERK_GOOGLE_EMAIL"));
+  await email.fill(requiredEnvironment("PROVIDER_RC_CLERK_GOOGLE_EMAIL"));
   await page.getByRole("button", { name: /^next$/i }).click();
 
   const password = page.locator('input[type="password"]');
   await expect(password).toBeVisible();
-  await password.fill(required("PROVIDER_RC_CLERK_GOOGLE_PASSWORD"));
+  await password.fill(requiredEnvironment("PROVIDER_RC_CLERK_GOOGLE_PASSWORD"));
   await page.getByRole("button", { name: /^next$/i }).click();
 
   if (/challenge|captcha/i.test(page.url())) {
@@ -172,7 +182,7 @@ async function completeGoogleOAuth(page: Page) {
   const consent = page.getByRole("button", { name: /^(continue|allow)$/i });
   if (await consent.isVisible({ timeout: 5_000 }).catch(() => false)) await consent.click();
   await page.waitForURL(
-    (url) => url.origin === new URL(required("PROVIDER_RC_APP_ORIGIN")).origin,
+    (url) => url.origin === new URL(requiredEnvironment("PROVIDER_RC_APP_ORIGIN")).origin,
     { timeout: 90_000 },
   );
   if (/challenge|captcha/i.test(page.url())) {
@@ -221,7 +231,7 @@ test("ownership denial precedes terminal step-up closure and provider deletion c
   const foreignItemId = process.env.PROVIDER_RC_FOREIGN_SAVED_ITEM_ID;
   if (!foreignItemId) throw new Error("PROVIDER_RC_FOREIGN_SAVED_ITEM_ID is required.");
   const ownershipResponse = await page.request.delete(`/api/trips/saved/${foreignItemId}`, {
-    headers: { origin: new URL(required("PROVIDER_RC_APP_ORIGIN")).origin },
+    headers: { origin: new URL(requiredEnvironment("PROVIDER_RC_APP_ORIGIN")).origin },
   });
   expect([403, 404]).toContain(ownershipResponse.status());
 
@@ -245,12 +255,8 @@ test("final live boundary matches immediately before Clerk evidence", async ({ p
   await safeProviderStep("Final Clerk boundary sign-in", () =>
     clerk.signIn({ page, emailAddress: requiredTestEmail("PROVIDER_RC_BOUNDARY_USER") }),
   );
-  await releaseEvidenceLifecycle.seal(await readLiveDeploymentSha(page));
+  await providerHarness.seal(page);
 });
-
-async function recordScenarios(scenarios: ProviderReleaseCandidateScenario<"clerk">[]) {
-  await releaseEvidenceLifecycle.recordScenarios(scenarios);
-}
 
 async function assertScenarioBoundary(browser: Browser | null) {
   if (!browser) throw new Error("Protected boundary browser is unavailable.");
@@ -283,52 +289,6 @@ async function assertScenarioBoundary(browser: Browser | null) {
   }
 }
 
-function newProtectedContext(browser: Browser) {
-  const protectionBypass = required("PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET");
-  return browser.newContext({
-    baseURL: required("PROVIDER_RC_APP_ORIGIN"),
-    extraHTTPHeaders: {
-      "x-vercel-protection-bypass": protectionBypass,
-      "x-vercel-set-bypass-cookie": "true",
-    },
-  });
-}
-
-async function assertLiveBoundary(page: Page) {
-  const deployedCommitSha = await readLiveDeploymentSha(page);
-  return releaseEvidenceLifecycle.revalidate(deployedCommitSha);
-}
-
-async function readLiveDeploymentSha(page: Page) {
-  const response = await page.request.get("/api/me/provider-release-candidate");
-  const body = response.status() === 200 ? ((await response.json()) as object) : {};
-  const deployedCommitSha =
-    "releaseCandidateSha" in body && typeof body.releaseCandidateSha === "string"
-      ? body.releaseCandidateSha
-      : "";
-  safeAssert(
-    response.status() === 200 && deployedCommitSha === required("PROVIDER_RC_EXPECTED_SHA"),
-    "Protected app deployment changed before the Clerk scenario.",
-  );
-  return deployedCommitSha;
-}
-
-async function safeProviderStep<T>(label: string, step: () => Promise<T>) {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      step(),
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error("Provider step timed out.")), 20_000);
-      }),
-    ]);
-  } catch {
-    throw new Error(`${label} failed without provider details.`);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
 function safeAssert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -337,7 +297,7 @@ async function deliverSignedClerkWebhook(request: APIRequestContext, event: obje
   const payload = JSON.stringify(event);
   const messageId = crypto.randomUUID();
   const timestamp = new Date();
-  const signature = new Webhook(required("CLERK_WEBHOOK_SIGNING_SECRET")).sign(
+  const signature = new Webhook(requiredEnvironment("CLERK_WEBHOOK_SIGNING_SECRET")).sign(
     messageId,
     timestamp,
     payload,
@@ -367,7 +327,7 @@ async function assertClerkUserConverged(
     lastName: string | null;
   },
 ) {
-  const sql = postgres(required("DATABASE_URL"), { max: 1, prepare: false });
+  const sql = postgres(requiredEnvironment("DATABASE_URL"), { max: 1, prepare: false });
   try {
     await expect
       .poll(async () => {
@@ -390,14 +350,8 @@ async function assertClerkUserConverged(
   }
 }
 
-function required(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required for the protected Clerk lane.`);
-  return value;
-}
-
 function requiredTestEmail(name: string) {
-  const value = required(name);
+  const value = requiredEnvironment(name);
   if (!value.includes("+clerk_test@")) {
     throw new Error(`${name} must identify a dedicated +clerk_test user.`);
   }

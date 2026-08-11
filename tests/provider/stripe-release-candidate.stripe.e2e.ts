@@ -6,18 +6,23 @@ import Stripe from "stripe";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   buildProviderReleaseCandidateStripeEvent,
-  type ProviderReleaseCandidateScenario,
   providerReleaseCandidateCheckoutExpiryMatches,
 } from "@/server/qa/provider-release-candidate";
-import { createLiveProviderReleaseCandidateLifecycle } from "@/server/qa/provider-release-candidate-live-boundary";
+import { createLiveProtectedProviderHarness } from "@/server/qa/provider-release-candidate-live-boundary";
 
 test.describe.configure({ mode: "serial" });
 
-const stripe = new Stripe(required("STRIPE_RESTRICTED_KEY"), {
+const providerHarness = await createLiveProtectedProviderHarness("stripe");
+const {
+  providerCall: safeProviderCall,
+  recordScenarios,
+  requiredEnvironment,
+  revalidate: assertLiveBoundary,
+} = providerHarness;
+const stripe = new Stripe(requiredEnvironment("STRIPE_RESTRICTED_KEY"), {
   apiVersion: STRIPE_API_VERSION,
 });
-const origin = new URL(required("PROVIDER_RC_APP_ORIGIN")).origin;
-const releaseEvidenceLifecycle = await createLiveProviderReleaseCandidateLifecycle("stripe");
+const origin = new URL(requiredEnvironment("PROVIDER_RC_APP_ORIGIN")).origin;
 
 test("app checkout, cancellation, return-before-event, activation, duplicate, settlement, and refunds", async ({
   page,
@@ -50,7 +55,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   await completeHostedCheckout(
     page,
     payable.checkoutUrl,
-    required("PROVIDER_RC_STRIPE_ACTIVE_USER"),
+    requiredEnvironment("PROVIDER_RC_STRIPE_ACTIVE_USER"),
   );
   const session = await retrieveLatestCheckout(page);
   expect(session.livemode).toBe(false);
@@ -128,7 +133,7 @@ test("reversed delivery retries authoritative dispute lookup before app suspensi
   await completeHostedCheckout(
     page,
     checkout.checkoutUrl,
-    required("PROVIDER_RC_STRIPE_REVERSED_USER"),
+    requiredEnvironment("PROVIDER_RC_STRIPE_REVERSED_USER"),
     "4000000000000259",
   );
   const session = await retrieveLatestCheckout(page);
@@ -178,7 +183,7 @@ test("closure race records Paid After Closure without access and leaves durable 
   await completeHostedCheckout(
     paymentPage,
     checkout.checkoutUrl,
-    required("PROVIDER_RC_STRIPE_CLOSURE_USER"),
+    requiredEnvironment("PROVIDER_RC_STRIPE_CLOSURE_USER"),
   );
   const session = await retrieveCheckoutForClosedAccount();
   await deliverSignedStripeEvent(paymentPage, stripeEvent("checkout.session.completed", session));
@@ -188,7 +193,7 @@ test("closure race records Paid After Closure without access and leaves durable 
 
 test("final live boundary matches immediately before Stripe evidence", async ({ page }) => {
   await signIn(page, "PROVIDER_RC_BOUNDARY_USER");
-  await releaseEvidenceLifecycle.seal(await readLiveDeploymentSha(page));
+  await providerHarness.seal(page);
 });
 
 async function proveAmbiguousRefundRetry(page: Page, paymentIntentId: string) {
@@ -215,7 +220,7 @@ async function proveAmbiguousRefundRetry(page: Page, paymentIntentId: string) {
       return response;
     },
   };
-  const faultStripe = new Stripe(required("STRIPE_RESTRICTED_KEY"), {
+  const faultStripe = new Stripe(requiredEnvironment("STRIPE_RESTRICTED_KEY"), {
     apiVersion: STRIPE_API_VERSION,
     httpClient: ambiguityClient,
     maxNetworkRetries: 0,
@@ -264,36 +269,13 @@ async function expectTripPassRefundedAmount(page: Page, amount: number) {
   });
 }
 
-async function recordScenarios(scenarios: ProviderReleaseCandidateScenario<"stripe">[]) {
-  await releaseEvidenceLifecycle.recordScenarios(scenarios);
-}
-
 async function signIn(page: Page, emailName: string) {
   await setupClerkTestingToken({ page });
   await page.goto("/sign-in");
   await safeProviderCall("protected Clerk sign-in", () =>
-    clerk.signIn({ page, emailAddress: required(emailName) }),
+    clerk.signIn({ page, emailAddress: requiredEnvironment(emailName) }),
   );
   expect((await page.request.get("/api/me/profile")).status()).toBe(200);
-}
-
-async function assertLiveBoundary(page: Page) {
-  const deployedCommitSha = await readLiveDeploymentSha(page);
-  return releaseEvidenceLifecycle.revalidate(deployedCommitSha);
-}
-
-async function readLiveDeploymentSha(page: Page) {
-  const response = await page.request.get("/api/me/provider-release-candidate");
-  const body = response.status() === 200 ? ((await response.json()) as object) : {};
-  const deployedCommitSha =
-    "releaseCandidateSha" in body && typeof body.releaseCandidateSha === "string"
-      ? body.releaseCandidateSha
-      : "";
-  safeAssert(
-    response.status() === 200 && deployedCommitSha === required("PROVIDER_RC_EXPECTED_SHA"),
-    "Protected app deployment changed before the Stripe scenario.",
-  );
-  return deployedCommitSha;
 }
 
 async function assertThirtyMinuteExpiryBoundary(page: Page) {
@@ -412,7 +394,7 @@ async function deliverSignedStripeEvent(page: Page, event: Stripe.Event, success
   const payload = JSON.stringify(event);
   const signature = Stripe.webhooks.generateTestHeaderString({
     payload,
-    secret: required("STRIPE_WEBHOOK_SECRET"),
+    secret: requiredEnvironment("STRIPE_WEBHOOK_SECRET"),
   });
   const response = await page.request.post("/api/stripe/webhook", {
     data: payload,
@@ -490,7 +472,7 @@ async function assertPaidAfterClosure(sessionId: string) {
 }
 
 async function withDatabase<T>(work: (sql: ReturnType<typeof postgres>) => Promise<T>) {
-  const sql = postgres(required("DATABASE_URL"), { max: 1, prepare: false });
+  const sql = postgres(requiredEnvironment("DATABASE_URL"), { max: 1, prepare: false });
   try {
     return await work(sql);
   } finally {
@@ -502,20 +484,6 @@ function providerId(value: string | { id: string } | null) {
   const id = typeof value === "string" ? value : value?.id;
   if (!id) throw new Error("Stripe did not return the expected provider reference.");
   return id;
-}
-
-function required(name: string) {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required for the protected Stripe lane.`);
-  return value;
-}
-
-async function safeProviderCall<T>(label: string, call: () => Promise<T>) {
-  try {
-    return await call();
-  } catch {
-    throw new Error(`${label} failed without provider details.`);
-  }
 }
 
 function safeAssert(condition: boolean, message: string): asserts condition {

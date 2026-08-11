@@ -8,6 +8,10 @@ import {
   type ProviderReleaseCandidateEnv,
   type ProviderReleaseCandidateLane,
 } from "@/server/qa/provider-release-candidate";
+import {
+  createProtectedProviderHarness,
+  readProviderReleaseCandidateHeadSha,
+} from "@/server/qa/provider-release-candidate-harness";
 import { providerReleaseCandidateDiskFiles } from "@/server/qa/provider-release-candidate-receipts";
 
 export function createLiveProviderReleaseCandidateLifecycle<
@@ -17,7 +21,7 @@ export function createLiveProviderReleaseCandidateLifecycle<
     env: process.env as ProviderReleaseCandidateEnv,
     files: providerReleaseCandidateDiskFiles,
     loadMigrations: () => loadMigrationFiles(),
-    readCheckedOutCommitSha: readHeadSha,
+    readCheckedOutCommitSha: readProviderReleaseCandidateHeadSha,
     async withDatabase(work) {
       const sql = postgres(required("DATABASE_URL"), {
         ...createPostgresConnectionOptions("cli"),
@@ -33,18 +37,19 @@ export function createLiveProviderReleaseCandidateLifecycle<
   });
 }
 
+export async function createLiveProtectedProviderHarness<Lane extends ProviderReleaseCandidateLane>(
+  lane: Lane,
+  options: { providerTimeoutMs?: number } = {},
+) {
+  return createProtectedProviderHarness(lane, {
+    env: process.env as ProviderReleaseCandidateEnv,
+    lifecycle: await createLiveProviderReleaseCandidateLifecycle(lane),
+    providerTimeoutMs: options.providerTimeoutMs,
+  });
+}
+
 function required(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required for protected live-boundary verification.`);
   return value;
-}
-
-async function readHeadSha() {
-  const process = Bun.spawn(["git", "rev-parse", "HEAD"], { stdout: "pipe", stderr: "pipe" });
-  const [stdout, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    process.exited,
-  ]);
-  if (exitCode !== 0) throw new Error("Unable to resolve the checked-out commit.");
-  return stdout.trim();
 }
