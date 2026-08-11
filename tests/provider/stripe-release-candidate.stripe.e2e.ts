@@ -284,7 +284,7 @@ async function recordScenarios(scenarios: string[]) {
 
 async function signIn(page: Page, emailName: string) {
   await setupClerkTestingToken({ page });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await safeProviderCall("protected Clerk sign-in", () =>
     clerk.signIn({ page, emailAddress: required(emailName) }),
   );

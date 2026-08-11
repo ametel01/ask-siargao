@@ -22,7 +22,7 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
 }) => {
   await assertScenarioBoundary(browser, "clerk");
   await setupClerkTestingToken({ page });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await safeProviderStep("Clerk email-code sign-in", () =>
     clerk.signIn({
       page,
@@ -184,7 +184,7 @@ test("single-session policy invalidates the older browser session", async ({ bro
   const firstContext = await newProtectedContext(browser);
   const first = await firstContext.newPage();
   await setupClerkTestingToken({ page: first });
-  await first.goto("/");
+  await first.goto("/sign-in");
   await safeProviderStep("First Clerk session sign-in", () =>
     clerk.signIn({ page: first, emailAddress: emailCodeUser }),
   );
@@ -193,7 +193,7 @@ test("single-session policy invalidates the older browser session", async ({ bro
   const secondContext = await newProtectedContext(browser);
   const second = await secondContext.newPage();
   await setupClerkTestingToken({ page: second });
-  await second.goto("/");
+  await second.goto("/sign-in");
   await safeProviderStep("Second Clerk session sign-in", () =>
     clerk.signIn({ page: second, emailAddress: emailCodeUser }),
   );
@@ -210,7 +210,7 @@ test("ownership denial precedes terminal step-up closure and provider deletion c
 }) => {
   await assertScenarioBoundary(page.context().browser(), "clerk");
   await setupClerkTestingToken({ page });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await safeProviderStep("Closure-user Clerk sign-in", () =>
     clerk.signIn({ page, emailAddress: closureUser }),
   );
@@ -240,7 +240,7 @@ test("ownership denial precedes terminal step-up closure and provider deletion c
 
 test("final live boundary matches immediately before Clerk evidence", async ({ page }) => {
   await setupClerkTestingToken({ page });
-  await page.goto("/");
+  await page.goto("/sign-in");
   await safeProviderStep("Final Clerk boundary sign-in", () =>
     clerk.signIn({ page, emailAddress: requiredTestEmail("PROVIDER_RC_BOUNDARY_USER") }),
   );
@@ -272,7 +272,7 @@ async function assertScenarioBoundary(browser: Browser | null, lane: "clerk") {
       setupClerkTestingToken({ page: boundary }),
     );
     const navigation = await safeProviderStep("Clerk boundary navigation", () =>
-      boundary.goto("/", { waitUntil: "domcontentloaded" }),
+      boundary.goto("/sign-in", { waitUntil: "domcontentloaded" }),
     );
     safeAssert(
       navigation !== null && navigation.status() < 400,

@@ -149,6 +149,18 @@ test("Google OAuth proof cannot fall back to a Clerk email sign-in helper", asyn
   expect(protectedTest).toContain("accounts.google.com");
 });
 
+test("protected sign-in helpers initialize Clerk on a Clerk-mounted route", async () => {
+  const [clerkTest, stripeTest] = await Promise.all([
+    readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
+    readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
+  ]);
+
+  expect(clerkTest).not.toContain('goto("/")');
+  expect(clerkTest.match(/goto\("\/sign-in"/g)?.length ?? 0).toBeGreaterThanOrEqual(6);
+  expect(stripeTest).not.toContain('goto("/")');
+  expect(stripeTest).toContain('goto("/sign-in")');
+});
+
 test("Playwright provider setup remains compatible with its Node runtime", async () => {
   const setupFiles = await Promise.all([
     readFile("tests/provider/clerk.global.setup.ts", "utf8"),
