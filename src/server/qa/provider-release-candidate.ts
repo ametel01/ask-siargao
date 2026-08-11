@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type Stripe from "stripe";
 
 import type { MigrationFile } from "@/server/db/migration-files";
+import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 
 export const providerReleaseCandidateSchemaVersion = "provider-release-candidate/v2";
@@ -55,6 +56,10 @@ export const providerReleaseCandidateScenarios = {
   ],
 } as const satisfies Record<ProviderReleaseCandidateLane, readonly string[]>;
 
+export type ProviderReleaseCandidateScenario<
+  Lane extends ProviderReleaseCandidateLane = ProviderReleaseCandidateLane,
+> = (typeof providerReleaseCandidateScenarios)[Lane][number];
+
 export type ProviderReleaseCandidateEnv = Partial<
   Record<
     | "CLERK_PUBLISHABLE_KEY"
@@ -106,10 +111,228 @@ export type ProviderReleaseCandidateEvidence = {
   };
 };
 
+export type ProviderReleaseCandidateLifecycleFiles = {
+  append(path: string, content: string): Promise<void>;
+  read(path: string): Promise<string | undefined>;
+  withLock<T>(path: string, work: () => Promise<T>): Promise<T>;
+  writeExclusive(path: string, content: string): Promise<void>;
+};
+
+export type ProviderReleaseCandidateLifecycleDependencies = {
+  env: ProviderReleaseCandidateEnv;
+  files: ProviderReleaseCandidateLifecycleFiles;
+  loadMigrations(): Promise<readonly Pick<MigrationFile, "checksum" | "name">[]>;
+  readCheckedOutCommitSha(): Promise<string>;
+  withDatabase<T>(work: (database: DatabaseQueryClient) => Promise<T>): Promise<T>;
+};
+
+type ProviderReleaseCandidateDatabaseReceipt = {
+  checkedOutCommitSha: string;
+  deployedMigrationLedgerFingerprint: string;
+  lane: ProviderReleaseCandidateLane;
+  migrationCount: number;
+  protectedDatabaseEnvironment: "protected-test";
+};
+
+type ProviderReleaseCandidateIdentity = {
+  checkedOutCommitSha: string;
+  lane: ProviderReleaseCandidateLane;
+};
+
+type ProviderReleaseCandidateFinalBoundaryReceipt = {
+  checkedOutCommitSha: string;
+  databaseFingerprint: string;
+  deployedCommitSha: string;
+  lane: ProviderReleaseCandidateLane;
+};
+
 const fullSha = /^[0-9a-f]{40}$/;
+const fingerprint = /^[0-9a-f]{64}$/;
 const nonProductionDatabaseMarker =
   /(test|testing|staging|stage|qa|sandbox|nonprod|provider[-_]?rc)/i;
 const productionDatabaseMarker = /(prod(uction)?|live|main)/i;
+const releaseEvidenceDirectory = ".tmp/provider-release-candidate";
+
+export async function createProviderReleaseCandidateLifecycle<
+  Lane extends ProviderReleaseCandidateLane,
+>(lane: Lane, dependencies: ProviderReleaseCandidateLifecycleDependencies) {
+  async function readInitialReceipt(identity: ProviderReleaseCandidateIdentity) {
+    return (await readRequiredReceipt(
+      dependencies,
+      databaseReceiptPath(identity),
+      "Protected Release Evidence scenarios cannot run before preflight.",
+    )) as ProviderReleaseCandidateDatabaseReceipt;
+  }
+
+  async function readFinalBoundaryReceipt(identity: ProviderReleaseCandidateIdentity) {
+    return (await readRequiredReceipt(
+      dependencies,
+      finalBoundaryReceiptPath(identity),
+      "Protected Release Evidence cannot be completed before the final boundary is sealed.",
+    )) as ProviderReleaseCandidateFinalBoundaryReceipt;
+  }
+
+  async function readScenarios(identity: ProviderReleaseCandidateIdentity) {
+    const contents = await dependencies.files.read(scenarioReceiptPath(identity));
+    return contents?.split("\n").filter(Boolean) ?? [];
+  }
+
+  async function readIdentity() {
+    const checkedOutCommitSha = await dependencies.readCheckedOutCommitSha();
+    assertProviderReleaseCandidateContext({
+      checkedOutCommitSha,
+      env: dependencies.env,
+      lane,
+    });
+    return { checkedOutCommitSha, lane } as const;
+  }
+
+  async function begin() {
+    const identity = await readIdentity();
+    return dependencies.files.withLock(lifecycleLockPath(identity), async () => {
+      const migrations = await dependencies.loadMigrations();
+      const database = await inspectProtectedDatabase(migrations);
+      const receipt: ProviderReleaseCandidateDatabaseReceipt = {
+        ...identity,
+        deployedMigrationLedgerFingerprint: database.fingerprint,
+        migrationCount: database.migrationCount,
+        protectedDatabaseEnvironment: "protected-test",
+      };
+      await dependencies.files.writeExclusive(
+        databaseReceiptPath(identity),
+        JSON.stringify(receipt),
+      );
+      return receipt;
+    });
+  }
+
+  async function recordScenarios(scenarios: readonly ProviderReleaseCandidateScenario<Lane>[]) {
+    const identity = await readIdentity();
+    await dependencies.files.withLock(lifecycleLockPath(identity), async () => {
+      const migrations = await dependencies.loadMigrations();
+      const initial = await readInitialReceipt(identity);
+      assertInitialReceipt(initial, identity, migrations.length);
+      const database = await inspectProtectedDatabase(migrations);
+      assertProviderReleaseCandidateBoundaryStable({
+        currentDatabaseFingerprint: database.fingerprint,
+        deployedCommitSha: identity.checkedOutCommitSha,
+        expectedCommitSha: identity.checkedOutCommitSha,
+        initialDatabaseFingerprint: initial.deployedMigrationLedgerFingerprint,
+      });
+      if (await dependencies.files.read(finalBoundaryReceiptPath(identity))) {
+        throw new Error("Protected Release Evidence lifecycle is already sealed.");
+      }
+
+      const allowedScenarios = new Set<string>(providerReleaseCandidateScenarios[lane]);
+      for (const scenario of scenarios) {
+        if (!allowedScenarios.has(scenario)) {
+          throw new Error(`Unknown protected ${lane} scenario: ${scenario}.`);
+        }
+      }
+      const executedScenarios = new Set(await readScenarios(identity));
+      const additions = scenarios.filter((scenario) => !executedScenarios.has(scenario));
+      if (additions.length > 0) {
+        await dependencies.files.append(scenarioReceiptPath(identity), `${additions.join("\n")}\n`);
+      }
+    });
+  }
+
+  async function revalidate(deployedCommitSha: string) {
+    const identity = await readIdentity();
+    const migrations = await dependencies.loadMigrations();
+    const initial = await readInitialReceipt(identity);
+    assertInitialReceipt(initial, identity, migrations.length);
+    const database = await inspectProtectedDatabase(migrations);
+    assertProviderReleaseCandidateBoundaryStable({
+      currentDatabaseFingerprint: database.fingerprint,
+      deployedCommitSha,
+      expectedCommitSha: identity.checkedOutCommitSha,
+      initialDatabaseFingerprint: initial.deployedMigrationLedgerFingerprint,
+    });
+    return database.fingerprint;
+  }
+
+  async function seal(deployedCommitSha: string) {
+    const identity = await readIdentity();
+    return dependencies.files.withLock(lifecycleLockPath(identity), async () => {
+      assertCompleteScenarios(lane, await readScenarios(identity));
+      const databaseFingerprint = await revalidate(deployedCommitSha);
+      const receipt: ProviderReleaseCandidateFinalBoundaryReceipt = {
+        ...identity,
+        databaseFingerprint,
+        deployedCommitSha,
+      };
+      await dependencies.files.writeExclusive(
+        finalBoundaryReceiptPath(identity),
+        JSON.stringify(receipt),
+      );
+      return receipt;
+    });
+  }
+
+  async function complete() {
+    const identity = await readIdentity();
+    return dependencies.files.withLock(lifecycleLockPath(identity), async () => {
+      const migrations = await dependencies.loadMigrations();
+      const [initial, finalBoundary, scenarios, database] = await Promise.all([
+        readInitialReceipt(identity),
+        readFinalBoundaryReceipt(identity),
+        readScenarios(identity),
+        inspectProtectedDatabase(migrations),
+      ]);
+      assertInitialReceipt(initial, identity, migrations.length);
+      assertFinalBoundaryReceipt(finalBoundary, identity, database.fingerprint);
+      assertCompleteScenarios(lane, scenarios);
+      assertProviderReleaseCandidateBoundaryStable({
+        currentDatabaseFingerprint: database.fingerprint,
+        deployedCommitSha: finalBoundary.deployedCommitSha,
+        expectedCommitSha: identity.checkedOutCommitSha,
+        initialDatabaseFingerprint: initial.deployedMigrationLedgerFingerprint,
+      });
+
+      const evidence = buildProviderReleaseCandidateEvidence({
+        ...identity,
+        deployedMigrationLedgerFingerprint: initial.deployedMigrationLedgerFingerprint,
+        migrations,
+        scenarios,
+      });
+      const evidencePath = finalEvidencePath(identity);
+      await dependencies.files.writeExclusive(
+        evidencePath,
+        `${JSON.stringify(evidence, null, 2)}\n`,
+      );
+      return { evidence, evidencePath };
+    });
+  }
+
+  async function inspectProtectedDatabase(
+    migrations: readonly Pick<MigrationFile, "checksum" | "name">[],
+  ) {
+    return dependencies.withDatabase(async (database) => {
+      const [ledger, sentinel] = await Promise.all([
+        database.query<{ checksum: string; name: string }>(
+          "select name, checksum from schema_migrations order by applied_at asc, name asc",
+        ),
+        database.query<{ environment: string; fingerprint: string }>(
+          "select environment, fingerprint from provider_release_candidate_sentinel where id = 'provider-release-candidate' limit 1",
+        ),
+      ]);
+      return {
+        fingerprint: verifyProviderReleaseCandidateDatabase({
+          expectedMigrations: migrations,
+          expectedSentinelFingerprint:
+            dependencies.env.PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT ?? "",
+          ledgerRows: ledger.rows,
+          sentinel: sentinel.rows[0],
+        }),
+        migrationCount: ledger.rows.length,
+      };
+    });
+  }
+
+  await readIdentity();
+  return { begin, complete, recordScenarios, revalidate, seal };
+}
 
 export function validateProviderReleaseCandidateContext(input: {
   checkedOutCommitSha: string;
@@ -223,7 +446,7 @@ export function assertProviderBeforeApplication(events: readonly string[]) {
   }
 }
 
-export function buildProviderReleaseCandidateEvidence(input: {
+function buildProviderReleaseCandidateEvidence(input: {
   checkedOutCommitSha: string;
   deployedMigrationLedgerFingerprint: string;
   lane: ProviderReleaseCandidateLane;
@@ -268,7 +491,7 @@ export function buildProviderReleaseCandidateEvidence(input: {
   };
 }
 
-export function verifyProviderReleaseCandidateDatabase(input: {
+function verifyProviderReleaseCandidateDatabase(input: {
   expectedMigrations: readonly Pick<MigrationFile, "checksum" | "name">[];
   ledgerRows: readonly { checksum: string; name: string }[];
   sentinel: { environment: string; fingerprint: string } | undefined;
@@ -292,7 +515,7 @@ export function verifyProviderReleaseCandidateDatabase(input: {
   return createHash("sha256").update(JSON.stringify(input.ledgerRows)).digest("hex");
 }
 
-export function assertProviderReleaseCandidateBoundaryStable(input: {
+function assertProviderReleaseCandidateBoundaryStable(input: {
   currentDatabaseFingerprint: string;
   deployedCommitSha: string;
   expectedCommitSha: string;
@@ -317,6 +540,82 @@ export function providerReleaseCandidateCheckoutExpiryMatches(input: {
     input.expiryEpochSeconds === expectedExpiryEpochSeconds &&
     input.providerExpiryEpochSeconds === input.expiryEpochSeconds
   );
+}
+
+function databaseReceiptPath(identity: ProviderReleaseCandidateIdentity) {
+  return `${releaseEvidenceDirectory}/${identity.lane}-${identity.checkedOutCommitSha}.database.json`;
+}
+
+function scenarioReceiptPath(identity: ProviderReleaseCandidateIdentity) {
+  return `${releaseEvidenceDirectory}/${identity.lane}-${identity.checkedOutCommitSha}.scenarios`;
+}
+
+function finalBoundaryReceiptPath(identity: ProviderReleaseCandidateIdentity) {
+  return `${releaseEvidenceDirectory}/${identity.lane}-${identity.checkedOutCommitSha}.final-boundary.json`;
+}
+
+function finalEvidencePath(identity: ProviderReleaseCandidateIdentity) {
+  return `${releaseEvidenceDirectory}/${identity.lane}-${identity.checkedOutCommitSha}.json`;
+}
+
+function lifecycleLockPath(identity: ProviderReleaseCandidateIdentity) {
+  return `${releaseEvidenceDirectory}/${identity.lane}-${identity.checkedOutCommitSha}.lock`;
+}
+
+async function readRequiredReceipt(
+  dependencies: ProviderReleaseCandidateLifecycleDependencies,
+  path: string,
+  missingMessage: string,
+) {
+  const contents = await dependencies.files.read(path);
+  if (!contents) throw new Error(missingMessage);
+  try {
+    return JSON.parse(contents) as unknown;
+  } catch {
+    throw new Error("Protected Release Evidence receipt is invalid.");
+  }
+}
+
+function assertCompleteScenarios(lane: ProviderReleaseCandidateLane, scenarios: readonly string[]) {
+  const expectedScenarios = providerReleaseCandidateScenarios[lane];
+  const uniqueScenarios = new Set(scenarios);
+  if (
+    uniqueScenarios.size !== expectedScenarios.length ||
+    expectedScenarios.some((scenario) => !uniqueScenarios.has(scenario))
+  ) {
+    throw new Error("Protected evidence requires every scenario to have an executed receipt.");
+  }
+}
+
+function assertInitialReceipt(
+  receipt: ProviderReleaseCandidateDatabaseReceipt,
+  identity: ProviderReleaseCandidateIdentity,
+  migrationCount: number,
+) {
+  if (
+    receipt.checkedOutCommitSha !== identity.checkedOutCommitSha ||
+    receipt.lane !== identity.lane ||
+    receipt.protectedDatabaseEnvironment !== "protected-test" ||
+    receipt.migrationCount !== migrationCount ||
+    !fingerprint.test(receipt.deployedMigrationLedgerFingerprint)
+  ) {
+    throw new Error("Protected database receipt does not match this exact lane and SHA.");
+  }
+}
+
+function assertFinalBoundaryReceipt(
+  receipt: ProviderReleaseCandidateFinalBoundaryReceipt,
+  identity: ProviderReleaseCandidateIdentity,
+  databaseFingerprint: string,
+) {
+  if (
+    receipt.checkedOutCommitSha !== identity.checkedOutCommitSha ||
+    receipt.lane !== identity.lane ||
+    receipt.deployedCommitSha !== identity.checkedOutCommitSha ||
+    receipt.databaseFingerprint !== databaseFingerprint
+  ) {
+    throw new Error("Final live deployment boundary receipt does not match evidence state.");
+  }
 }
 
 function validateProtectedDatabaseConfiguration(

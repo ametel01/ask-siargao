@@ -5,22 +5,20 @@ import postgres from "postgres";
 import { Webhook } from "standardwebhooks";
 
 import { clerkInstancePolicy } from "@/server/auth/clerk-instance-policy";
-import { verifyLiveProviderDatabase } from "@/server/qa/provider-release-candidate-live-boundary";
-import {
-  recordExecutedProviderScenario,
-  writeProviderFinalBoundaryReceipt,
-} from "@/server/qa/provider-release-candidate-receipts";
+import type { ProviderReleaseCandidateScenario } from "@/server/qa/provider-release-candidate";
+import { createLiveProviderReleaseCandidateLifecycle } from "@/server/qa/provider-release-candidate-live-boundary";
 
 test.describe.configure({ mode: "serial" });
 
 const emailCodeUser = requiredTestEmail("PROVIDER_RC_CLERK_EMAIL_CODE_USER");
 const closureUser = requiredTestEmail("PROVIDER_RC_CLERK_CLOSURE_USER");
+const releaseEvidenceLifecycle = await createLiveProviderReleaseCandidateLifecycle("clerk");
 
 test("email-code, verified-email, session persistence, route/API denial, and sign-out", async ({
   browser,
   page,
 }) => {
-  await assertScenarioBoundary(browser, "clerk");
+  await assertScenarioBoundary(browser);
   await setupClerkTestingToken({ page });
   await page.goto("/sign-in");
   await safeProviderStep("Clerk email-code sign-in", () =>
@@ -32,7 +30,7 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
 
   await page.goto("/settings");
   await expect(page).toHaveURL(/\/settings/);
-  await assertLiveBoundary(page, "clerk");
+  await assertLiveBoundary(page);
   const profile = await page.request.get("/api/me/profile");
   expect(profile.status()).toBe(200);
   expect(
@@ -66,7 +64,7 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
     };
   });
   if (!webhookUser) throw new Error("The protected Clerk session did not expose its user.");
-  await assertLiveBoundary(page, "clerk");
+  await assertLiveBoundary(page);
   await deliverSignedClerkWebhook(page.request, {
     type: "user.updated",
     object: "event",
@@ -90,7 +88,7 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
     lastName: webhookUser.lastName ?? null,
   });
 
-  await assertLiveBoundary(page, "clerk");
+  await assertLiveBoundary(page);
   const accountPanel = page.locator("#account");
   await accountPanel.getByRole("button", { name: "Manage account" }).click();
   await safeProviderStep("Protected Clerk account management", () =>
@@ -128,7 +126,7 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
 });
 
 test("Google OAuth is offered by the dedicated Clerk test instance", async ({ browser, page }) => {
-  await assertScenarioBoundary(browser, "clerk");
+  await assertScenarioBoundary(browser);
   await setupClerkTestingToken({ page });
   await page.goto("/sign-in");
   const googleIcon = page.locator('[aria-label="Sign in with Google"]');
@@ -183,7 +181,7 @@ async function completeGoogleOAuth(page: Page) {
 }
 
 test("single-session policy invalidates the older browser session", async ({ browser }) => {
-  await assertScenarioBoundary(browser, "clerk");
+  await assertScenarioBoundary(browser);
   const firstContext = await newProtectedContext(browser);
   const first = await firstContext.newPage();
   await setupClerkTestingToken({ page: first });
@@ -211,7 +209,7 @@ test("single-session policy invalidates the older browser session", async ({ bro
 test("ownership denial precedes terminal step-up closure and provider deletion convergence", async ({
   page,
 }) => {
-  await assertScenarioBoundary(page.context().browser(), "clerk");
+  await assertScenarioBoundary(page.context().browser());
   await setupClerkTestingToken({ page });
   await page.goto("/sign-in");
   await safeProviderStep("Closure-user Clerk sign-in", () =>
@@ -247,26 +245,14 @@ test("final live boundary matches immediately before Clerk evidence", async ({ p
   await safeProviderStep("Final Clerk boundary sign-in", () =>
     clerk.signIn({ page, emailAddress: requiredTestEmail("PROVIDER_RC_BOUNDARY_USER") }),
   );
-  const databaseFingerprint = await assertLiveBoundary(page, "clerk");
-  await writeProviderFinalBoundaryReceipt({
-    checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
-    databaseFingerprint,
-    deployedCommitMatched: true,
-    lane: "clerk",
-  });
+  await releaseEvidenceLifecycle.seal(await readLiveDeploymentSha(page));
 });
 
-async function recordScenarios(scenarios: string[]) {
-  for (const scenario of scenarios) {
-    await recordExecutedProviderScenario({
-      checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
-      lane: "clerk",
-      scenario,
-    });
-  }
+async function recordScenarios(scenarios: ProviderReleaseCandidateScenario<"clerk">[]) {
+  await releaseEvidenceLifecycle.recordScenarios(scenarios);
 }
 
-async function assertScenarioBoundary(browser: Browser | null, lane: "clerk") {
+async function assertScenarioBoundary(browser: Browser | null) {
   if (!browser) throw new Error("Protected boundary browser is unavailable.");
   const context = await newProtectedContext(browser);
   const boundary = await context.newPage();
@@ -290,9 +276,7 @@ async function assertScenarioBoundary(browser: Browser | null, lane: "clerk") {
         emailAddress: requiredTestEmail("PROVIDER_RC_BOUNDARY_USER"),
       }),
     );
-    await safeProviderStep("Clerk boundary live deployment", () =>
-      assertLiveBoundary(boundary, lane),
-    );
+    await safeProviderStep("Clerk boundary live deployment", () => assertLiveBoundary(boundary));
     await safeProviderStep("Clerk boundary sign-out", () => clerk.signOut({ page: boundary }));
   } finally {
     await context.close().catch(() => undefined);
@@ -310,21 +294,23 @@ function newProtectedContext(browser: Browser) {
   });
 }
 
-async function assertLiveBoundary(page: Page, lane: "clerk") {
+async function assertLiveBoundary(page: Page) {
+  const deployedCommitSha = await readLiveDeploymentSha(page);
+  return releaseEvidenceLifecycle.revalidate(deployedCommitSha);
+}
+
+async function readLiveDeploymentSha(page: Page) {
   const response = await page.request.get("/api/me/provider-release-candidate");
   const body = response.status() === 200 ? ((await response.json()) as object) : {};
+  const deployedCommitSha =
+    "releaseCandidateSha" in body && typeof body.releaseCandidateSha === "string"
+      ? body.releaseCandidateSha
+      : "";
   safeAssert(
-    response.status() === 200 &&
-      "releaseCandidateSha" in body &&
-      body.releaseCandidateSha === required("PROVIDER_RC_EXPECTED_SHA"),
+    response.status() === 200 && deployedCommitSha === required("PROVIDER_RC_EXPECTED_SHA"),
     "Protected app deployment changed before the Clerk scenario.",
   );
-  const database = await verifyLiveProviderDatabase({
-    checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
-    compareInitialReceipt: true,
-    lane,
-  });
-  return database.deployedMigrationLedgerFingerprint;
+  return deployedCommitSha;
 }
 
 async function safeProviderStep<T>(label: string, step: () => Promise<T>) {

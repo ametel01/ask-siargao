@@ -1,10 +1,8 @@
 import { createClerkClient } from "@clerk/backend";
 
-import { assertProviderReleaseCandidateContext } from "@/server/qa/provider-release-candidate";
-import { recordExecutedProviderScenario } from "@/server/qa/provider-release-candidate-receipts";
+import { createLiveProviderReleaseCandidateLifecycle } from "@/server/qa/provider-release-candidate-live-boundary";
 
-const checkedOutCommitSha = await readHeadSha();
-assertProviderReleaseCandidateContext({ checkedOutCommitSha, lane: "clerk" });
+const releaseEvidenceLifecycle = await createLiveProviderReleaseCandidateLifecycle("clerk");
 const secretKey = required("CLERK_SECRET_KEY");
 const closureEmail = requiredTestEmail("PROVIDER_RC_CLERK_CLOSURE_USER");
 
@@ -21,13 +19,15 @@ try {
 if (remainingUsers !== 0) {
   throw new Error("The dedicated Clerk closure identity still exists after cleanup.");
 }
-await recordExecutedProviderScenario({
-  checkedOutCommitSha,
-  lane: "clerk",
-  scenario: "provider_user_deletion",
-});
+await releaseEvidenceLifecycle.recordScenarios(["provider_user_deletion"]);
 
-console.log(JSON.stringify({ checkedOutCommitSha, deletionConverged: true, lane: "clerk" }));
+console.log(
+  JSON.stringify({
+    checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
+    deletionConverged: true,
+    lane: "clerk",
+  }),
+);
 
 function required(name: string) {
   const value = process.env[name];
@@ -40,14 +40,4 @@ function requiredTestEmail(name: string) {
   if (!value.includes("+clerk_test@"))
     throw new Error(`${name} must be a dedicated test identity.`);
   return value;
-}
-
-async function readHeadSha() {
-  const process = Bun.spawn(["git", "rev-parse", "HEAD"], { stdout: "pipe", stderr: "pipe" });
-  const [stdout, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    process.exited,
-  ]);
-  if (exitCode !== 0) throw new Error("Unable to resolve the checked-out commit.");
-  return stdout.trim();
 }

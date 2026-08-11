@@ -3,13 +3,10 @@ import { describe, expect, test } from "bun:test";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   assertProviderBeforeApplication,
-  assertProviderReleaseCandidateBoundaryStable,
-  buildProviderReleaseCandidateEvidence,
   buildProviderReleaseCandidateStripeEvent,
   providerReleaseCandidateCheckoutExpiryMatches,
   providerReleaseCandidateScenarios,
   validateProviderReleaseCandidateContext,
-  verifyProviderReleaseCandidateDatabase,
 } from "@/server/qa/provider-release-candidate";
 
 const sha = "a".repeat(40);
@@ -168,28 +165,7 @@ describe("protected provider release-candidate policy", () => {
     expect(event.api_version).toBe(STRIPE_API_VERSION);
   });
 
-  test("binds evidence to the exact SHA, lane, and migration checksums", () => {
-    const first = buildProviderReleaseCandidateEvidence({
-      checkedOutCommitSha: sha,
-      deployedMigrationLedgerFingerprint: "ledger-a",
-      lane: "stripe",
-      migrations: [{ checksum: "checksum-a", name: "0001_a.sql" }],
-      scenarios: providerReleaseCandidateScenarios.stripe,
-    });
-    const changedMigration = buildProviderReleaseCandidateEvidence({
-      checkedOutCommitSha: sha,
-      deployedMigrationLedgerFingerprint: "ledger-b",
-      lane: "stripe",
-      migrations: [{ checksum: "checksum-b", name: "0001_a.sql" }],
-      scenarios: providerReleaseCandidateScenarios.stripe,
-    });
-    expect(first.scenarios).toEqual(providerReleaseCandidateScenarios.stripe);
-    expect(first.codeAndMigrationFingerprint).not.toBe(
-      changedMigration.codeAndMigrationFingerprint,
-    );
-  });
-
-  test("rejects production-like database identities and missing executed scenarios", () => {
+  test("rejects production-like database identities", () => {
     const result = validateProviderReleaseCandidateContext({
       checkedOutCommitSha: sha,
       env: {
@@ -204,67 +180,6 @@ describe("protected provider release-candidate policy", () => {
       lane: "clerk",
     });
     expect(result.errors).toContain("protected_test_database_resource_required");
-    expect(() =>
-      buildProviderReleaseCandidateEvidence({
-        checkedOutCommitSha: sha,
-        deployedMigrationLedgerFingerprint: "ledger",
-        lane: "stripe",
-        migrations: [{ checksum: "checksum", name: "0001_a.sql" }],
-        scenarios: providerReleaseCandidateScenarios.stripe.filter(
-          (scenario) => scenario !== "ambiguous_retry",
-        ),
-      }),
-    ).toThrow("every scenario");
-  });
-
-  test("requires the deployed ledger and sentinel to exactly match the checkout", () => {
-    const expectedMigrations = [{ checksum: "one", name: "0001_one.sql" }];
-    expect(
-      verifyProviderReleaseCandidateDatabase({
-        expectedMigrations,
-        expectedSentinelFingerprint: "sentinel",
-        ledgerRows: expectedMigrations,
-        sentinel: { environment: "protected-test", fingerprint: "sentinel" },
-      }),
-    ).toMatch(/^[0-9a-f]{64}$/);
-    expect(() =>
-      verifyProviderReleaseCandidateDatabase({
-        expectedMigrations,
-        expectedSentinelFingerprint: "sentinel",
-        ledgerRows: [{ checksum: "changed", name: "0001_one.sql" }],
-        sentinel: { environment: "protected-test", fingerprint: "sentinel" },
-      }),
-    ).toThrow("ledger content mismatch");
-    expect(() =>
-      verifyProviderReleaseCandidateDatabase({
-        expectedMigrations,
-        expectedSentinelFingerprint: "sentinel",
-        ledgerRows: expectedMigrations,
-        sentinel: { environment: "production", fingerprint: "sentinel" },
-      }),
-    ).toThrow("sentinel mismatch");
-  });
-
-  test("rejects mid-run deployed-SHA and database-ledger drift", () => {
-    const stable = {
-      currentDatabaseFingerprint: "ledger-a",
-      deployedCommitSha: sha,
-      expectedCommitSha: sha,
-      initialDatabaseFingerprint: "ledger-a",
-    };
-    expect(() => assertProviderReleaseCandidateBoundaryStable(stable)).not.toThrow();
-    expect(() =>
-      assertProviderReleaseCandidateBoundaryStable({
-        ...stable,
-        deployedCommitSha: "b".repeat(40),
-      }),
-    ).toThrow("drifted mid-run");
-    expect(() =>
-      assertProviderReleaseCandidateBoundaryStable({
-        ...stable,
-        currentDatabaseFingerprint: "ledger-b",
-      }),
-    ).toThrow("drifted mid-run");
   });
 
   test("proves exact Checkout expiry from floored fractional database creation time", () => {

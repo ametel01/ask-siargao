@@ -6,13 +6,10 @@ import Stripe from "stripe";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   buildProviderReleaseCandidateStripeEvent,
+  type ProviderReleaseCandidateScenario,
   providerReleaseCandidateCheckoutExpiryMatches,
 } from "@/server/qa/provider-release-candidate";
-import { verifyLiveProviderDatabase } from "@/server/qa/provider-release-candidate-live-boundary";
-import {
-  recordExecutedProviderScenario,
-  writeProviderFinalBoundaryReceipt,
-} from "@/server/qa/provider-release-candidate-receipts";
+import { createLiveProviderReleaseCandidateLifecycle } from "@/server/qa/provider-release-candidate-live-boundary";
 
 test.describe.configure({ mode: "serial" });
 
@@ -20,12 +17,13 @@ const stripe = new Stripe(required("STRIPE_RESTRICTED_KEY"), {
   apiVersion: STRIPE_API_VERSION,
 });
 const origin = new URL(required("PROVIDER_RC_APP_ORIGIN")).origin;
+const releaseEvidenceLifecycle = await createLiveProviderReleaseCandidateLifecycle("stripe");
 
 test("app checkout, cancellation, return-before-event, activation, duplicate, settlement, and refunds", async ({
   page,
 }) => {
   await signIn(page, "PROVIDER_RC_STRIPE_ACTIVE_USER");
-  await assertLiveBoundary(page, "stripe");
+  await assertLiveBoundary(page);
 
   const first = await startCheckout(page);
   const retry = await startCheckout(page);
@@ -36,7 +34,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   await page.goto("/settings?trip_pass_checkout=return");
   await expectTripPassStatus(page, "pending");
 
-  await assertLiveBoundary(page, "stripe");
+  await assertLiveBoundary(page);
   const cancellation = await page.request.delete("/api/me/trip-pass/checkout", {
     headers: { origin },
   });
@@ -47,7 +45,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   expect(expired.status).toBe("expired");
   await recordScenarios(["authenticated_cancellation"]);
 
-  await assertLiveBoundary(page, "stripe");
+  await assertLiveBoundary(page);
   const payable = await startCheckout(page);
   await completeHostedCheckout(
     page,
@@ -79,7 +77,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   );
   const amount = paymentIntent.amount_received;
   if (amount < 3) throw new Error("Protected Price cannot exercise ambiguous cumulative refunds.");
-  await assertLiveBoundary(page, "stripe");
+  await assertLiveBoundary(page);
   await proveAmbiguousRefundRetry(page, paymentIntentId);
   const refundableAmount = amount - 1;
   const partial = await safeProviderCall("create partial test refund", () =>
@@ -108,7 +106,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
     semanticOrdering: "provider_lookup_completed_before_application_started",
   });
   await expectTripPassStatus(page, "revoked");
-  await assertLiveBoundary(page, "stripe");
+  await assertLiveBoundary(page);
   await closeAccount(page);
   await recordScenarios([
     "card_checkout",
@@ -125,7 +123,7 @@ test("reversed delivery retries authoritative dispute lookup before app suspensi
   page,
 }) => {
   await signIn(page, "PROVIDER_RC_STRIPE_REVERSED_USER");
-  await assertLiveBoundary(page, "stripe");
+  await assertLiveBoundary(page);
   const checkout = await startCheckout(page);
   await completeHostedCheckout(
     page,
@@ -161,7 +159,7 @@ test("reversed delivery retries authoritative dispute lookup before app suspensi
     semanticOrdering: "provider_lookup_completed_before_application_started",
   });
   await expectTripPassStatus(page, "dispute_suspended");
-  await assertLiveBoundary(page, "stripe");
+  await assertLiveBoundary(page);
   await closeAccount(page);
   await recordScenarios(["reversed_delivery", "dispute"]);
 });
@@ -170,7 +168,7 @@ test("closure race records Paid After Closure without access and leaves durable 
   page,
 }) => {
   await signIn(page, "PROVIDER_RC_STRIPE_CLOSURE_USER");
-  await assertLiveBoundary(page, "stripe");
+  await assertLiveBoundary(page);
   const checkout = await startCheckout(page);
   const paymentPage = await page.context().newPage();
   await safeProviderCall("open hosted Checkout before closure", () =>
@@ -190,13 +188,7 @@ test("closure race records Paid After Closure without access and leaves durable 
 
 test("final live boundary matches immediately before Stripe evidence", async ({ page }) => {
   await signIn(page, "PROVIDER_RC_BOUNDARY_USER");
-  const databaseFingerprint = await assertLiveBoundary(page, "stripe");
-  await writeProviderFinalBoundaryReceipt({
-    checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
-    databaseFingerprint,
-    deployedCommitMatched: true,
-    lane: "stripe",
-  });
+  await releaseEvidenceLifecycle.seal(await readLiveDeploymentSha(page));
 });
 
 async function proveAmbiguousRefundRetry(page: Page, paymentIntentId: string) {
@@ -272,14 +264,8 @@ async function expectTripPassRefundedAmount(page: Page, amount: number) {
   });
 }
 
-async function recordScenarios(scenarios: string[]) {
-  for (const scenario of scenarios) {
-    await recordExecutedProviderScenario({
-      checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
-      lane: "stripe",
-      scenario,
-    });
-  }
+async function recordScenarios(scenarios: ProviderReleaseCandidateScenario<"stripe">[]) {
+  await releaseEvidenceLifecycle.recordScenarios(scenarios);
 }
 
 async function signIn(page: Page, emailName: string) {
@@ -291,21 +277,23 @@ async function signIn(page: Page, emailName: string) {
   expect((await page.request.get("/api/me/profile")).status()).toBe(200);
 }
 
-async function assertLiveBoundary(page: Page, lane: "stripe") {
+async function assertLiveBoundary(page: Page) {
+  const deployedCommitSha = await readLiveDeploymentSha(page);
+  return releaseEvidenceLifecycle.revalidate(deployedCommitSha);
+}
+
+async function readLiveDeploymentSha(page: Page) {
   const response = await page.request.get("/api/me/provider-release-candidate");
   const body = response.status() === 200 ? ((await response.json()) as object) : {};
+  const deployedCommitSha =
+    "releaseCandidateSha" in body && typeof body.releaseCandidateSha === "string"
+      ? body.releaseCandidateSha
+      : "";
   safeAssert(
-    response.status() === 200 &&
-      "releaseCandidateSha" in body &&
-      body.releaseCandidateSha === required("PROVIDER_RC_EXPECTED_SHA"),
+    response.status() === 200 && deployedCommitSha === required("PROVIDER_RC_EXPECTED_SHA"),
     "Protected app deployment changed before the Stripe scenario.",
   );
-  const database = await verifyLiveProviderDatabase({
-    checkedOutCommitSha: required("PROVIDER_RC_EXPECTED_SHA"),
-    compareInitialReceipt: true,
-    lane,
-  });
-  return database.deployedMigrationLedgerFingerprint;
+  return deployedCommitSha;
 }
 
 async function assertThirtyMinuteExpiryBoundary(page: Page) {

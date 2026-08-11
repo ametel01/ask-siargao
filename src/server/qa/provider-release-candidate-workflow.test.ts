@@ -221,13 +221,58 @@ test("protected evidence is emitted only after its semantic provider lane", asyn
   );
 });
 
-test("protected evidence consumes deployed-ledger and executed-scenario receipts", async () => {
+test("protected lanes cross only the deep Release Evidence lifecycle seam", async () => {
+  const [preflightRunner, evidenceRunner, clerkTest, stripeTest, deletionRunner] =
+    await Promise.all([
+      readFile("src/server/qa/run-provider-release-candidate-preflight.ts", "utf8"),
+      readFile("src/server/qa/run-provider-release-candidate-evidence.ts", "utf8"),
+      readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
+      readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
+      readFile("src/server/qa/verify-clerk-release-candidate-deletion.ts", "utf8"),
+    ]);
+  const lifecycleCallers = [preflightRunner, evidenceRunner, clerkTest, stripeTest, deletionRunner];
+
+  for (const caller of lifecycleCallers) {
+    expect(caller).toContain("createLiveProviderReleaseCandidateLifecycle");
+    expect(caller).not.toMatch(
+      /(?:read|write)Provider(?:Database|FinalBoundary)Receipt|(?:read|record)ExecutedProviderScenario|verifyLiveProviderDatabase/,
+    );
+  }
+  expect(preflightRunner).toContain(".begin()");
+  expect(evidenceRunner).toContain(".complete()");
+  expect(clerkTest).toContain(".recordScenarios(");
+  expect(clerkTest).toContain(".revalidate(");
+  expect(clerkTest).toContain(".seal(");
+  expect(stripeTest).toContain(".recordScenarios(");
+  expect(stripeTest).toContain(".revalidate(");
+  expect(stripeTest).toContain(".seal(");
+  expect(deletionRunner).toContain(".recordScenarios(");
+  expect(deletionRunner.indexOf("await createLiveProviderReleaseCandidateLifecycle")).toBeLessThan(
+    deletionRunner.indexOf("users.getUserList"),
+  );
+
+  expect(stripeTest).toContain("proveAmbiguousRefundRetry");
+  expect(stripeTest).toContain("maxNetworkRetries: 0");
+  expect(stripeTest).toContain("idempotencyKey");
+  expect(stripeTest).toContain('"ambiguous_retry"');
+});
+
+test("workflow names the lifecycle that owns both protected lanes", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  expect(workflow).toContain(
+    "Run protected Clerk acceptance through the Release Evidence lifecycle",
+  );
+  expect(workflow).toContain(
+    "Run protected Stripe acceptance through the Release Evidence lifecycle",
+  );
+});
+
+test("protected evidence consumes deployed-ledger and executed-scenario state", async () => {
   const [evidenceRunner, stripeTest] = await Promise.all([
     readFile("src/server/qa/run-provider-release-candidate-evidence.ts", "utf8"),
     readFile("tests/provider/stripe-release-candidate.stripe.e2e.ts", "utf8"),
   ]);
-  expect(evidenceRunner).toContain("readProviderDatabaseReceipt");
-  expect(evidenceRunner).toContain("readExecutedProviderScenarios");
+  expect(evidenceRunner).toContain(".complete()");
   expect(stripeTest).toContain("proveAmbiguousRefundRetry");
   expect(stripeTest).toContain("maxNetworkRetries: 0");
   expect(stripeTest).toContain("idempotencyKey");
@@ -248,8 +293,7 @@ test("every mutating group revalidates live state and provider failures stay red
   expect(stripeTest).not.toContain("expect(matching)");
   expect(stripeTest).not.toMatch(/\.id\)\.toBe\(/);
   expect(clerkTest).not.toContain("toHaveURL(/accounts");
-  expect(evidenceRunner).toContain("verifyLiveProviderDatabase");
-  expect(evidenceRunner).toContain("readProviderFinalBoundaryReceipt");
+  expect(evidenceRunner).toContain(".complete()");
 });
 
 test("expiry, cancellation, session policy, profile, and account receipts are assertion-backed", async () => {

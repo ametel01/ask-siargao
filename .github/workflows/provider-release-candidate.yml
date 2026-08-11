@@ -53,7 +53,7 @@ jobs:
       - name: Install Chromium
         run: bunx playwright install --with-deps chromium
 
-      - name: Run protected Clerk acceptance lane and write evidence
+      - name: Run protected Clerk acceptance through the Release Evidence lifecycle
         env:
           GITHUB_ENVIRONMENT: provider-release-candidate
           PROVIDER_RC_EXPECTED_SHA: ${{ inputs.release_candidate_sha }}
@@ -142,7 +142,7 @@ jobs:
       - name: Install Chromium
         run: bunx playwright install --with-deps chromium
 
-      - name: Run protected Stripe test-mode acceptance lane and write evidence
+      - name: Run protected Stripe acceptance through the Release Evidence lifecycle
         env:
           GITHUB_ENVIRONMENT: provider-release-candidate
           PROVIDER_RC_EXPECTED_SHA: ${{ inputs.release_candidate_sha }}
