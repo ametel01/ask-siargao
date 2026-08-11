@@ -44,7 +44,11 @@ import {
   finalPayloadSatisfiesChatEvidencePolicy,
   requiredEvidenceAllowedCardIds,
 } from "@/server/chat/chat-evidence-policy";
-import type { ConditionJudgmentRequest } from "@/server/chat/condition-tools";
+import {
+  conditionJudgmentRepairCall,
+  conditionJudgmentRepairInstruction,
+  conditionRealityCheckProposal,
+} from "@/server/chat/condition-tools";
 import { assertModelCostCircuit, reserveModelCost } from "@/server/chat/cost-circuits";
 import {
   assertModelCallAllowed,
@@ -60,7 +64,6 @@ import {
   parseRealityCheckProposal,
   type RealityCheckRecognition,
   type RealityCheckValidationResult,
-  type RealityCheckVerdict,
   recognizeRealityCheckRequest,
   type ValidatedRealityCheck,
   validateRealityCheckProposal,
@@ -1265,61 +1268,23 @@ function acceptedConditionRealityCheckFallback(input: {
   toolCalls: readonly AgentToolCallAudit[];
   toolResults: readonly AgentToolResult[];
 }) {
-  if (
-    !input.finalPayload ||
-    (input.recognition.kind !== "immediate_plan" && input.recognition.kind !== "surf_session")
-  ) {
-    return undefined;
-  }
-  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
-  const conditionResult = [...input.toolResults]
-    .reverse()
-    .find(
-      (result) =>
-        result.name === "get_condition_judgment" &&
-        result.status === "success" &&
-        Boolean(result.toolCallId && usedToolCallIds.has(result.toolCallId)),
-    );
-  const conditionSummary = conditionResult?.decisionSummaries?.[0];
-  const recommendation = readStringPath(conditionResult?.data, ["judgment", "recommendation"]);
-  const verdict = conditionRecommendationVerdict(recommendation);
-  if (!conditionResult?.toolCallId || !conditionSummary || !verdict) {
-    return undefined;
-  }
-  const subject = [conditionSummary.area, conditionSummary.timing].filter(Boolean).join(" ");
-  if (!subject) {
+  const proposal = conditionRealityCheckProposal({
+    finalPayload: input.finalPayload,
+    recognition: input.recognition,
+    toolResults: input.toolResults,
+  });
+  if (!proposal) {
     return undefined;
   }
 
   const validation = validateRealityCheckProposal({
-    expectedKind: input.recognition.kind,
-    proposal: {
-      kind: input.recognition.kind,
-      verdict,
-      subject,
-      bestAction: conditionSummary.bestAction,
-      basis: conditionSummary.basis,
-      ...(conditionSummary.fallback ? { fallback: conditionSummary.fallback } : {}),
-      ...(conditionSummary.avoid ? { avoid: conditionSummary.avoid } : {}),
-      ...(conditionSummary.timing ? { timing: conditionSummary.timing } : {}),
-      ...(conditionSummary.area ? { area: conditionSummary.area } : {}),
-      evidenceToolCallIds: [conditionResult.toolCallId],
-    },
-    usedToolCallIds: input.finalPayload.usedToolCallIds,
+    expectedKind: proposal.kind,
+    proposal,
+    usedToolCallIds: input.finalPayload?.usedToolCallIds ?? [],
     toolCalls: input.toolCalls,
     toolResults: input.toolResults,
   });
   return acceptedRealityCheck(validation);
-}
-
-function conditionRecommendationVerdict(
-  value: string | undefined,
-): RealityCheckVerdict | undefined {
-  if (value === "good") return "keep";
-  if (value === "flexible") return "change";
-  if (value === "avoid") return "avoid";
-  if (value === "needs_local_confirmation") return "needs_confirmation";
-  return undefined;
 }
 
 function acceptedRealityCheck(
@@ -1706,11 +1671,11 @@ function buildAgentRepairAdapters({
     },
     {
       name: "condition-judgment",
-      createRepair: ({ toolCalls, toolResults }) => {
+      createRepair: ({ toolCalls }) => {
         if (realityCheckRequiresClarification(realityCheckRecognition)) {
           return undefined;
         }
-        const repairCall = missingConditionJudgmentRepairCall(request, toolCalls, toolResults);
+        const repairCall = conditionJudgmentRepairCall(request, toolCalls);
         if (!repairCall) {
           return undefined;
         }
@@ -2069,35 +2034,6 @@ function missingInitialItineraryPlanRepairCall(
     callId: "auto_required_itinerary_plan_1",
     name: "plan_local_itinerary",
     arguments: argumentsForPlan,
-  };
-}
-
-function missingConditionJudgmentRepairCall(
-  request: AgentRuntimeRequest,
-  toolCalls: readonly AgentToolCallAudit[],
-  toolResults: readonly AgentToolResult[],
-): ParsedFunctionCall | undefined {
-  const argumentsForCondition = inferRequiredConditionJudgmentArguments(request);
-  if (!argumentsForCondition) {
-    return undefined;
-  }
-  if (hasCompletedConditionJudgment(toolCalls, argumentsForCondition)) {
-    return undefined;
-  }
-  if (hasCompletedSpecificVisitConditionJudgment(toolCalls, argumentsForCondition)) {
-    return undefined;
-  }
-  if (hasAdjacentSurfConditionEvidence(toolCalls, argumentsForCondition)) {
-    return undefined;
-  }
-  if (hasSuccessfulConditionJudgment(toolCalls, toolResults, argumentsForCondition)) {
-    return undefined;
-  }
-
-  return {
-    callId: "auto_required_condition_judgment_1",
-    name: "get_condition_judgment",
-    arguments: argumentsForCondition,
   };
 }
 
@@ -2731,47 +2667,6 @@ function inferSurfSkillLevel(content: string): "beginner" | "intermediate" | "ad
   return "any";
 }
 
-function inferRequiredConditionJudgmentArguments(
-  request: AgentRuntimeRequest,
-): Record<string, unknown> | undefined {
-  const userTurns = request.messages.flatMap((message) =>
-    message.role === "user" ? [message.content] : [],
-  );
-  const latestUserTurn = userTurns.at(-1) ?? latestUserContent(request.messages);
-  if (latestUserTurn.trim().length === 0) {
-    return undefined;
-  }
-  if (isItineraryReviewRequest(latestUserTurn)) {
-    return undefined;
-  }
-  if (isItineraryPlanningRequest(latestUserTurn) && !hasExplicitConditionQuestion(latestUserTurn)) {
-    return undefined;
-  }
-
-  const priorUserContext = userTurns.slice(0, -1).join(" ");
-  const inheritedPlaceContext = latestTurnHasConditionPlace(latestUserTurn) ? "" : priorUserContext;
-  const conditionContext = [latestUserTurn, inheritedPlaceContext].filter(Boolean).join(" ");
-  const activity = inferConditionRepairActivity(latestUserTurn, inheritedPlaceContext);
-  if (!activity) {
-    return undefined;
-  }
-  const conditionRequest = {
-    activity,
-    location: inferConditionLocation(
-      latestUserTurn,
-      inheritedPlaceContext,
-      request.deterministicSignals,
-    ),
-    date_range: inferConditionDateRange(latestUserTurn),
-    beach_name:
-      inferConditionBeachName(latestUserTurn) ?? inferConditionBeachName(inheritedPlaceContext),
-    include_local_caveats: null,
-    constraints: inferItineraryConstraints(conditionContext, request.deterministicSignals),
-  } satisfies ConditionJudgmentRequest;
-
-  return conditionRequest;
-}
-
 function inferRequiredInitialItineraryPlanArguments(
   request: AgentRuntimeRequest,
 ): Record<string, unknown> | undefined {
@@ -2993,137 +2888,6 @@ function inferItineraryOrigin(
   return undefined;
 }
 
-function inferConditionLocation(
-  latestContent: string,
-  inheritedPlaceContext: string,
-  deterministicSignals: Record<string, unknown> | undefined,
-): ConditionJudgmentRequest["location"] {
-  const latestLocation = inferConditionLocationFromContent(latestContent);
-  if (latestLocation) {
-    return latestLocation;
-  }
-  const signalLocation =
-    readStringPath(deterministicSignals, ["context", "locationLabel"]) ??
-    readStringPath(deterministicSignals, ["context", "tripContext", "currentArea"]);
-  if (isConditionLocation(signalLocation)) {
-    return signalLocation;
-  }
-  return inferConditionLocationFromContent(inheritedPlaceContext) ?? "Siargao Island";
-}
-
-function inferConditionLocationFromContent(
-  content: string,
-): ConditionJudgmentRequest["location"] | undefined {
-  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
-    return "Cloud 9";
-  }
-  if (/\bmalinao|doot|sandy\s+beach|half[-\s]?day\b/i.test(content)) {
-    return "General Luna";
-  }
-  if (/\bdel\s+carmen|sugba\s+lagoon|sugba\b/i.test(content)) {
-    return "Del Carmen";
-  }
-  if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {
-    return "General Luna";
-  }
-  return undefined;
-}
-
-function inferConditionRepairActivity(
-  latestContent: string,
-  inheritedPlaceContext: string,
-): ConditionJudgmentRequest["activity"] | undefined {
-  if (hasBoatTripConditionContent(latestContent)) {
-    return "boat_trip";
-  }
-  if (isBareRideBoatFollowUp(latestContent, inheritedPlaceContext)) {
-    return "boat_trip";
-  }
-  if (
-    /\bsurf(?:ing|er|s|ed)?|waves?|swell\b/i.test(latestContent) &&
-    !/\b(?:not|no|avoid)\s+surf(?:ing)?\b/i.test(latestContent) &&
-    /\btoday|tomorrow|conditions?|weather|waves?|swell|safe|can|okay|ok|worth|near\s+me|closest|nearest\b/i.test(
-      latestContent,
-    )
-  ) {
-    return "surfing";
-  }
-  if (
-    /\bswim(?:ming)?|kids?\s+swim|beach\s+safety|lifeguard|rip\s+current\b/i.test(latestContent)
-  ) {
-    return "swimming";
-  }
-  if (
-    /\bscooter|motorbike|motor\s*bike|roads?|ride\b/i.test(latestContent) &&
-    !/\brent(?:al|ing)?|hire\b/i.test(latestContent) &&
-    /\bsafe|safety|rain|weather|roads?|flood|today|tomorrow|go|ride|drive\b/i.test(latestContent)
-  ) {
-    return "scooter";
-  }
-  if (/\bsunset\b/i.test(latestContent)) {
-    return "sunset";
-  }
-  if (
-    inferConditionLocationFromContent(latestContent) &&
-    (/\bshould\s+(?:i|we)\s+still\b/i.test(latestContent) ||
-      /\b(?:worth\s+going|still\s+go|visit|head\s+to|stop\s+by)\b/i.test(latestContent))
-  ) {
-    return "visit";
-  }
-  return undefined;
-}
-
-function hasExplicitConditionQuestion(content: string) {
-  return (
-    /\b(?:tell\s+me\s+if|whether|is|are|can|could|should|safe|safety|okay|ok|worth|conditions?)\b/i.test(
-      content,
-    ) &&
-    /\b(?:swim(?:ming)?|surf(?:ing)?|scooter|motorbike|ride|boat|island\s+hopping|sunset|rain|weather|roads?|waves?|swell|marine|beach)\b/i.test(
-      content,
-    )
-  );
-}
-
-function inferConditionDateRange(content: string): ConditionJudgmentRequest["date_range"] {
-  return /\b(tomorrow|tmrw|next\s+7\s+days?|next\s+seven\s+days?|this\s+week|next\s+week|weekend|later\s+this\s+week|in\s+(?:[2-7]|two|three|four|five|six|seven)\s+days?)\b/i.test(
-    content,
-  )
-    ? "next_7_days"
-    : "today";
-}
-
-function hasBoatTripConditionContent(content: string) {
-  return /\b(boat|island\s+hopping|sugba|lagoon|boat\s+trip|boat\s+ride|marine)\b/i.test(content);
-}
-
-function isBareRideBoatFollowUp(latestContent: string, inheritedPlaceContext: string) {
-  return (
-    /\bride\b/i.test(latestContent) &&
-    !/\b(scooter|motorbike|motor\s*bike|drive|road|land\s+tour)\b/i.test(latestContent) &&
-    !hasBoatTripConditionContent(latestContent) &&
-    hasBoatTripConditionContent(inheritedPlaceContext)
-  );
-}
-
-function inferConditionBeachName(content: string): string | null {
-  const match = /\b(malinao|doot|cloud\s*9|pacifico|alegria|magpupungko|sugba)\b/i.exec(content);
-  if (!match?.[1]) {
-    return null;
-  }
-  const normalized = match[1].replaceAll(/\s+/g, " ");
-  if (/^cloud\s*9$/i.test(normalized)) {
-    return "Cloud 9";
-  }
-  if (/^sugba$/i.test(normalized)) {
-    return "Sugba Lagoon";
-  }
-  return `${normalized[0]?.toUpperCase() ?? ""}${normalized.slice(1).toLowerCase()} Beach`;
-}
-
-function latestTurnHasConditionPlace(content: string) {
-  return Boolean(inferConditionLocationFromContent(content) ?? inferConditionBeachName(content));
-}
-
 function inferMealPreference(content: string, constraints: readonly string[]) {
   if (/\bseafood\b/i.test(content)) {
     return "seafood";
@@ -3167,15 +2931,6 @@ function latestUserContent(messages: readonly AgentRuntimeRequest["messages"][nu
   return messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
 }
 
-function conditionJudgmentRepairInstruction(argumentsForCondition: Record<string, unknown>) {
-  const base =
-    "Validation repair: you attempted a final condition answer before choosing get_condition_judgment as required. Use this runtime-repaired condition evidence, preserve unchecked road, lifeguard, official-warning, and safety caveats, and write the final traveler-facing answer now. If marine_checked evidence is present, describe it as modelled Open-Meteo Marine sea-level, wave, swell, and current data. If tide_forecast_checked evidence is present, describe it as predicted Tide-Forecast Dapa station page data for development/testing.";
-  if (argumentsForCondition.date_range !== "next_7_days") {
-    return base;
-  }
-  return `${base} The repaired evidence uses the next_7_days range; if the user asked about tomorrow or a specific future day, say this is a 7-day proxy rather than a tomorrow-specific forecast judgment.`;
-}
-
 function hasSuccessfulItineraryPlanArtifact(
   toolCalls: readonly AgentToolCallAudit[],
   toolResults: readonly AgentToolResult[],
@@ -3193,64 +2948,6 @@ function hasSuccessfulItineraryPlanArtifact(
   );
 }
 
-function hasSuccessfulConditionJudgment(
-  toolCalls: readonly AgentToolCallAudit[],
-  toolResults: readonly AgentToolResult[],
-  requiredArguments: Record<string, unknown>,
-) {
-  return (
-    toolCalls.some(
-      (toolCall) =>
-        toolCall.name === "get_condition_judgment" &&
-        toolCall.status === "success" &&
-        conditionJudgmentMatchesRequiredArguments(toolCall.arguments, requiredArguments),
-    ) &&
-    toolResults.some(
-      (result) => result.name === "get_condition_judgment" && result.status === "success",
-    )
-  );
-}
-
-function hasCompletedConditionJudgment(
-  toolCalls: readonly AgentToolCallAudit[],
-  requiredArguments: Record<string, unknown>,
-) {
-  return toolCalls.some(
-    (toolCall) =>
-      toolCall.name === "get_condition_judgment" &&
-      conditionJudgmentMatchesRequiredArguments(toolCall.arguments, requiredArguments),
-  );
-}
-
-function hasCompletedSpecificVisitConditionJudgment(
-  toolCalls: readonly AgentToolCallAudit[],
-  requiredArguments: Record<string, unknown>,
-) {
-  return (
-    requiredArguments.activity === "visit" &&
-    toolCalls.some(
-      (toolCall) =>
-        toolCall.name === "get_condition_judgment" &&
-        toolCall.arguments.activity !== "visit" &&
-        toolCall.arguments.date_range === requiredArguments.date_range &&
-        toolCall.arguments.location === requiredArguments.location,
-    )
-  );
-}
-
-function hasAdjacentSurfConditionEvidence(
-  toolCalls: readonly AgentToolCallAudit[],
-  requiredArguments: Record<string, unknown>,
-) {
-  return (
-    requiredArguments.activity === "surfing" &&
-    toolCalls.some(
-      (toolCall) =>
-        toolCall.name === "get_tide_forecast" || toolCall.name === "get_marine_conditions",
-    )
-  );
-}
-
 function hasSuccessfulToolCall(
   toolCalls: readonly AgentToolCallAudit[],
   toolResults: readonly AgentToolResult[],
@@ -3260,71 +2957,6 @@ function hasSuccessfulToolCall(
     toolCalls.some((toolCall) => toolCall.name === name && toolCall.status === "success") &&
     toolResults.some((result) => result.name === name && result.status === "success")
   );
-}
-
-function conditionJudgmentMatchesRequiredArguments(
-  actual: Record<string, unknown>,
-  required: Record<string, unknown>,
-) {
-  return (
-    actual.activity === required.activity &&
-    actual.date_range === required.date_range &&
-    actual.location === required.location &&
-    requiredConditionBeachMatches(actual, required) &&
-    requiredConditionConstraintsMatch(actual, required) &&
-    requiredConditionLocalCaveatIntentMatches(actual, required)
-  );
-}
-
-function requiredConditionBeachMatches(
-  actual: Record<string, unknown>,
-  required: Record<string, unknown>,
-) {
-  return (
-    typeof required.beach_name !== "string" ||
-    normalizeRequiredConditionText(actual.beach_name) ===
-      normalizeRequiredConditionText(required.beach_name)
-  );
-}
-
-function requiredConditionConstraintsMatch(
-  actual: Record<string, unknown>,
-  required: Record<string, unknown>,
-) {
-  const requiredConstraints = readConditionConstraintValues(required.constraints);
-  if (requiredConstraints.length === 0) {
-    return true;
-  }
-  const actualConstraints = new Set(
-    readConditionConstraintValues(actual.constraints).map(normalizeRequiredConditionText),
-  );
-  return requiredConstraints
-    .map(normalizeRequiredConditionText)
-    .every((constraint) => actualConstraints.has(constraint));
-}
-
-function requiredConditionLocalCaveatIntentMatches(
-  actual: Record<string, unknown>,
-  required: Record<string, unknown>,
-) {
-  if (typeof required.beach_name === "string" && actual.include_local_caveats === false) {
-    return false;
-  }
-  return (
-    required.include_local_caveats === null ||
-    required.include_local_caveats === undefined ||
-    actual.include_local_caveats === required.include_local_caveats
-  );
-}
-
-function readConditionConstraintValues(value: unknown) {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [];
-}
-
-function normalizeRequiredConditionText(value: unknown) {
-  return typeof value === "string" ? value.replaceAll(/\s+/g, " ").trim().toLowerCase() : "";
 }
 
 function missingRequiredItineraryChecks(
@@ -4664,17 +4296,6 @@ function isItineraryTransportMode(
   value: string | undefined,
 ): value is NonNullable<LocalItineraryRequest["transport_mode"]> {
   return value === "walk" || value === "scooter" || value === "tricycle" || value === "van";
-}
-
-function isConditionLocation(
-  value: string | undefined,
-): value is ConditionJudgmentRequest["location"] {
-  return (
-    value === "Siargao Island" ||
-    value === "Cloud 9" ||
-    value === "General Luna" ||
-    value === "Del Carmen"
-  );
 }
 
 function uniqueText(values: readonly string[]) {

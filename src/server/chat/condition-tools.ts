@@ -1,7 +1,23 @@
 import { z } from "zod";
 
+import type {
+  AgentFinalPayload,
+  AgentRuntimeRequest,
+  AgentToolCallAudit,
+  AgentToolResult,
+  AskSiargaoAgentToolName,
+  DecisionSummary,
+} from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
-import type { LocalGuideSearchResult } from "@/server/local/siargao-beaches";
+import type {
+  RealityCheckProposal,
+  RealityCheckRecognition,
+  RealityCheckVerdict,
+} from "@/server/chat/reality-check";
+import type {
+  LocalGuideSearchFilters,
+  LocalGuideSearchResult,
+} from "@/server/local/siargao-beaches";
 import type { TideForecastSnapshot } from "@/server/providers/tide-forecast";
 import type { WeatherSnapshot } from "@/server/public-pages/weather-snapshot";
 
@@ -91,12 +107,36 @@ export type ConditionSignal = z.infer<typeof conditionSignalSchema>;
 export type ConditionJudgment = z.infer<typeof conditionJudgmentSchema>;
 export type ConditionJudgmentRequest = z.infer<typeof conditionJudgmentRequestSchema>;
 
-export type BuildConditionJudgmentInput = {
+type BuildConditionJudgmentInput = {
   request: ConditionJudgmentRequest;
   weatherSnapshot?: WeatherSnapshot | null;
   marineSnapshot?: MarineConditionsSnapshot | null;
   tideForecastSnapshot?: TideForecastSnapshot | null;
   localGuideResult?: LocalGuideSearchResult | null;
+};
+
+export type ConditionJudgmentAdapters = {
+  getWeatherSnapshot(request: {
+    location: ConditionJudgmentRequest["location"];
+  }): Promise<WeatherSnapshot | null>;
+  getMarineSnapshot(request: {
+    location: ConditionJudgmentRequest["location"];
+    dateRange: "today" | "next_48_hours";
+  }): Promise<MarineConditionsSnapshot | null>;
+  getTideForecastSnapshot(request: {
+    location: ConditionJudgmentRequest["location"];
+    dateRange: "today" | "next_7_days";
+  }): Promise<TideForecastSnapshot | null>;
+  searchLocalGuide(request: {
+    query: string;
+    filters?: LocalGuideSearchFilters;
+  }): LocalGuideSearchResult;
+};
+
+export type ConditionJudgmentResult = {
+  judgment: ConditionJudgment;
+  decisionSummary: DecisionSummary;
+  text: string;
 };
 
 export type MarineConditionsSnapshot = {
@@ -183,7 +223,7 @@ export function shouldIncludeConditionLocalCaveats(request: ConditionJudgmentReq
   return request.activity === "sunset" && request.location === "Cloud 9";
 }
 
-export function buildConditionJudgment(input: BuildConditionJudgmentInput): ConditionJudgment {
+function buildConditionJudgment(input: BuildConditionJudgmentInput): ConditionJudgment {
   const request = conditionJudgmentRequestSchema.parse(input.request);
   const weatherSignal = buildWeatherSignal(input.weatherSnapshot, request.date_range);
   const signals = [
@@ -210,6 +250,199 @@ export function buildConditionJudgment(input: BuildConditionJudgmentInput): Cond
   return conditionJudgmentSchema.parse(judgment);
 }
 
+export async function judgeConditions(
+  requestInput: ConditionJudgmentRequest,
+  adapters: ConditionJudgmentAdapters,
+): Promise<ConditionJudgmentResult> {
+  const request = conditionJudgmentRequestSchema.parse(requestInput);
+  const usesMarineEvidence = conditionActivityUsesMarineEvidence(request.activity);
+  const [weatherSnapshot, marineSnapshot, tideForecastSnapshot] = await Promise.all([
+    acquireConditionSnapshot(() => adapters.getWeatherSnapshot({ location: request.location })),
+    usesMarineEvidence
+      ? acquireConditionSnapshot(() =>
+          adapters.getMarineSnapshot({
+            location: request.location,
+            dateRange: request.date_range === "today" ? "today" : "next_48_hours",
+          }),
+        )
+      : null,
+    usesMarineEvidence
+      ? acquireConditionSnapshot(() =>
+          adapters.getTideForecastSnapshot({
+            location: request.location,
+            dateRange: request.date_range,
+          }),
+        )
+      : null,
+  ]);
+  const localGuideResult = shouldIncludeConditionLocalCaveats(request)
+    ? adapters.searchLocalGuide({
+        query: conditionLocalGuideQuery(request),
+        filters: {
+          ...(request.beach_name ? { beachName: request.beach_name } : {}),
+          swimming: request.activity === "swimming",
+          sunset: request.activity === "sunset",
+          rainFit: request.activity === "rain_plan",
+          beachSurface: request.activity === "swimming" ? "sand" : "any",
+        },
+      })
+    : null;
+  const judgment = buildConditionJudgment({
+    request,
+    weatherSnapshot,
+    marineSnapshot,
+    tideForecastSnapshot,
+    localGuideResult,
+  });
+  const decisionSummary = buildConditionDecisionSummary(judgment);
+
+  return {
+    judgment,
+    decisionSummary,
+    text: renderConditionJudgment(judgment, decisionSummary),
+  };
+}
+
+export function conditionJudgmentRepairCall(
+  request: AgentRuntimeRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  const required = inferConditionJudgmentRequest(request);
+  if (!required || conditionJudgmentEvidenceAlreadyCompleted(required, toolCalls)) {
+    return undefined;
+  }
+  return {
+    callId: "auto_required_condition_judgment_1",
+    name: "get_condition_judgment" as const,
+    arguments: required,
+  };
+}
+
+export function conditionJudgmentRepairInstruction(
+  request: Pick<ConditionJudgmentRequest, "date_range">,
+) {
+  const base =
+    "Validation repair: you attempted a final condition answer before choosing get_condition_judgment as required. Use this runtime-repaired condition evidence, preserve unchecked road, lifeguard, official-warning, and safety caveats, and write the final traveler-facing answer now. If marine_checked evidence is present, describe it as modelled Open-Meteo Marine sea-level, wave, swell, and current data. If tide_forecast_checked evidence is present, describe it as predicted Tide-Forecast Dapa station page data for development/testing.";
+  return request.date_range === "next_7_days"
+    ? `${base} The repaired evidence uses the next_7_days range; if the user asked about tomorrow or a specific future day, say this is a 7-day proxy rather than a tomorrow-specific forecast judgment.`
+    : base;
+}
+
+export function inferConditionJudgmentRequest(
+  request: AgentRuntimeRequest,
+): ConditionJudgmentRequest | undefined {
+  const userTurns = request.messages.flatMap((message) =>
+    message.role === "user" ? [message.content] : [],
+  );
+  const latestUserTurn = userTurns.at(-1) ?? "";
+  if (!latestUserTurn.trim() || isItineraryReviewRequest(latestUserTurn)) {
+    return undefined;
+  }
+  if (isItineraryPlanningRequest(latestUserTurn) && !hasExplicitConditionQuestion(latestUserTurn)) {
+    return undefined;
+  }
+
+  const priorUserContext = userTurns.slice(0, -1).join(" ");
+  const inheritedPlaceContext = latestTurnHasConditionPlace(latestUserTurn) ? "" : priorUserContext;
+  const activity = inferConditionActivity(latestUserTurn, inheritedPlaceContext);
+  if (!activity) {
+    return undefined;
+  }
+  const conditionContext = [latestUserTurn, inheritedPlaceContext].filter(Boolean).join(" ");
+  return conditionJudgmentRequestSchema.parse({
+    activity,
+    location: inferConditionLocation(
+      latestUserTurn,
+      inheritedPlaceContext,
+      request.deterministicSignals,
+    ),
+    date_range: inferConditionDateRange(latestUserTurn),
+    beach_name:
+      inferConditionBeachName(latestUserTurn) ?? inferConditionBeachName(inheritedPlaceContext),
+    include_local_caveats: null,
+    constraints: inferConditionConstraints(conditionContext, request.deterministicSignals),
+  });
+}
+
+export function conditionToolNamesForAgentTurn(
+  request: AgentRuntimeRequest,
+): readonly AskSiargaoAgentToolName[] {
+  const latestUserTurn =
+    request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+  const judgmentRequest = inferConditionJudgmentRequest(request);
+  if (judgmentRequest && hasConditionDecisionIntent(latestUserTurn)) {
+    return ["get_condition_judgment"];
+  }
+  if (/\b(?:tide|tides|high\s+tide|low\s+tide)\b/iu.test(latestUserTurn)) {
+    return ["get_tide_forecast"];
+  }
+  if (hasRawMarineDetailIntent(latestUserTurn)) {
+    return ["get_marine_conditions", "get_tide_forecast"];
+  }
+  if (judgmentRequest) {
+    return ["get_condition_judgment"];
+  }
+  if (
+    /\b(?:should|safe|safety|okay|ok|worth|good|bad|avoid|go\s+ahead)\b/iu.test(latestUserTurn) &&
+    /\b(?:weather|rain|storm|wind|conditions?|swim|swimming|surf|surfing|boat|road|flood|sunset)\b/iu.test(
+      latestUserTurn,
+    )
+  ) {
+    return ["get_condition_judgment"];
+  }
+  if (/\b(?:waves?|swell|currents?|sea\s+level|marine)\b/iu.test(latestUserTurn)) {
+    return ["get_marine_conditions", "get_tide_forecast"];
+  }
+  if (/\b(?:weather|rain|storm|wind|forecast)\b/iu.test(latestUserTurn)) {
+    return ["get_weather_forecast"];
+  }
+  return [];
+}
+
+export function conditionRealityCheckProposal(input: {
+  finalPayload: AgentFinalPayload | undefined;
+  recognition: RealityCheckRecognition;
+  toolResults: readonly AgentToolResult[];
+}): RealityCheckProposal | undefined {
+  if (
+    !input.finalPayload ||
+    (input.recognition.kind !== "immediate_plan" && input.recognition.kind !== "surf_session")
+  ) {
+    return undefined;
+  }
+  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
+  const result = [...input.toolResults]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.name === "get_condition_judgment" &&
+        candidate.status === "success" &&
+        Boolean(candidate.toolCallId && usedToolCallIds.has(candidate.toolCallId)),
+    );
+  const summary = result?.decisionSummaries?.[0];
+  const recommendation = conditionRecommendationFromResult(result);
+  const verdict = conditionRecommendationVerdict(recommendation);
+  if (!result?.toolCallId || !summary || !verdict) {
+    return undefined;
+  }
+  const subject = [summary.area, summary.timing].filter(Boolean).join(" ");
+  if (!subject) {
+    return undefined;
+  }
+  return {
+    kind: input.recognition.kind,
+    verdict,
+    subject,
+    bestAction: summary.bestAction,
+    basis: summary.basis,
+    ...(summary.fallback ? { fallback: summary.fallback } : {}),
+    ...(summary.avoid ? { avoid: summary.avoid } : {}),
+    ...(summary.timing ? { timing: summary.timing } : {}),
+    ...(summary.area ? { area: summary.area } : {}),
+    evidenceToolCallIds: [result.toolCallId],
+  };
+}
+
 export function precipitationProbabilityRiskLevel(value: number | null | undefined) {
   return thresholdRiskLevel(value, { high: 75, medium: 45 });
 }
@@ -232,6 +465,98 @@ export function marineWaveHeightRiskLevel(value: number | null | undefined) {
 
 export function marineCurrentRiskLevel(value: number | null | undefined) {
   return thresholdRiskLevel(value, { high: 3, medium: 1.5 });
+}
+
+function conditionActivityUsesMarineEvidence(activity: ConditionJudgmentRequest["activity"]) {
+  return (
+    activity === "visit" ||
+    activity === "swimming" ||
+    activity === "surfing" ||
+    activity === "boat_trip"
+  );
+}
+
+async function acquireConditionSnapshot<T>(acquire: () => Promise<T | null>) {
+  try {
+    return await acquire();
+  } catch {
+    return null;
+  }
+}
+
+function conditionLocalGuideQuery(request: ConditionJudgmentRequest) {
+  return compact([
+    request.beach_name ?? undefined,
+    request.activity.replaceAll("_", " "),
+    request.location,
+    ...(request.constraints ?? []),
+  ]).join(" ");
+}
+
+function renderConditionJudgment(judgment: ConditionJudgment, decisionSummary: DecisionSummary) {
+  return [
+    `Condition judgment for ${judgment.activity.replaceAll("_", " ")} at ${judgment.locationName}: ${judgment.recommendation} (${judgment.level} risk).`,
+    `Reasons: ${judgment.reasons.join(" ")}`,
+    `Alternatives: ${judgment.alternatives.join(" ")}`,
+    judgment.caveats.length ? `Caveats: ${judgment.caveats.join(" ")}` : "",
+    `Decision summary artifact: ${decisionSummary.id}; best action: ${decisionSummary.bestAction}; basis: ${decisionSummary.basis}`,
+    `Signals: ${judgment.signals
+      .map((signal) => `${signal.kind} ${signal.status} ${signal.level}: ${signal.summary}`)
+      .join(" | ")}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildConditionDecisionSummary(judgment: ConditionJudgment): DecisionSummary {
+  const needsConfirmation =
+    judgment.recommendation === "needs_local_confirmation" ||
+    judgment.sources.some((source) => source.label === "provider_unavailable");
+  const fallback = judgment.alternatives[0];
+  const avoid =
+    judgment.recommendation === "avoid"
+      ? "Avoid exposed plans until the high-risk signal eases."
+      : needsConfirmation
+        ? "Avoid treating this as checked safety clearance."
+        : undefined;
+
+  return {
+    id: `condition_decision:${slugify(judgment.activity)}:${slugify(judgment.locationName)}:${slugify(judgment.dateLabel)}`,
+    bestAction: conditionBestAction(judgment, needsConfirmation),
+    basis: judgment.reasons.slice(0, 2).join(" "),
+    ...(fallback ? { fallback } : {}),
+    ...(avoid ? { avoid } : {}),
+    timing: judgment.dateLabel,
+    area: judgment.locationName,
+    sources: judgment.sources,
+  };
+}
+
+function conditionBestAction(judgment: ConditionJudgment, needsConfirmation: boolean) {
+  if (judgment.activity === "visit") {
+    if (needsConfirmation) {
+      return `Confirm locally before committing to the ${judgment.locationName} visit.`;
+    }
+    if (judgment.recommendation === "avoid") {
+      return `Avoid the ${judgment.locationName} visit for now.`;
+    }
+    if (judgment.recommendation === "flexible") {
+      return `Keep the ${judgment.locationName} visit flexible.`;
+    }
+    return `Go ahead with the ${judgment.locationName} visit.`;
+  }
+
+  const activity = judgment.activity.replaceAll("_", " ");
+  if (needsConfirmation) {
+    return `Confirm locally before committing to ${activity}.`;
+  }
+  if (judgment.recommendation === "avoid") {
+    return `Avoid ${activity} for now.`;
+  }
+  if (judgment.recommendation === "flexible") {
+    return `Keep ${activity} flexible.`;
+  }
+  return `Go ahead with ${activity}.`;
 }
 
 function buildWeatherSignal(
@@ -818,6 +1143,385 @@ function dedupeSources(sources: readonly AnswerSourceSummary[]) {
     seen.add(key);
     return true;
   });
+}
+
+function conditionJudgmentEvidenceAlreadyCompleted(
+  required: ConditionJudgmentRequest,
+  toolCalls: readonly AgentToolCallAudit[],
+) {
+  const matchingCall = toolCalls.find(
+    (call) =>
+      call.name === "get_condition_judgment" &&
+      conditionJudgmentRequestMatches(call.arguments, required),
+  );
+  if (matchingCall) {
+    return true;
+  }
+  if (
+    required.activity === "visit" &&
+    toolCalls.some(
+      (call) =>
+        call.name === "get_condition_judgment" &&
+        call.arguments.activity !== "visit" &&
+        call.arguments.date_range === required.date_range &&
+        call.arguments.location === required.location,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function conditionJudgmentRequestMatches(
+  actual: Record<string, unknown>,
+  required: ConditionJudgmentRequest,
+) {
+  if (
+    actual.activity !== required.activity ||
+    actual.date_range !== required.date_range ||
+    actual.location !== required.location
+  ) {
+    return false;
+  }
+  if (
+    required.beach_name &&
+    normalizeConditionText(actual.beach_name) !== normalizeConditionText(required.beach_name)
+  ) {
+    return false;
+  }
+  const actualConstraints = new Set(
+    readConditionStrings(actual.constraints).map(normalizeConditionText),
+  );
+  if (
+    (required.constraints ?? [])
+      .map(normalizeConditionText)
+      .some((constraint) => !actualConstraints.has(constraint))
+  ) {
+    return false;
+  }
+  if (required.beach_name && actual.include_local_caveats === false) {
+    return false;
+  }
+  return (
+    required.include_local_caveats === null ||
+    actual.include_local_caveats === required.include_local_caveats
+  );
+}
+
+function inferConditionActivity(
+  latestContent: string,
+  inheritedPlaceContext: string,
+): ConditionJudgmentRequest["activity"] | undefined {
+  if (hasBoatTripConditionContent(latestContent)) {
+    return "boat_trip";
+  }
+  if (isBareRideBoatFollowUp(latestContent, inheritedPlaceContext)) {
+    return "boat_trip";
+  }
+  if (
+    (/\bsurf(?:ing|er|s|ed)?|waves?|swell\b/i.test(latestContent) ||
+      (/\breefs?\b/i.test(latestContent) &&
+        /\b(?:conditions?|safe|surf|waves?|swell|forecast|report)\b/i.test(latestContent))) &&
+    !/\b(?:not|no|avoid)\s+surf(?:ing)?\b/i.test(latestContent) &&
+    /\btoday|tomorrow|conditions?|weather|forecast|report|waves?|swell|safe|can|could|okay|ok|worth|near\s+me|closest|nearest\b/i.test(
+      latestContent,
+    )
+  ) {
+    return "surfing";
+  }
+  if (
+    /\bswim(?:ming)?|kids?\s+swim|beach\s+safety|lifeguard|rip\s+current\b/i.test(latestContent)
+  ) {
+    return "swimming";
+  }
+  if (
+    /\bscooter|motorbike|motor\s*bike|roads?|ride\b/i.test(latestContent) &&
+    !/\brent(?:al|ing)?|hire\b/i.test(latestContent) &&
+    /\bsafe|safety|rain|weather|roads?|flood|today|tomorrow|go|ride|drive\b/i.test(latestContent)
+  ) {
+    return "scooter";
+  }
+  if (/\bsunset\b/i.test(latestContent)) {
+    return "sunset";
+  }
+  if (
+    inferConditionLocationFromContent(latestContent) &&
+    (/\bshould\s+(?:i|we)\s+still\b/i.test(latestContent) ||
+      /\b(?:worth\s+going|still\s+go|visit|head\s+to|stop\s+by)\b/i.test(latestContent))
+  ) {
+    return "visit";
+  }
+  return undefined;
+}
+
+function inferConditionLocation(
+  latestContent: string,
+  inheritedPlaceContext: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+): ConditionJudgmentRequest["location"] {
+  const latestLocation = inferConditionLocationFromContent(latestContent);
+  if (latestLocation) {
+    return latestLocation;
+  }
+  const signalLocation =
+    readConditionStringPath(deterministicSignals, ["context", "locationLabel"]) ??
+    readConditionStringPath(deterministicSignals, ["context", "tripContext", "currentArea"]);
+  if (isConditionLocation(signalLocation)) {
+    return signalLocation;
+  }
+  return inferConditionLocationFromContent(inheritedPlaceContext) ?? "Siargao Island";
+}
+
+function inferConditionLocationFromContent(
+  content: string,
+): ConditionJudgmentRequest["location"] | undefined {
+  if (/\bcloud\s*9|cloud9|catangnan\b/i.test(content)) {
+    return "Cloud 9";
+  }
+  if (/\bmalinao|doot|sandy\s+beach|half[-\s]?day\b/i.test(content)) {
+    return "General Luna";
+  }
+  if (/\bdel\s+carmen|sugba\s+lagoon|sugba\b/i.test(content)) {
+    return "Del Carmen";
+  }
+  if (/\bgeneral\s+luna|\bgl\b/i.test(content)) {
+    return "General Luna";
+  }
+  return undefined;
+}
+
+function inferConditionDateRange(content: string): ConditionJudgmentRequest["date_range"] {
+  return /\b(tomorrow|tmrw|next\s+7\s+days?|next\s+seven\s+days?|this\s+week|next\s+week|weekend|later\s+this\s+week|in\s+(?:[2-7]|two|three|four|five|six|seven)\s+days?)\b/i.test(
+    content,
+  )
+    ? "next_7_days"
+    : "today";
+}
+
+function inferConditionBeachName(content: string): string | null {
+  const match = /\b(malinao|doot|cloud\s*9|pacifico|alegria|magpupungko|sugba)\b/i.exec(content);
+  if (!match?.[1]) {
+    return null;
+  }
+  const normalized = match[1].replaceAll(/\s+/g, " ");
+  if (/^cloud\s*9$/i.test(normalized)) {
+    return "Cloud 9";
+  }
+  if (/^sugba$/i.test(normalized)) {
+    return "Sugba Lagoon";
+  }
+  return `${normalized[0]?.toUpperCase() ?? ""}${normalized.slice(1).toLowerCase()} Beach`;
+}
+
+function inferConditionConstraints(
+  content: string,
+  deterministicSignals: Record<string, unknown> | undefined,
+) {
+  return uniqueConditionText([
+    ...readConditionStringArrayPath(deterministicSignals, [
+      "context",
+      "tripContext",
+      "durableConstraints",
+    ]),
+    ...(/\bkids?|children|child|toddler|family|families\b/i.test(content) ? ["with kids"] : []),
+    ...(/\bno\s+scooter|without\s+(?:a\s+)?scooter|avoid\s+scooters?|walk(?:ing)?\s+only\b/i.test(
+      content,
+    )
+      ? ["avoid scooters"]
+      : []),
+    ...(/\bvegetarian|vegan|plant[-\s]?based|no\s+meat\b/i.test(content) ? ["vegetarian"] : []),
+    ...(/\bquiet|calm|low[-\s]?key|not\s+crowded|avoid\s+crowds?|peaceful\b/i.test(content)
+      ? ["quiet"]
+      : []),
+    ...(/\bnon[-\s]?surfer|not\s+surfing|avoid\s+surf|no\s+surf(?:ing)?\b/i.test(content)
+      ? ["not surfing"]
+      : []),
+  ]);
+}
+
+function hasExplicitConditionQuestion(content: string) {
+  return (
+    /\b(?:tell\s+me\s+if|whether|is|are|can|could|should|safe|safety|okay|ok|worth|conditions?)\b/i.test(
+      content,
+    ) &&
+    /\b(?:swim(?:ming)?|surf(?:ing)?|scooter|motorbike|ride|boat|island\s+hopping|sunset|rain|weather|roads?|waves?|swell|marine|beach)\b/i.test(
+      content,
+    )
+  );
+}
+
+function hasBoatTripConditionContent(content: string) {
+  return /\b(boat|island\s+hopping|sugba|lagoon|boat\s+trip|boat\s+ride|marine)\b/i.test(content);
+}
+
+function hasRawMarineDetailIntent(content: string) {
+  return (
+    /\b(?:wave|swell)\s+(?:height|period|forecast)\b/i.test(content) ||
+    /\b(?:marine|sea)\s+(?:forecast|data|details?|metrics?)\b/i.test(content) ||
+    /\b(?:ocean\s+currents?|current\s+velocity|sea\s+level)\b/i.test(content)
+  );
+}
+
+function hasConditionDecisionIntent(content: string) {
+  return (
+    /\b(?:should|safe|safety|okay|ok|worth|good|bad|avoid|go\s+ahead)\b/i.test(content) ||
+    /\b(?:can|could)\b[^?.!]{0,48}\b(?:surf|swim|go|ride|drive|visit|take\s+(?:a|the)\s+boat)\b/i.test(
+      content,
+    )
+  );
+}
+
+function isBareRideBoatFollowUp(latestContent: string, inheritedPlaceContext: string) {
+  return (
+    /\bride\b/i.test(latestContent) &&
+    !/\b(scooter|motorbike|motor\s*bike|drive|road|land\s+tour)\b/i.test(latestContent) &&
+    !hasBoatTripConditionContent(latestContent) &&
+    hasBoatTripConditionContent(inheritedPlaceContext)
+  );
+}
+
+function latestTurnHasConditionPlace(content: string) {
+  return Boolean(inferConditionLocationFromContent(content) ?? inferConditionBeachName(content));
+}
+
+function isItineraryPlanningRequest(content: string) {
+  if (!content.trim() || isExcludedItineraryRepairRequest(content)) {
+    return false;
+  }
+  const hasActivityPlanSignal =
+    /\b(today|tomorrow|this\s+(?:morning|afternoon|evening)|cloud\s*9|general\s+luna|dapa|pacifico|del\s+carmen|sugba|malinao|doot)\b/i.test(
+      content,
+    );
+  const hasInitialThemeLanguage =
+    /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|food\s+crawl|(?:non[-\s]?surfer|not\s+surfing|sandy\s+beach|beach)\s+half[-\s]?day|half[-\s]?day\s+(?:non[-\s]?surfer|not\s+surfing|sandy\s+)?beach)\b/i.test(
+      content,
+    );
+  const hasScopedDuration =
+    /\b(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?\b/i.test(content) ||
+    /\bhalf[-\s]?day\b/i.test(content);
+  const hasRouteWithStops = /\b(?:route|sequence)\b/i.test(content) && /\bstops?\b/i.test(content);
+  const hasOpenEndedActivityPlanLanguage =
+    /\b(?:what\s+should\s+i\s+do|what\s+can\s+i\s+do|things?\s+to\s+do|activities?|day\s+plan|plan\s+(?:my|a|an|the)\s+day)\b/i.test(
+      content,
+    );
+  const hasScopedItineraryLanguage =
+    hasInitialThemeLanguage ||
+    (hasScopedDuration &&
+      /\b(itinerary|plan|route|sequence|stops?|things?\s+to\s+do|activities?)\b/i.test(content)) ||
+    hasRouteWithStops;
+  return (
+    hasInitialThemeLanguage ||
+    hasScopedItineraryLanguage ||
+    (hasOpenEndedActivityPlanLanguage && hasActivityPlanSignal)
+  );
+}
+
+function isExcludedItineraryRepairRequest(content: string) {
+  if (isItineraryReviewRequest(content)) {
+    return true;
+  }
+  return (
+    /\b(airport|flight|ferry|pier|port|transfer|pickup|pick\s+up|drop[-\s]?off|taxi|shuttle|transport|transportation|logistics?)\b/i.test(
+      content,
+    ) && !hasScopedLocalItineraryContent(content)
+  );
+}
+
+function isItineraryReviewRequest(content: string) {
+  return /\b(critique|review|audit|improve\s+my\s+itinerary|plan\s+my\s+(?:trip|vacation|holiday))\b/i.test(
+    content,
+  );
+}
+
+function hasScopedLocalItineraryContent(content: string) {
+  return (
+    /\b(rainy\s+cloud\s*9|sunset\s+(?:plus|and)\s+dinner|dinner\s+(?:after|plus|and)\s+sunset|food\s+crawl|(?:non[-\s]?surfer|not\s+surfing|sandy\s+beach|beach)\s+half[-\s]?day|half[-\s]?day\s+(?:non[-\s]?surfer|not\s+surfing|sandy\s+)?beach)\b/i.test(
+      content,
+    ) ||
+    (/\b(?:two|three|four|2|3|4)[-\s]?(?:hour|hr)s?\b/i.test(content) &&
+      /\b(food\s+crawl|crawl|things?\s+to\s+do|activities?|stops?|beaches?|sunset|dinner|lunch|breakfast|brunch|caf[eé]s?|restaurants?|eat)\b/i.test(
+        content,
+      )) ||
+    (/\b(?:route|sequence)\b/i.test(content) && /\bstops?\b/i.test(content))
+  );
+}
+
+function conditionRecommendationFromResult(result: AgentToolResult | undefined) {
+  if (!isConditionRecord(result?.data)) {
+    return undefined;
+  }
+  const judgment = result.data.judgment;
+  return isConditionRecord(judgment) && typeof judgment.recommendation === "string"
+    ? judgment.recommendation
+    : undefined;
+}
+
+function conditionRecommendationVerdict(
+  value: string | undefined,
+): RealityCheckVerdict | undefined {
+  if (value === "good") return "keep";
+  if (value === "flexible") return "change";
+  if (value === "avoid") return "avoid";
+  if (value === "needs_local_confirmation") return "needs_confirmation";
+  return undefined;
+}
+
+function readConditionStringPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isConditionRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return typeof current === "string" && current.length > 0 ? current : undefined;
+}
+
+function readConditionStringArrayPath(value: unknown, path: readonly string[]) {
+  let current = value;
+  for (const segment of path) {
+    if (!isConditionRecord(current)) {
+      return [];
+    }
+    current = current[segment];
+  }
+  return readConditionStrings(current);
+}
+
+function readConditionStrings(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function isConditionLocation(
+  value: string | undefined,
+): value is ConditionJudgmentRequest["location"] {
+  return (
+    value === "Siargao Island" ||
+    value === "Cloud 9" ||
+    value === "General Luna" ||
+    value === "Del Carmen"
+  );
+}
+
+function isConditionRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeConditionText(value: unknown) {
+  return typeof value === "string" ? value.replaceAll(/\s+/g, " ").trim().toLowerCase() : "";
+}
+
+function uniqueConditionText(values: readonly string[]) {
+  return [
+    ...new Set(
+      values.flatMap((value) => {
+        const normalized = value.replaceAll(/\s+/g, " ").trim();
+        return normalized ? [normalized] : [];
+      }),
+    ),
+  ];
 }
 
 function compact(values: readonly (string | undefined)[]) {

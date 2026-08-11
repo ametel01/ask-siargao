@@ -1,16 +1,11 @@
 import type { AgentRuntimeRequest, AskSiargaoAgentToolName } from "@/server/chat/agent-runtime";
 import type { AgentResponseToolDefinition } from "@/server/chat/agent-tool-catalogue";
+import { conditionToolNamesForAgentTurn } from "@/server/chat/condition-tools";
 import { interpretPlaceIntent } from "@/server/chat/place-intent";
 import { recognizeRealityCheckRequest } from "@/server/chat/reality-check";
 import type { RequiredEvidencePlan } from "@/server/chat/required-evidence";
 
 const memoryTools = ["load_agent_memory_file", "search_agent_memory"] as const;
-const conditionTools = [
-  "get_weather_forecast",
-  "get_marine_conditions",
-  "get_tide_forecast",
-  "get_condition_judgment",
-] as const;
 const placesTools = ["search_places", "get_place_details", "search_local_guide"] as const;
 const localFactsTools = [
   "describe_database_schema",
@@ -49,11 +44,9 @@ export function selectAgentResponseTools(
       selected.add("research_web");
     }
   }
-  if (conditionIntent(latestUserTurn) || conditionRealityCheck) {
-    addTools(selected, conditionTools);
-  }
+  addTools(selected, conditionToolNamesForAgentTurn(request));
+  if (conditionRealityCheck) selected.add("get_condition_judgment");
   if (surfIntent(latestUserTurn)) {
-    addTools(selected, conditionTools);
     selected.add("rank_surf_spots_nearby");
     selected.add("search_local_guide");
   }
@@ -62,7 +55,6 @@ export function selectAgentResponseTools(
     selected.add("search_local_guide");
     selected.add("search_places");
     selected.add("get_place_details");
-    selected.add("get_weather_forecast");
     selected.add("get_condition_judgment");
   }
   if (nightlifeIntent(latestUserTurn)) {
@@ -114,12 +106,6 @@ function addTools(
   for (const tool of tools) {
     selected.add(tool);
   }
-}
-
-function conditionIntent(content: string) {
-  return /\b(?:weather|rain|storm|wind|forecast|conditions?|safe|safety|swim|swimming|boat|ferry|road|flood|sunset)\b/iu.test(
-    content,
-  );
 }
 
 function surfIntent(content: string) {

@@ -1,15 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
+import type { AgentToolCallAudit } from "@/server/chat/agent-runtime";
 import {
-  buildConditionJudgment,
   type ConditionJudgment,
+  type ConditionJudgmentRequest,
   conditionActivities,
+  conditionJudgmentRepairCall,
   conditionJudgmentRequestSchema,
   conditionJudgmentSchema,
+  conditionRealityCheckProposal,
   conditionRecommendations,
   conditionRiskLevels,
   conditionSignalKinds,
   conditionSignalStatuses,
+  judgeConditions,
   type MarineConditionsSnapshot,
   precipitationProbabilityRiskLevel,
   rainSumRiskLevel,
@@ -118,8 +122,8 @@ describe("condition judgment contracts", () => {
     expect(windGustRiskLevel(60)).toBe("high");
   });
 
-  test("builds a low-risk scooter judgment from checked weather and unchecked roads", () => {
-    const judgment = buildConditionJudgment({
+  test("builds a low-risk scooter judgment from checked weather and unchecked roads", async () => {
+    const judgment = await judgmentThroughSeam({
       request: requestFixture({ activity: "scooter", constraints: ["avoid flooded roads"] }),
       weatherSnapshot: weatherSnapshotFixture({ level: "low", windGust: 18 }),
     });
@@ -136,8 +140,8 @@ describe("condition judgment contracts", () => {
     expect(judgment.caveats).toContain("Preserved constraints: avoid flooded roads.");
   });
 
-  test("keeps swimming flexible when weather is checked but tide and surf are not", () => {
-    const judgment = buildConditionJudgment({
+  test("keeps swimming flexible when weather is checked but tide and surf are not", async () => {
+    const judgment = await judgmentThroughSeam({
       request: requestFixture({
         activity: "swimming",
         beach_name: "Malinao Beach",
@@ -163,8 +167,8 @@ describe("condition judgment contracts", () => {
     );
   });
 
-  test("uses Open-Meteo Marine model data for checked tide-proxy and sea-condition signals", () => {
-    const judgment = buildConditionJudgment({
+  test("uses Open-Meteo Marine model data for checked tide-proxy and sea-condition signals", async () => {
+    const judgment = await judgmentThroughSeam({
       request: requestFixture({
         activity: "swimming",
         beach_name: "Malinao Beach",
@@ -191,9 +195,155 @@ describe("condition judgment contracts", () => {
     expect(judgment.caveats.join(" ")).toContain("not an official tide table");
   });
 
-  test("uses the matching named beach candidate for curated local caveats", () => {
+  test("acquires and derives a complete judgment through mock provider adapters", async () => {
+    const result = await judgeConditions(
+      requestFixture({
+        activity: "swimming",
+        beach_name: "Malinao Beach",
+        include_local_caveats: true,
+      }),
+      {
+        getWeatherSnapshot: async () => weatherSnapshotFixture({ level: "low" }),
+        getMarineSnapshot: async () => marineSnapshotFixture(),
+        getTideForecastSnapshot: async () => null,
+        searchLocalGuide: (request) => searchSiargaoLocalGuide(request),
+      },
+    );
+
+    expect(result.judgment).toMatchObject({
+      activity: "swimming",
+      locationName: "Malinao Beach",
+      recommendation: "flexible",
+    });
+    expect(result.judgment.signals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "weather", status: "checked" }),
+        expect.objectContaining({ kind: "tide", status: "checked" }),
+        expect.objectContaining({ kind: "surf", status: "checked" }),
+        expect.objectContaining({ kind: "manual_caveat", status: "checked" }),
+      ]),
+    );
+    expect(result.decisionSummary).toMatchObject({
+      bestAction: "Keep swimming flexible.",
+      timing: "today",
+      area: "Malinao Beach",
+    });
+    expect(result.text).toContain("Condition judgment for swimming at Malinao Beach");
+  });
+
+  test("plans required visit evidence from the traveler turn at the judgment seam", () => {
+    expect(
+      conditionJudgmentRepairCall(
+        {
+          messages: [{ role: "user", content: "Should we still go to Cloud 9 today?" }],
+        },
+        [],
+      ),
+    ).toEqual({
+      callId: "auto_required_condition_judgment_1",
+      name: "get_condition_judgment",
+      arguments: {
+        activity: "visit",
+        location: "Cloud 9",
+        date_range: "today",
+        beach_name: "Cloud 9",
+        include_local_caveats: null,
+        constraints: [],
+      },
+    });
+  });
+
+  test("keeps provider failure terminal but repairs mismatched condition evidence", () => {
+    const request = {
+      messages: [{ role: "user" as const, content: "Is it safe to surf at Cloud 9 tomorrow?" }],
+    };
+    const required = {
+      activity: "surfing",
+      location: "Cloud 9",
+      date_range: "next_7_days",
+      beach_name: "Cloud 9",
+      include_local_caveats: null,
+      constraints: [],
+    };
+
+    expect(
+      conditionJudgmentRepairCall(request, [
+        toolCallFixture({
+          name: "get_condition_judgment",
+          status: "error",
+          arguments: required,
+        }),
+      ]),
+    ).toBeUndefined();
+    expect(
+      conditionJudgmentRepairCall(request, [
+        toolCallFixture({
+          name: "get_condition_judgment",
+          arguments: { ...required, activity: "scooter" },
+        }),
+      ]),
+    ).toMatchObject({ name: "get_condition_judgment", arguments: required });
+    expect(
+      conditionJudgmentRepairCall(request, [
+        toolCallFixture({
+          name: "get_marine_conditions",
+          arguments: { location: "General Luna", date_range: "today" },
+        }),
+      ]),
+    ).toMatchObject({ name: "get_condition_judgment", arguments: required });
+  });
+
+  test("derives a reality-check proposal from a used governed judgment", () => {
+    const summary = {
+      id: "condition_decision:visit:cloud_9:today",
+      bestAction: "Keep the Cloud 9 visit flexible.",
+      basis: "Checked conditions are mixed.",
+      fallback: "Keep a covered stop nearby.",
+      timing: "today",
+      area: "Cloud 9",
+      sources: [weatherSource],
+    };
+
+    expect(
+      conditionRealityCheckProposal({
+        finalPayload: {
+          answer: "Go, but keep it flexible.",
+          usedMemoryFiles: [],
+          usedToolCallIds: ["condition_call"],
+          displayCardIds: [],
+          displayActionIds: [],
+          displayItineraryIds: [],
+          displayDecisionSummaryIds: [],
+        },
+        recognition: { explicit: true, kind: "immediate_plan", missingContext: [] },
+        toolResults: [
+          {
+            toolCallId: "condition_call",
+            name: "get_condition_judgment",
+            status: "success",
+            text: "Condition judgment.",
+            data: { judgment: { recommendation: "flexible" } },
+            sources: [weatherSource],
+            decisionSummaries: [summary],
+          },
+        ],
+      }),
+    ).toEqual({
+      kind: "immediate_plan",
+      verdict: "change",
+      subject: "Cloud 9 today",
+      bestAction: "Keep the Cloud 9 visit flexible.",
+      basis: "Checked conditions are mixed.",
+      fallback: "Keep a covered stop nearby.",
+      timing: "today",
+      area: "Cloud 9",
+      evidenceToolCallIds: ["condition_call"],
+    });
+  });
+
+  test("uses the matching named beach candidate for curated local caveats", async () => {
     for (const beachName of ["Malinao Beach", "Pacifico Beach", "Alegria Beach"]) {
-      const judgment = buildConditionJudgment({
+      const judgment = await judgmentThroughSeam({
         request: requestFixture({
           activity: "swimming",
           beach_name: beachName,
@@ -217,8 +367,8 @@ describe("condition judgment contracts", () => {
     }
   });
 
-  test("does not attach a named beach caveat to generic swimming judgments", () => {
-    const judgment = buildConditionJudgment({
+  test("does not attach a named beach caveat to generic swimming judgments", async () => {
+    const judgment = await judgmentThroughSeam({
       request: requestFixture({
         activity: "swimming",
         beach_name: null,
@@ -238,8 +388,8 @@ describe("condition judgment contracts", () => {
     ]);
   });
 
-  test("does not attach a curated beach caveat when a named place is not in the beach guide", () => {
-    const judgment = buildConditionJudgment({
+  test("does not attach a curated beach caveat when a named place is not in the beach guide", async () => {
+    const judgment = await judgmentThroughSeam({
       request: requestFixture({
         activity: "boat_trip",
         location: "Del Carmen",
@@ -257,7 +407,7 @@ describe("condition judgment contracts", () => {
     expect(judgment.sources.map((source) => source.label)).not.toContain("curated_local_guide");
   });
 
-  test("does not attach curated beach caveats to non-beach condition judgments", () => {
+  test("does not attach curated beach caveats to non-beach condition judgments", async () => {
     const localGuideResult = searchSiargaoLocalGuide({
       query: "Cloud 9 beach caveats",
       filters: { swimming: true, beachSurface: "sand" },
@@ -271,7 +421,7 @@ describe("condition judgment contracts", () => {
     ] as const;
 
     for (const request of cases) {
-      const judgment = buildConditionJudgment({
+      const judgment = await judgmentThroughSeam({
         request,
         weatherSnapshot: weatherSnapshotFixture(),
         localGuideResult,
@@ -282,7 +432,7 @@ describe("condition judgment contracts", () => {
     }
   });
 
-  test("avoids exposed scooter and boat plans when checked weather risk is high", () => {
+  test("avoids exposed scooter and boat plans when checked weather risk is high", async () => {
     const highWeather = weatherSnapshotFixture({
       level: "high",
       precipitationProbability: 88,
@@ -291,21 +441,25 @@ describe("condition judgment contracts", () => {
     });
 
     expect(
-      buildConditionJudgment({
-        request: requestFixture({ activity: "scooter" }),
-        weatherSnapshot: highWeather,
-      }).recommendation,
+      (
+        await judgmentThroughSeam({
+          request: requestFixture({ activity: "scooter" }),
+          weatherSnapshot: highWeather,
+        })
+      ).recommendation,
     ).toBe("avoid");
     expect(
-      buildConditionJudgment({
-        request: requestFixture({ activity: "boat_trip", location: "Del Carmen" }),
-        weatherSnapshot: highWeather,
-      }).recommendation,
+      (
+        await judgmentThroughSeam({
+          request: requestFixture({ activity: "boat_trip", location: "Del Carmen" }),
+          weatherSnapshot: highWeather,
+        })
+      ).recommendation,
     ).toBe("avoid");
   });
 
-  test("uses seven-day peak metrics for next-7-days condition judgments", () => {
-    const judgment = buildConditionJudgment({
+  test("uses seven-day peak metrics for next-7-days condition judgments", async () => {
+    const judgment = await judgmentThroughSeam({
       request: requestFixture({ activity: "scooter", date_range: "next_7_days" }),
       weatherSnapshot: weatherSnapshotFixture({
         level: "low",
@@ -359,8 +513,8 @@ describe("condition judgment contracts", () => {
     );
   });
 
-  test("handles sunset as weather-sensitive without inventing tide or surf checks", () => {
-    const judgment = buildConditionJudgment({
+  test("handles sunset as weather-sensitive without inventing tide or surf checks", async () => {
+    const judgment = await judgmentThroughSeam({
       request: requestFixture({ activity: "sunset", location: "Cloud 9" }),
       weatherSnapshot: weatherSnapshotFixture({
         condition: "Cloudy breaks",
@@ -370,15 +524,15 @@ describe("condition judgment contracts", () => {
     });
 
     expect(judgment.recommendation).toBe("flexible");
-    expect(judgment.signals.map((signal) => signal.kind)).toEqual(["weather"]);
+    expect(judgment.signals.map((signal) => signal.kind)).toEqual(["weather", "manual_caveat"]);
     expect(judgment.reasons[0]).toContain("Cloudy breaks");
     expect(judgment.caveats).not.toContain(
       "Tide, surf, swell, currents, and lifeguard status were not checked.",
     );
   });
 
-  test("uses conservative local confirmation when weather is unavailable", () => {
-    const judgment = buildConditionJudgment({
+  test("uses conservative local confirmation when weather is unavailable", async () => {
+    const judgment = await judgmentThroughSeam({
       request: requestFixture({ activity: "swimming" }),
       weatherSnapshot: fallbackWeatherSnapshot,
     });
@@ -398,6 +552,22 @@ describe("condition judgment contracts", () => {
     );
   });
 });
+
+async function judgmentThroughSeam(input: {
+  request: ConditionJudgmentRequest;
+  weatherSnapshot?: WeatherSnapshot | null;
+  marineSnapshot?: MarineConditionsSnapshot | null;
+  localGuideResult?: ReturnType<typeof searchSiargaoLocalGuide> | null;
+}) {
+  const { judgment } = await judgeConditions(input.request, {
+    getWeatherSnapshot: async () => input.weatherSnapshot ?? null,
+    getMarineSnapshot: async () => input.marineSnapshot ?? null,
+    getTideForecastSnapshot: async () => null,
+    searchLocalGuide: () =>
+      input.localGuideResult ?? searchSiargaoLocalGuide({ query: "no matching local caveat" }),
+  });
+  return judgment;
+}
 
 const weatherSource: ConditionSourceSummary = {
   label: "weather_checked",
@@ -424,6 +594,23 @@ const localGuideSource: ConditionSourceSummary = {
   checked: ["beach-surface notes", "local caveats"],
   notChecked: ["live beach access changes", "lifeguard or swimming safety"],
 };
+
+function toolCallFixture(
+  overrides: Pick<AgentToolCallAudit, "name" | "arguments"> &
+    Partial<Pick<AgentToolCallAudit, "status">>,
+): AgentToolCallAudit {
+  return {
+    id: "tool-call",
+    toolCallId: "tool-call",
+    status: "success",
+    durationMs: 1,
+    startedAt: "2026-08-12T00:00:00.000Z",
+    completedAt: "2026-08-12T00:00:00.001Z",
+    sourceProfileIds: [],
+    sources: [],
+    ...overrides,
+  };
+}
 
 const swimmingJudgmentFixture = {
   activity: "swimming",

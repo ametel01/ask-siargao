@@ -9,7 +9,6 @@ import type {
   AgentToolResult,
   AskSiargaoAgentToolName,
   ChatAction,
-  DecisionSummary,
   ItineraryPlan,
   RecommendationCard,
 } from "@/server/chat/agent-runtime";
@@ -66,12 +65,7 @@ import {
   type ResearchWebArguments,
 } from "@/server/chat/agent-tool-web-research-family";
 import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
-import {
-  buildConditionJudgment,
-  type ConditionJudgment,
-  type MarineConditionsSnapshot,
-  shouldIncludeConditionLocalCaveats,
-} from "@/server/chat/condition-tools";
+import { judgeConditions, type MarineConditionsSnapshot } from "@/server/chat/condition-tools";
 import {
   type LocalItineraryRequest,
   planLocalItinerary,
@@ -2014,42 +2008,27 @@ async function getConditionJudgmentToolResult(
   args: ConditionJudgmentArguments,
   dependencies: AgentToolDependencies,
 ): Promise<AgentToolResult> {
-  const getSnapshot =
-    dependencies.getLatestSiargaoWeatherSnapshot ?? getLatestSiargaoWeatherSnapshot;
-  const location = weatherForecastLocationForLabel(args.location);
-  const [weatherSnapshot, marineSnapshot, tideForecastSnapshot] = await Promise.all([
-    getConditionWeatherSnapshot({
-      getSnapshot,
-      location,
-    }),
-    getConditionMarineSnapshot(args, dependencies),
-    getConditionTideForecastSnapshot(args, dependencies),
-  ]);
-  const localGuideResult = !shouldIncludeConditionLocalCaveats(args)
-    ? null
-    : searchSiargaoLocalGuide({
-        query: conditionLocalGuideQuery(args),
-        filters: {
-          ...(args.beach_name ? { beachName: args.beach_name } : {}),
-          swimming: args.activity === "swimming",
-          sunset: args.activity === "sunset",
-          rainFit: args.activity === "rain_plan",
-          beachSurface: args.activity === "swimming" ? "sand" : "any",
-        },
-      });
-  const judgment = buildConditionJudgment({
-    request: args,
-    weatherSnapshot,
-    marineSnapshot,
-    tideForecastSnapshot,
-    localGuideResult,
+  const { decisionSummary, judgment, text } = await judgeConditions(args, {
+    getWeatherSnapshot: async ({ location }) => {
+      const getSnapshot =
+        dependencies.getLatestSiargaoWeatherSnapshot ?? getLatestSiargaoWeatherSnapshot;
+      const providerLocation = weatherForecastLocationForLabel(location);
+      return getSnapshot(providerLocation ? { location: providerLocation } : {});
+    },
+    getMarineSnapshot: ({ dateRange, location }) =>
+      getMarineConditionsSnapshot({ location, date_range: dateRange }, dependencies),
+    getTideForecastSnapshot: ({ dateRange, location }) =>
+      getTideForecastSnapshot(
+        { location: tideForecastLocationForCondition(location), date_range: dateRange },
+        dependencies,
+      ),
+    searchLocalGuide: searchSiargaoLocalGuide,
   });
-  const decisionSummary = conditionDecisionSummary(judgment);
 
   return {
     name: "get_condition_judgment",
     status: "success",
-    text: renderConditionJudgmentToolText(judgment, decisionSummary),
+    text,
     data: {
       status: "available",
       judgment,
@@ -2086,156 +2065,6 @@ async function getTideForecastSnapshot(
     location,
     requestedLocation: args.location,
   });
-}
-
-async function getConditionWeatherSnapshot({
-  getSnapshot,
-  location,
-}: {
-  getSnapshot: typeof getLatestSiargaoWeatherSnapshot;
-  location?: OpenMeteoForecastLocation;
-}) {
-  try {
-    return await getSnapshot(location ? { location } : {});
-  } catch {
-    return null;
-  }
-}
-
-async function getConditionMarineSnapshot(
-  args: ConditionJudgmentArguments,
-  dependencies: AgentToolDependencies,
-) {
-  if (!["visit", "swimming", "surfing", "boat_trip"].includes(args.activity)) {
-    return null;
-  }
-  try {
-    const dateRange = args.date_range === "today" ? "today" : "next_48_hours";
-    return await getMarineConditionsSnapshot(
-      { location: args.location, date_range: dateRange },
-      dependencies,
-    );
-  } catch {
-    return null;
-  }
-}
-
-async function getConditionTideForecastSnapshot(
-  args: ConditionJudgmentArguments,
-  dependencies: AgentToolDependencies,
-) {
-  if (!["visit", "swimming", "surfing", "boat_trip"].includes(args.activity)) {
-    return null;
-  }
-  try {
-    const dateRange = args.date_range === "today" ? "today" : "next_7_days";
-    return await getTideForecastSnapshot(
-      { location: tideForecastLocationForCondition(args.location), date_range: dateRange },
-      dependencies,
-    );
-  } catch {
-    return null;
-  }
-}
-
-function conditionLocalGuideQuery(args: ConditionJudgmentArguments) {
-  const parts = [
-    args.beach_name,
-    args.activity.replaceAll("_", " "),
-    args.location,
-    ...(args.constraints ?? []),
-  ];
-  return uniqueText(parts).join(" ");
-}
-
-function renderConditionJudgmentToolText(
-  judgment: ConditionJudgment,
-  decisionSummary?: DecisionSummary,
-) {
-  return [
-    `Condition judgment for ${judgment.activity.replaceAll("_", " ")} at ${judgment.locationName}: ${judgment.recommendation} (${judgment.level} risk).`,
-    `Reasons: ${judgment.reasons.join(" ")}`,
-    `Alternatives: ${judgment.alternatives.join(" ")}`,
-    judgment.caveats.length ? `Caveats: ${judgment.caveats.join(" ")}` : "",
-    decisionSummary
-      ? `Decision summary artifact: ${decisionSummary.id}; best action: ${decisionSummary.bestAction}; basis: ${decisionSummary.basis}`
-      : "",
-    `Signals: ${judgment.signals
-      .map((signal) => `${signal.kind} ${signal.status} ${signal.level}: ${signal.summary}`)
-      .join(" | ")}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function conditionDecisionSummary(judgment: ConditionJudgment): DecisionSummary {
-  const needsConfirmation =
-    judgment.recommendation === "needs_local_confirmation" ||
-    judgment.sources.some((source) => source.label === "provider_unavailable");
-  const primaryAlternative = judgment.alternatives[0];
-  return {
-    id: conditionDecisionSummaryId(judgment),
-    bestAction: conditionBestAction(judgment, needsConfirmation),
-    basis: judgment.reasons.slice(0, 2).join(" "),
-    ...(primaryAlternative ? { fallback: primaryAlternative } : {}),
-    ...(conditionAvoidGuidance(judgment, needsConfirmation)
-      ? { avoid: conditionAvoidGuidance(judgment, needsConfirmation) }
-      : {}),
-    timing: judgment.dateLabel,
-    area: judgment.locationName,
-    sources: judgment.sources,
-  };
-}
-
-function conditionDecisionSummaryId(judgment: ConditionJudgment) {
-  return `condition_decision:${slugForArtifactId(judgment.activity)}:${slugForArtifactId(
-    judgment.locationName,
-  )}:${slugForArtifactId(judgment.dateLabel)}`;
-}
-
-function conditionBestAction(judgment: ConditionJudgment, needsConfirmation: boolean) {
-  if (judgment.activity === "visit") {
-    if (needsConfirmation) {
-      return `Confirm locally before committing to the ${judgment.locationName} visit.`;
-    }
-    if (judgment.recommendation === "avoid") {
-      return `Avoid the ${judgment.locationName} visit for now.`;
-    }
-    if (judgment.recommendation === "flexible") {
-      return `Keep the ${judgment.locationName} visit flexible.`;
-    }
-    return `Go ahead with the ${judgment.locationName} visit.`;
-  }
-  const activity = judgment.activity.replaceAll("_", " ");
-  if (needsConfirmation) {
-    return `Confirm locally before committing to ${activity}.`;
-  }
-  if (judgment.recommendation === "avoid") {
-    return `Avoid ${activity} for now.`;
-  }
-  if (judgment.recommendation === "flexible") {
-    return `Keep ${activity} flexible.`;
-  }
-  return `Go ahead with ${activity}.`;
-}
-
-function conditionAvoidGuidance(judgment: ConditionJudgment, needsConfirmation: boolean) {
-  if (judgment.recommendation === "avoid") {
-    return "Avoid exposed plans until the high-risk signal eases.";
-  }
-  if (needsConfirmation) {
-    return "Avoid treating this as checked safety clearance.";
-  }
-  return undefined;
-}
-
-function slugForArtifactId(value: string) {
-  return value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
 }
 
 function weatherForecastLocationForLabel(
