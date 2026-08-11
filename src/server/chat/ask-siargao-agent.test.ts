@@ -107,6 +107,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(JSON.stringify(firstInput.agentMemory)).not.toContain("relativePath");
     expect(firstInput.conversation?.[0]?.content).toContain("first afternoon");
     expect(firstInput.responseContract?.finalOutput).toContain("normal traveler-facing Markdown");
+    expect(firstInput.responseContract?.completion).toContain(
+      "Every in-scope Siargao question must receive the best useful traveler-facing answer available",
+    );
   });
 
   test("repairs malformed fenced JSON before returning a default chat answer", async () => {
@@ -728,6 +731,113 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         reason: "missing_reality_check",
       },
     });
+  });
+
+  test("checks current conditions for a bare Cloud 9 visit reality check", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_bare_cloud9_visit",
+        output_text: finalPayloadText({
+          answer: "I need current conditions before recommending the visit.",
+        }),
+        output: [{ type: "message", id: "msg_bare_cloud9_visit" }],
+        _request_id: "req_bare_cloud9_visit",
+      },
+      {
+        id: "resp_bare_cloud9_visit_repaired",
+        output_text: finalPayloadText({
+          answer: "Go to Cloud 9 now, but keep the visit flexible if showers build.",
+          usedToolCallIds: ["auto_required_condition_judgment_1"],
+          realityCheck: {
+            kind: "immediate_plan",
+            verdict: "keep",
+            subject: "Cloud 9 visit today",
+            bestAction: "Go to Cloud 9 now for a short, flexible visit.",
+            basis: "The current forecast supports going while keeping a rain fallback nearby.",
+            fallback: "Use a covered stop nearby if showers build.",
+            evidenceToolCallIds: ["auto_required_condition_judgment_1"],
+          },
+        }),
+        _request_id: "req_bare_cloud9_visit_repaired",
+      },
+    ]);
+    const executeTool = fakeToolExecutor({
+      get_condition_judgment: {
+        name: "get_condition_judgment",
+        status: "success",
+        text: "Current Cloud 9 visit conditions checked.",
+        sources: [weatherSourceSummary],
+      },
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Should we still go to Cloud 9 today?" }],
+        requestId: "agent_request_bare_cloud9_visit",
+      },
+      {
+        client,
+        executeTool,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]).toMatchObject({
+      name: "get_condition_judgment",
+      status: "success",
+      arguments: {
+        activity: "visit",
+        location: "Cloud 9",
+        date_range: "today",
+        beach_name: "Cloud 9",
+      },
+    });
+    expect(result.message).toContain("**keep: Cloud 9 visit today**");
+    expect(result.message).not.toContain("Please retry the reality check");
+    expect(result.publicSources).toEqual([weatherSourceSummary]);
+  });
+
+  test("never exposes internal retry language when a reality check cannot gather evidence", async () => {
+    const missingRealityCheck = {
+      output_text: finalPayloadText({
+        answer: "No current evidence was available.",
+      }),
+    };
+    const client = fakeResponsesClient([
+      {
+        id: "resp_unresolved_dapa_plan",
+        ...missingRealityCheck,
+        output: [{ type: "message", id: "msg_unresolved_dapa_plan" }],
+        _request_id: "req_unresolved_dapa_plan",
+      },
+      {
+        id: "resp_unresolved_dapa_plan_repaired",
+        ...missingRealityCheck,
+        _request_id: "req_unresolved_dapa_plan_repaired",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Should we still go to Dapa today?" }],
+        requestId: "agent_request_unresolved_dapa_plan",
+      },
+      {
+        client,
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("**needs confirmation: today's Siargao plan**");
+    expect(result.message).toContain("Keep the outing short and flexible");
+    expect(result.message).toContain("Avoid entering the water if there is thunder or lightning");
+    expect(result.message.toLowerCase()).not.toContain("retry");
+    expect(result.message).not.toContain("checks completed");
   });
 
   test("uses the governed condition decision when model repair still omits a verdict", async () => {
@@ -8699,6 +8809,7 @@ function parseFirstInput(input: unknown): {
     files?: Array<Record<string, unknown>>;
   };
   responseContract?: {
+    completion?: string;
     deterministicSignals?: string;
     finalOutput?: string;
   };

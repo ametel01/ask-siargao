@@ -1224,8 +1224,7 @@ function resolveRealityCheckOutcome(input: {
     }
     return {
       explicit: true,
-      answer:
-        "I could not support a reliable verdict from the checks completed. Please retry the reality check so I can return a sourced keep, change, avoid, or needs-confirmation decision.",
+      answer: unresolvedRealityCheckAnswer(input.recognition),
     };
   }
 
@@ -1240,8 +1239,7 @@ function resolveRealityCheckOutcome(input: {
   if (!validated) {
     return {
       explicit: true,
-      answer:
-        "I could not tie this verdict to the completed checks, so I will not present it as reliable. Please retry the reality check.",
+      answer: unresolvedRealityCheckAnswer(input.recognition),
     };
   }
 
@@ -1391,6 +1389,43 @@ function realityCheckClarification(recognition: RealityCheckRecognition) {
     return "What was cancelled or became unavailable, and when did you plan to do it?";
   }
   return "Please add the specific plan you want me to reality-check.";
+}
+
+function unresolvedRealityCheckAnswer(recognition: RealityCheckRecognition) {
+  if (recognition.kind === "immediate_plan") {
+    return [
+      "**needs confirmation: today's Siargao plan**",
+      "Keep the outing short and flexible, with a nearby covered option, rather than cancelling it outright.",
+      "Live conditions were not established, so this is planning guidance rather than a checked go/no-go verdict.",
+      "Check the visible sky and any local warnings before leaving. Avoid entering the water if there is thunder or lightning, and get a local check before surfing or swimming.",
+    ].join("\n\n");
+  }
+  if (recognition.kind === "surf_session") {
+    return [
+      "**needs confirmation: surf session**",
+      "Do not treat the session as cleared yet. Check the exact break with a local coach or experienced surfer before paddling out.",
+      "Match the decision to your level, tide, swell, wind, reef exposure, and any thunder or lightning. If those cannot be confirmed, watch from shore or choose a coached session instead.",
+    ].join("\n\n");
+  }
+  if (recognition.kind === "accommodation") {
+    return [
+      "**needs confirmation: accommodation**",
+      "Keep the property on the shortlist, but do not make a non-refundable booking until its exact identity, location, current price, and availability are confirmed.",
+      "Also confirm the room-specific details that matter most to you, such as road noise, backup power, Wi-Fi, and transport access.",
+    ].join("\n\n");
+  }
+  if (recognition.kind === "itinerary") {
+    return [
+      "**needs confirmation: itinerary**",
+      "Keep the plan flexible and protect the time-critical leg first.",
+      "Confirm current travel times, opening or departure times, and weather-sensitive stops before committing. Drop the least important stop if the route has no useful buffer.",
+    ].join("\n\n");
+  }
+  return [
+    "**needs confirmation: replacement plan**",
+    "Choose the closest low-commitment Siargao option that still works if conditions or availability change.",
+    "Confirm the replacement directly before leaving, keep a nearby covered alternative, and avoid making a non-refundable commitment until the key detail is checked.",
+  ].join("\n\n");
 }
 
 function shouldRepairMalformedFinalAnswer(finalText: string) {
@@ -2047,6 +2082,9 @@ function missingConditionJudgmentRepairCall(
     return undefined;
   }
   if (hasCompletedConditionJudgment(toolCalls, argumentsForCondition)) {
+    return undefined;
+  }
+  if (hasCompletedSpecificVisitConditionJudgment(toolCalls, argumentsForCondition)) {
     return undefined;
   }
   if (hasAdjacentSurfConditionEvidence(toolCalls, argumentsForCondition)) {
@@ -3025,6 +3063,13 @@ function inferConditionRepairActivity(
   if (/\bsunset\b/i.test(latestContent)) {
     return "sunset";
   }
+  if (
+    inferConditionLocationFromContent(latestContent) &&
+    (/\bshould\s+(?:i|we)\s+still\b/i.test(latestContent) ||
+      /\b(?:worth\s+going|still\s+go|visit|head\s+to|stop\s+by)\b/i.test(latestContent))
+  ) {
+    return "visit";
+  }
   return undefined;
 }
 
@@ -3174,6 +3219,22 @@ function hasCompletedConditionJudgment(
     (toolCall) =>
       toolCall.name === "get_condition_judgment" &&
       conditionJudgmentMatchesRequiredArguments(toolCall.arguments, requiredArguments),
+  );
+}
+
+function hasCompletedSpecificVisitConditionJudgment(
+  toolCalls: readonly AgentToolCallAudit[],
+  requiredArguments: Record<string, unknown>,
+) {
+  return (
+    requiredArguments.activity === "visit" &&
+    toolCalls.some(
+      (toolCall) =>
+        toolCall.name === "get_condition_judgment" &&
+        toolCall.arguments.activity !== "visit" &&
+        toolCall.arguments.date_range === requiredArguments.date_range &&
+        toolCall.arguments.location === requiredArguments.location,
+    )
   );
 }
 
@@ -4654,6 +4715,8 @@ const baseResponseContract = {
     "Do not mention internal verification gaps or tool boundaries to the traveler. Never say live-check, not checked, unchecked, source caveats, tool, API, evidence, artifact, overclaim, or user constraints preserved. Convert uncertainty into practical advice only when useful, such as keep the stop flexible, avoid exposed rides in heavy rain, or check conditions before swimming.",
   structuredAnswerQuality:
     "For any evidence-backed result returned to the traveler, synthesize the evidence into a structured answer. Use a compact table or tight option list for comparisons and multiple results; use a concise heading plus key details for single-result answers. Include concrete names, area, checked details, tradeoffs, caveats, and a clear next move when available. Do not ask whether the traveler wants details that are already present in tool output.",
+  completion:
+    "Every in-scope Siargao question must receive the best useful traveler-facing answer available. Never expose validation, repair, tool, or evidence-contract failures and never ask the traveler to retry because an internal response contract failed. If a current provider is unavailable, state only the practical limitation, use governed stable local guidance where relevant, and give a concrete next move.",
 };
 
 function buildAskSiargaoBaseInstructions({

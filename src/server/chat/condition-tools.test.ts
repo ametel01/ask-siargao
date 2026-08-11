@@ -28,6 +28,7 @@ describe("condition judgment contracts", () => {
     expect(conditionSignalStatuses).toEqual(["checked", "not_checked", "unavailable"]);
     expect(conditionRiskLevels).toEqual(["low", "medium", "high"]);
     expect(conditionActivities).toEqual([
+      "visit",
       "swimming",
       "surfing",
       "scooter",

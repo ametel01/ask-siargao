@@ -2106,7 +2106,7 @@ async function getConditionMarineSnapshot(
   args: ConditionJudgmentArguments,
   dependencies: AgentToolDependencies,
 ) {
-  if (!["swimming", "surfing", "boat_trip"].includes(args.activity)) {
+  if (!["visit", "swimming", "surfing", "boat_trip"].includes(args.activity)) {
     return null;
   }
   try {
@@ -2124,7 +2124,7 @@ async function getConditionTideForecastSnapshot(
   args: ConditionJudgmentArguments,
   dependencies: AgentToolDependencies,
 ) {
-  if (!["swimming", "surfing", "boat_trip"].includes(args.activity)) {
+  if (!["visit", "swimming", "surfing", "boat_trip"].includes(args.activity)) {
     return null;
   }
   try {
@@ -2194,16 +2194,29 @@ function conditionDecisionSummaryId(judgment: ConditionJudgment) {
 }
 
 function conditionBestAction(judgment: ConditionJudgment, needsConfirmation: boolean) {
+  if (judgment.activity === "visit") {
+    if (needsConfirmation) {
+      return `Confirm locally before committing to the ${judgment.locationName} visit.`;
+    }
+    if (judgment.recommendation === "avoid") {
+      return `Avoid the ${judgment.locationName} visit for now.`;
+    }
+    if (judgment.recommendation === "flexible") {
+      return `Keep the ${judgment.locationName} visit flexible.`;
+    }
+    return `Go ahead with the ${judgment.locationName} visit.`;
+  }
+  const activity = judgment.activity.replaceAll("_", " ");
   if (needsConfirmation) {
-    return `Confirm locally before committing to ${judgment.activity.replaceAll("_", " ")}.`;
+    return `Confirm locally before committing to ${activity}.`;
   }
   if (judgment.recommendation === "avoid") {
-    return `Avoid ${judgment.activity.replaceAll("_", " ")} for now.`;
+    return `Avoid ${activity} for now.`;
   }
   if (judgment.recommendation === "flexible") {
-    return `Keep ${judgment.activity.replaceAll("_", " ")} flexible.`;
+    return `Keep ${activity} flexible.`;
   }
-  return `Go ahead with ${judgment.activity.replaceAll("_", " ")}.`;
+  return `Go ahead with ${activity}.`;
 }
 
 function conditionAvoidGuidance(judgment: ConditionJudgment, needsConfirmation: boolean) {

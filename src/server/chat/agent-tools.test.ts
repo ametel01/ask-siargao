@@ -2889,6 +2889,61 @@ not-json
     );
   });
 
+  test("returns weather and sea context for a Cloud 9 visit without implying surf clearance", async () => {
+    let marineCalls = 0;
+    let tideCalls = 0;
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_cloud9_visit_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "visit",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: "Cloud 9",
+          include_local_caveats: null,
+          constraints: [],
+        },
+      },
+      {
+        getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("Cloud 9"),
+        buildOpenMeteoMarineIngestionBatch: async () => {
+          marineCalls += 1;
+          return liveMarineBatch();
+        },
+        buildTideForecastSnapshot: async (input) => {
+          tideCalls += 1;
+          return liveTideForecastSnapshot(input.requestedLocation, input.dateRange);
+        },
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(marineCalls).toBe(1);
+    expect(tideCalls).toBe(1);
+    expect(result.sources.map((source) => source.label)).toEqual([
+      "weather_checked",
+      "tide_forecast_checked",
+      "marine_checked",
+      "curated_local_guide",
+    ]);
+    const data = result.data as {
+      judgment: { caveats: string[]; signals: Array<{ kind: string }> };
+      decisionSummary: { bestAction: string };
+    };
+    expect(data.judgment.signals.map((signal) => signal.kind)).toEqual([
+      "weather",
+      "tide",
+      "surf",
+      "surf",
+      "manual_caveat",
+    ]);
+    expect(data.judgment.caveats).toContain(
+      "Modelled sea and tide conditions can inform surf-watching, but they are not an exact break reading or surfing or swimming safety clearance.",
+    );
+    expect(data.decisionSummary.bestAction).toBe("Go ahead with the Cloud 9 visit.");
+  });
+
   test("does not include curated beach guide caveats for non-beach condition tool requests", async () => {
     const cases = [
       { activity: "scooter", location: "General Luna" },

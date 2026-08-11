@@ -9,6 +9,7 @@ export const conditionSignalKinds = ["weather", "tide", "surf", "road", "manual_
 export const conditionSignalStatuses = ["checked", "not_checked", "unavailable"] as const;
 export const conditionRiskLevels = ["low", "medium", "high"] as const;
 export const conditionActivities = [
+  "visit",
   "swimming",
   "surfing",
   "scooter",
@@ -304,7 +305,7 @@ function buildMarineSignals(
   marineSnapshot: MarineConditionsSnapshot | null | undefined,
   tideForecastSnapshot: TideForecastSnapshot | null | undefined,
 ): ConditionSignal[] {
-  if (!["swimming", "surfing", "boat_trip"].includes(activity)) {
+  if (!["visit", "swimming", "surfing", "boat_trip"].includes(activity)) {
     return [];
   }
   if (marineSnapshot || tideForecastSnapshot) {
@@ -575,6 +576,9 @@ function recommendationFor({
   if (weatherSignal?.level === "high") {
     return activity === "rain_plan" ? "flexible" : "avoid";
   }
+  if (activity === "visit") {
+    return weatherSignal?.level === "medium" ? "flexible" : "good";
+  }
   if (hasCheckedHighMarineSignal(signals)) {
     return activity === "swimming" ? "avoid" : "needs_local_confirmation";
   }
@@ -674,6 +678,11 @@ function caveatsFor({
 }) {
   const caveats = [
     "This is a condition judgment, not an official safety warning.",
+    request.activity === "visit"
+      ? hasCheckedMarineSignal(signals)
+        ? "Modelled sea and tide conditions can inform surf-watching, but they are not an exact break reading or surfing or swimming safety clearance."
+        : "Surf, tide, currents, and water safety were not evaluated for this general visit recommendation."
+      : undefined,
     request.date_range === "next_7_days"
       ? "Next-7-days evidence is a range-level proxy, not a day-specific forecast judgment."
       : undefined,
