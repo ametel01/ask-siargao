@@ -106,7 +106,7 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
   await persisted.goto("/settings");
   expect((await persisted.request.get("/api/me/profile")).status()).toBe(200);
 
-  const anonymousContext = await browser.newContext();
+  const anonymousContext = await newProtectedContext(browser);
   const anonymous = await anonymousContext.newPage();
   await anonymous.goto("/settings");
   expect((await anonymous.request.get("/api/me/profile")).status()).toBe(401);
@@ -181,7 +181,7 @@ async function completeGoogleOAuth(page: Page) {
 
 test("single-session policy invalidates the older browser session", async ({ browser }) => {
   await assertScenarioBoundary(browser, "clerk");
-  const firstContext = await browser.newContext();
+  const firstContext = await newProtectedContext(browser);
   const first = await firstContext.newPage();
   await setupClerkTestingToken({ page: first });
   await first.goto("/");
@@ -190,7 +190,7 @@ test("single-session policy invalidates the older browser session", async ({ bro
   );
   expect((await first.request.get("/api/me/profile")).status()).toBe(200);
 
-  const secondContext = await browser.newContext();
+  const secondContext = await newProtectedContext(browser);
   const second = await secondContext.newPage();
   await setupClerkTestingToken({ page: second });
   await second.goto("/");
@@ -265,7 +265,7 @@ async function recordScenarios(scenarios: string[]) {
 
 async function assertScenarioBoundary(browser: Browser | null, lane: "clerk") {
   if (!browser) throw new Error("Protected boundary browser is unavailable.");
-  const context = await browser.newContext();
+  const context = await newProtectedContext(browser);
   const boundary = await context.newPage();
   try {
     await setupClerkTestingToken({ page: boundary });
@@ -281,6 +281,16 @@ async function assertScenarioBoundary(browser: Browser | null, lane: "clerk") {
   } finally {
     await context.close();
   }
+}
+
+function newProtectedContext(browser: Browser) {
+  const protectionBypass = required("PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET");
+  return browser.newContext({
+    extraHTTPHeaders: {
+      "x-vercel-protection-bypass": protectionBypass,
+      "x-vercel-set-bypass-cookie": "true",
+    },
+  });
 }
 
 async function assertLiveBoundary(page: Page, lane: "clerk") {

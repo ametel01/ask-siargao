@@ -28,10 +28,11 @@ test("provider credentials are reachable only from manually approved protected j
 });
 
 test("protected browser lanes use a step-scoped Vercel automation bypass", async () => {
-  const [workflow, clerkConfig, stripeConfig] = await Promise.all([
+  const [workflow, clerkConfig, stripeConfig, clerkTest] = await Promise.all([
     readFile(workflowPath, "utf8"),
     readFile("playwright.clerk.config.ts", "utf8"),
     readFile("playwright.stripe.config.ts", "utf8"),
+    readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8"),
   ]);
 
   expect(workflow.match(/secrets\.PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET/g)).toHaveLength(2);
@@ -39,7 +40,10 @@ test("protected browser lanes use a step-scoped Vercel automation bypass", async
     expect(config).toContain('"x-vercel-protection-bypass"');
     expect(config).toContain('"x-vercel-set-bypass-cookie": "true"');
     expect(config).toContain("PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET");
+    expect(config).toContain("timeout: 120_000");
   }
+  expect(clerkTest.match(/newProtectedContext\(browser\)/g)).toHaveLength(4);
+  expect(clerkTest).toContain('"x-vercel-protection-bypass": protectionBypass');
 });
 
 test("protected provider database probes require verified PostgreSQL TLS", async () => {

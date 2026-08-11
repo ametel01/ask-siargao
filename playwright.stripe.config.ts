@@ -17,6 +17,7 @@ export default defineConfig({
   outputDir: "test-results/provider-stripe",
   reporter: "list",
   retries: 0,
+  timeout: 120_000,
   workers: 1,
   use: {
     baseURL,

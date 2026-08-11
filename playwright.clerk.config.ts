@@ -17,6 +17,7 @@ export default defineConfig({
   outputDir: "test-results/provider-clerk",
   reporter: "list",
   retries: 1,
+  timeout: 120_000,
   workers: 1,
   use: {
     baseURL,
