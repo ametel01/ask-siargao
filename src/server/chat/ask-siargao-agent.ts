@@ -60,6 +60,7 @@ import {
   parseRealityCheckProposal,
   type RealityCheckRecognition,
   type RealityCheckValidationResult,
+  type RealityCheckVerdict,
   recognizeRealityCheckRequest,
   type ValidatedRealityCheck,
   validateRealityCheckProposal,
@@ -1216,7 +1217,11 @@ function resolveRealityCheckOutcome(input: {
       answer: realityCheckClarification(input.recognition),
     };
   }
+  const conditionFallback = acceptedConditionRealityCheckFallback(input);
   if (!input.finalPayload?.realityCheck) {
+    if (conditionFallback) {
+      return resolvedValidatedRealityCheck(conditionFallback, input.requestId);
+    }
     return {
       explicit: true,
       answer:
@@ -1231,7 +1236,7 @@ function resolveRealityCheckOutcome(input: {
     toolCalls: input.toolCalls,
     toolResults: input.toolResults,
   });
-  const validated = acceptedRealityCheck(validation);
+  const validated = acceptedRealityCheck(validation) ?? conditionFallback;
   if (!validated) {
     return {
       explicit: true,
@@ -1240,13 +1245,83 @@ function resolveRealityCheckOutcome(input: {
     };
   }
 
-  const summary = buildRealityCheckDecisionSummary(validated, input.requestId);
+  return resolvedValidatedRealityCheck(validated, input.requestId);
+}
+
+function resolvedValidatedRealityCheck(
+  validated: ValidatedRealityCheck,
+  requestId: string,
+): RuntimeRealityCheckOutcome {
+  const summary = buildRealityCheckDecisionSummary(validated, requestId);
   return {
     explicit: true,
     answer: renderRealityCheckAnswer(validated.proposal),
     summary,
     validated,
   };
+}
+
+function acceptedConditionRealityCheckFallback(input: {
+  finalPayload: AgentFinalPayload | undefined;
+  recognition: RealityCheckRecognition;
+  toolCalls: readonly AgentToolCallAudit[];
+  toolResults: readonly AgentToolResult[];
+}) {
+  if (
+    !input.finalPayload ||
+    (input.recognition.kind !== "immediate_plan" && input.recognition.kind !== "surf_session")
+  ) {
+    return undefined;
+  }
+  const usedToolCallIds = new Set(input.finalPayload.usedToolCallIds);
+  const conditionResult = [...input.toolResults]
+    .reverse()
+    .find(
+      (result) =>
+        result.name === "get_condition_judgment" &&
+        result.status === "success" &&
+        Boolean(result.toolCallId && usedToolCallIds.has(result.toolCallId)),
+    );
+  const conditionSummary = conditionResult?.decisionSummaries?.[0];
+  const recommendation = readStringPath(conditionResult?.data, ["judgment", "recommendation"]);
+  const verdict = conditionRecommendationVerdict(recommendation);
+  if (!conditionResult?.toolCallId || !conditionSummary || !verdict) {
+    return undefined;
+  }
+  const subject = [conditionSummary.area, conditionSummary.timing].filter(Boolean).join(" ");
+  if (!subject) {
+    return undefined;
+  }
+
+  const validation = validateRealityCheckProposal({
+    expectedKind: input.recognition.kind,
+    proposal: {
+      kind: input.recognition.kind,
+      verdict,
+      subject,
+      bestAction: conditionSummary.bestAction,
+      basis: conditionSummary.basis,
+      ...(conditionSummary.fallback ? { fallback: conditionSummary.fallback } : {}),
+      ...(conditionSummary.avoid ? { avoid: conditionSummary.avoid } : {}),
+      ...(conditionSummary.timing ? { timing: conditionSummary.timing } : {}),
+      ...(conditionSummary.area ? { area: conditionSummary.area } : {}),
+      evidenceToolCallIds: [conditionResult.toolCallId],
+    },
+    usedToolCallIds: input.finalPayload.usedToolCallIds,
+    toolCalls: input.toolCalls,
+    toolResults: input.toolResults,
+  });
+  return acceptedRealityCheck(validation);
+}
+
+function conditionRecommendationVerdict(
+  value: string | undefined,
+): RealityCheckVerdict | undefined {
+  if (value === "good") return "keep";
+  if (value === "flexible") return "change";
+  if (value === "avoid") return "avoid";
+  if (value === "needs_local_confirmation") return "needs_confirmation";
+  return undefined;
 }
 
 function acceptedRealityCheck(

@@ -730,6 +730,78 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     });
   });
 
+  test("uses the governed condition decision when model repair still omits a verdict", async () => {
+    const conditionSummary: DecisionSummary = {
+      id: "condition_decision:sunset:cloud_9:today",
+      bestAction: "Keep the sunset stop flexible.",
+      basis: "The checked forecast supports a short stop with cover nearby.",
+      fallback: "Use a covered General Luna stop.",
+      timing: "today",
+      area: "Cloud 9",
+      sources: [weatherSourceSummary],
+    };
+    const missingVerdict = {
+      output_text: finalPayloadText({
+        answer: "The model omitted the governed verdict.",
+        usedToolCallIds: ["call_condition"],
+      }),
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_condition_fallback_tool",
+        requestId: "req_condition_fallback_tool",
+        callId: "call_condition",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "sunset",
+          location: "Cloud 9",
+          date_range: "today",
+          beach_name: "Cloud 9",
+        },
+      }),
+      missingVerdict,
+      missingVerdict,
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Should we still go to Cloud 9 today?" }],
+        requestId: "agent_request_condition_fallback",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_condition_judgment: {
+            name: "get_condition_judgment",
+            status: "success",
+            text: "Current condition judgment completed.",
+            data: {
+              status: "available",
+              judgment: { recommendation: "flexible" },
+              decisionSummary: conditionSummary,
+            },
+            sources: [weatherSourceSummary],
+            decisionSummaries: [conditionSummary],
+          },
+        }),
+        agentMemoryVectorStoreId: "",
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.repairCount).toBe(1);
+    expect(result.message).toContain("**change: Cloud 9 today**");
+    expect(result.message).not.toContain("Please retry the reality check");
+    expect(result.decisionSummaries?.[0]).toMatchObject({
+      kind: "immediate_plan",
+      verdict: "change",
+      subject: "Cloud 9 today",
+      bestAction: conditionSummary.bestAction,
+      sources: [weatherSourceSummary],
+    });
+  });
+
   test("downgrades a repeated positive verdict after provider failure", async () => {
     const unsafeProposal: NonNullable<AgentFinalPayload["realityCheck"]> = {
       kind: "immediate_plan",
