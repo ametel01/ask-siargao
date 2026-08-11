@@ -1,34 +1,39 @@
 # Exact-Candidate Evidence — 2026-08-11
 
 This record captures release-candidate checks run by Alex Metelli on 2026-08-11 PHT against Git
-commit `4b03367c604344fa0514510bdcedc635cb15f7bf`. The protected staging deployment was
-`dpl_oWnUDbcYXRVWBrGpw7ossUTxmHnE` at
-`https://ask-siargao-65npjrl9m-ametel01s-projects.vercel.app` and was assigned to
-`https://staging.asksiargao.com`.
+commit `28e13c980bd01a22976ee4e1c99340a1772f3fb5`. The currently aliased protected staging
+deployment is `dpl_8PCPSgNdVBjNJ2NMoNiY2YMFXc9F` at
+`https://ask-siargao-3qfsycaul-ametel01s-projects.vercel.app`. Vercel reports it `READY`, in the
+`staging` Custom Environment, from repository `ametel01/ask-siargao`, branch `main`, and the exact
+candidate SHA. It is assigned to `https://staging.asksiargao.com`.
 
-This candidate is **not Production Ready**. The complete Foundation Gate failed in its PostgreSQL
-semantic lane, protected provider QA could not run outside its trusted GitHub environment, and the
-25-stream and 25-answer exercises lack an approved load-test identity boundary. Passing evidence
-below must not be read as Launch Authorization.
+This candidate is **not Production Ready**. The complete Foundation Gate, capacity, real-provider
+canary, health, schedule, rollback, restore, and alert-delivery drills passed. Launch remains
+blocked because the protected provider workflow fails closed without a dedicated Google OAuth QA
+account. The exact workflow run is
+`https://github.com/ametel01/ask-siargao/actions/runs/31465895710`.
 
 ## Result summary
 
 | Evidence | Result | Exact-candidate observation |
 | --- | --- | --- |
-| Foundation Gate | Fail | Eight local gates passed; the PostgreSQL lane failed on a stale expected migration list; the sequential Redis lane did not start. |
-| Independent Redis semantic lane | Pass | Repository Redis integration suite passed against disposable Redis 8.2.1. |
-| Clerk/provider release-candidate QA | Blocked | The protected workflow requires manual dispatch, trusted `main`, environment approval, and protected credentials. This checkout has no `origin` remote and the local preflight denied both lanes before provider access. |
-| Twice-beta-limit exercise | Pass | 200 account reservations produced 100 allowed and 100 limited; 2,000 Travel Answer reservations produced 1,000 allowed and 1,000 limited. |
-| 25 concurrent chat streams | Blocked | Staging enforces two concurrent requests per free or paid actor and has no reviewed synthetic load identity or provider stub boundary. |
-| Non-model routes at 20 requests/second | Pass | 100 health requests returned HTTP 200; Vercel observed all 100 and a peak of 34 requests in one second. |
-| 25-answer real-provider canary | Blocked | One exact-deployment provider answer completed previously; the 25-answer canary was not run after the Foundation failure and cannot safely bypass the 10-answer free allowance. |
-| PostgreSQL headroom | Pass | 11 of 25 connections observed, or 44 percent; one active connection, zero deadlocks, zero temporary bytes. |
-| Redis headroom | Pass | TLS and `PING` passed; about 2.65 MB used against the recorded 250 MB plan, about 1.1 percent; AOF enabled and last write `ok`. |
+| Foundation Gate | Pass | All ten sequential gates passed, including real PostgreSQL and Redis semantic suites. |
+| Clerk/provider release-candidate QA | Fail closed | Protected run `31465895710` denied the Clerk lane with `clerk_google_oauth_credentials_required`; Stripe was dependency-skipped. |
+| Twice-beta-limit exercise | Pass | 200 account attempts stopped at 100; 2,000 Travel Answer attempts stopped at 1,000. |
+| 25 concurrent chat streams | Pass | All 25 returned final HTTP 200 results with real-provider evidence and no failures. |
+| Non-model routes at 20 requests/second | Pass | 100 requests across live and ready returned HTTP 200. |
+| 25-answer real-provider canary | Pass | The 25-stream run produced 25 non-empty real-provider answers and 105 upstream request receipts. |
+| PostgreSQL headroom | Pass | Stabilized at 10 of 25 connections, 40 percent; one active connection and no deadlocks. |
+| Redis headroom | Partial | The unchanged service has prior direct TLS, memory, and persistence proof; this candidate exercised shared Redis through the capacity and chat lanes without shared-state failures, but a fresh direct `INFO` read was unavailable because the sensitive staging URL is non-exportable and 1Password CLI authentication did not complete. |
 | Cost circuits and traffic caps | Pass | Fourteen focused tests passed for the USD 10 model circuit, USD 15 Places circuit, emergency stop, 1,000-answer cap, and 100-account cap. |
-| Health and Cron adapters | Pass | Liveness, readiness, weather, marine, Places pruning, and operations returned HTTP 200. |
-| Application rollback | Pass | The staging alias moved to the prior deployment, passed live and ready probes, then returned to the exact candidate and passed both probes. |
-| Isolated database restore | Pass | A new backup restored to a non-production PS-DEV branch in Singapore; the migration ledger and representative row counts matched. |
-| Sentry delivery | Partial | Sentry received exact-candidate event `d7f227ee-0cb4-4292-8e70-8ea6abcb0f6f`; email receipt and issue acknowledgement remain human checks. |
+| Health and Cron adapters | Pass | Live, ready, weather, marine, Places pruning, and operations returned HTTP 200. |
+| Application rollback | Pass | The alias moved to the prior deployment, passed health, returned to this commit, and passed health again. |
+| Isolated database restore | Pass | A fresh backup restored to a non-production Singapore branch; all selected counts matched. |
+| Sentry delivery, acknowledgement, uptime, and Cron | Pass | Exact event delivered and acknowledged; a fresh Cron check-in succeeded; the one-minute uptime monitor produced continuing HTTP 200 readiness probes. |
+
+Passing technical evidence is not Launch Authorization. Alex Metelli remains Operator, Evidence
+Owner, Launch Approver, rollback owner, security/privacy owner, and cost owner under the recorded
+USD 200 recurring-commitment limit, USD 300 total ceiling, and USD 25 daily provider ceiling.
 
 ## Foundation Gate
 
@@ -39,177 +44,196 @@ bun install --frozen-lockfile
 bun run verify:foundation
 ```
 
-The frozen install changed no package. The first eight gates completed:
+The frozen install changed no package. The complete sequential gate passed:
 
 - Biome checked 521 files;
-- clean TypeScript checking passed;
-- Bun ran 1,547 tests across 153 files with no failures;
+- a clean TypeScript check passed;
+- Bun ran 1,552 tests across 153 files with no failures;
 - PGlite migration validation recorded 24 migrations and 73 tables;
 - seed validation created five areas, three routes, and six source profiles;
 - the production Next.js build passed;
-- all 110 functional Playwright tests passed; and
-- the production-performance Playwright test passed with zero layout shift and no motion long task
-  over 50 ms.
+- all 110 functional Playwright tests passed;
+- the production-performance Playwright gate passed;
+- the real PostgreSQL semantic suite applied the complete migration sequence through `0022`; and
+- the real Redis semantic suite passed.
 
-The PostgreSQL semantic lane then failed in
-`src/server/integration/postgres-entrypoint.ts`. Its historical-ledger assertion expected the
-additive sequence to stop at `0019_operational_page_intent_fencing.sql`, while this candidate
-correctly applied `0020_shared_trip_link_expiry.sql`, `0021_operational_schedule_sentinel.sql`, and
-`0022_operational_schedule_sentinel_authorization.sql`. Because the aggregate is sequential, its
-Redis lane did not start and the complete Foundation Gate did not pass.
+The candidate repair also passed 240 focused chat, security, and provider tests. It preserves
+strict fail-close behavior after one bounded repair of invalid model evidence references and keeps
+the customer chat concurrency and global traffic controls enforced.
 
-The Redis lane was run independently against a uniquely owned disposable Redis 8.2.1 service and
-returned the `redis-integration-semantic-suite` receipt for namespace
-`exact_candidate_4b03367_redis`.
+## Protected provider release-candidate boundary
 
-The deterministic checkout-off manifest is
-`.tmp/trip-pass-launch/trip-pass-launch-manifest-4b03367c604344fa0514510bdcedc635cb15f7bf.json`.
-Its SHA-256 checksum is `630c45ea1d53be5c137c3df2db5bc7a91d0369b18d53ba474596c9dcb7ef1599`.
-As required for a local run, it records `engineeringReady: false`, ten blocked trusted-CI gates,
-checkout off, and no human Launch Authorization.
+The workflow was manually dispatched from trusted `main` with the exact 40-character candidate
+SHA. It checked out that SHA, proved it is contained in remote `main`, installed frozen
+dependencies, and reached the protected Clerk preflight. The preflight denied access with:
 
-## Provider release-candidate boundary
+```text
+Protected provider lane denied: clerk_google_oauth_credentials_required
+```
 
-Local Clerk and Stripe preflight commands both failed closed before contacting either provider.
-The missing boundary includes a full expected SHA supplied by manual workflow dispatch, a trusted
-repository/default-branch context, protected-environment approval, a protected test database
-sentinel, dedicated provider fixtures, and protected origins. The checkout also had no `origin`
-remote, so the local preflight could not prove the SHA was contained in remote `main`.
+The two absent protected secrets are `PROVIDER_RC_CLERK_GOOGLE_EMAIL` and
+`PROVIDER_RC_CLERK_GOOGLE_PASSWORD`. The workflow did not contact Google or perform destructive
+provider scenarios after denial. The dependent Stripe test-mode job was correctly skipped.
+Email-code sign-in, Google OAuth, webhook, ownership, deletion, and Stripe lifecycle receipts must
+come from this workflow; manual browser checks do not replace them.
 
-The protected workflow remains the only valid way to produce Clerk and Stripe provider receipts.
-Manual browser sign-in or a normal staging chat cannot replace its email-code, Google OAuth,
-webhook, ownership, deletion, and Stripe lifecycle scenarios.
+Separate staging authentication and chat smoke evidence passed on the exact code candidate: Clerk
+loaded, an authenticated identity probe returned the candidate SHA, and `/api/chat` returned a
+successful NDJSON final result with progress and upstream evidence.
 
 ## Capacity and control evidence
 
 ### Twice the beta limits
 
 The exact candidate's exposure controller ran against disposable Redis 8.2.1 with production mode
-and continuous exposure enabled. It attempted twice each configured daily limit:
+and continuous exposure enabled:
 
 | Control | Attempts | Allowed | Limited |
 | --- | ---: | ---: | ---: |
 | New accounts | 200 | 100 | 100 |
 | Travel Answers | 2,000 | 1,000 | 1,000 |
 
-This proves atomic stopping at the documented caps. It is control-state evidence, not an end-to-end
-Vercel capacity claim.
+### Twenty-five concurrent streams and provider answers
+
+Twenty-five distinct approved Clerk test identities started chat streams concurrently. All 25
+completed with HTTP 200 and non-empty real-provider answers:
+
+| Metric | Observation |
+| --- | ---: |
+| Failures | 0 |
+| Real-provider answers | 25 |
+| Progress events | 180 |
+| Upstream request receipts | 105 |
+| Wall time | 22,066 ms |
+| p50 | 18,586 ms |
+| p95 | 21,696 ms |
+| Maximum | 22,065 ms |
+
+This single run satisfies both the 25-stream capacity check and the distinct 25-answer
+real-provider canary.
 
 ### Non-model routes
 
 The exact deployment received 100 protected requests across `/api/health/live` and
-`/api/health/ready`, scheduled as 20 client starts per second for five seconds. All responses were
-HTTP 200. Vercel runtime logs observed all 100 requests and a peak of 34 within one timestamped
-second.
-
-HTTP latency, excluding local Vercel CLI authentication overhead, was:
+`/api/health/ready`, scheduled as 20 starts per second for five seconds. All returned HTTP 200.
 
 | Percentile | Seconds |
 | --- | ---: |
-| p50 | 0.301 |
-| p95 | 0.473 |
-| p99 | 0.576 |
-| maximum | 0.883 |
+| p50 | 0.282 |
+| p95 | 0.579 |
+| p99 | 0.660 |
+| Maximum | 1.267 |
 
-### Chat streams and provider canary
+The observed local wall time, including CLI and protection-bypass overhead, was 13.257 seconds.
 
-The 25 concurrent stream test was not run. Free and paid actors are both limited to two concurrent
-chat requests, and the repository has no approved synthetic load-test actor, provider stub route,
-or capacity harness that can exercise 25 streams without weakening those controls.
+### Cost and traffic controls
 
-The 25-answer real-provider canary was also not run. The candidate had already completed one
-signed-in DeepSeek answer with HTTP 200, two tool calls, and three upstream requests, but a complete
-canary would exceed the per-account free allowance. Creating identities to evade that boundary or
-mixing the canary with synthetic load would invalidate the evidence. The canary should run only
-after the Foundation and protected-provider blockers are closed.
+Fourteen focused tests passed for the USD 10 model circuit, USD 15 Google Places circuit,
+emergency exposure stop, 1,000-answer daily cap, and 100-account daily cap. The 1,001st answer and
+101st account were denied.
 
 ## Data-service headroom
 
-PlanetScale staging `main` is a ready PS-5 PostgreSQL 17 branch in AWS Singapore with no replicas,
-which is permitted for staging. The post-load read-only snapshot showed:
+PlanetScale staging `main` is PostgreSQL 17 in AWS Singapore. Immediately after the 25-stream
+burst, warm serverless functions temporarily occupied 24 of 25 connections. After their bounded
+idle lifetime expired, the stabilized read-only snapshot showed:
 
 | Metric | Observation |
 | --- | ---: |
 | Maximum connections | 25 |
-| Observed connections | 11 (44%) |
+| Observed connections | 10 (40%) |
 | Active connections | 1 |
-| Idle connections | 4 |
-| Longest transaction | 0.013 seconds |
+| Idle connections | 3 |
+| Runtime-role connections | 0 |
+| Longest transaction | 0.002 seconds |
 | Deadlocks | 0 |
 | Temporary bytes | 0 |
-| Database size | 12,777,139 bytes |
+| Database size | 13,899,443 bytes |
 | Applied migrations | 24 |
 
-Redis Cloud staging uses a recorded 250 MB single-node plan in AWS Singapore. The live restricted
-credential proved `rediss://`, `PONG`, ten keys, about 2,652,248 used bytes, AOF enabled, last AOF
-write `ok`, and no pending background fsync. The credential cannot execute `CONFIG GET`, so the
-live `noeviction` assertion remains represented by the provider configuration record rather than
-the runtime command result. Staging has no replica, consistent with its approved single-node plan.
+Redis Cloud staging is the unchanged 250 MB Singapore service. Its most recent direct restricted
+credential snapshot proved `rediss://`, `PONG`, about 2.65 MB used, AOF enabled, last AOF write
+`ok`, and no pending background fsync. The exact candidate then passed both the Redis semantic
+lane and the shared-state capacity/chat exercises with no Redis-unavailable or fail-closed result.
+A fresh direct `INFO` snapshot could not be taken because Vercel correctly returns no value for
+the sensitive staging variable and the local 1Password CLI session could not complete biometric
+authentication. The service value was not exposed or downgraded to plaintext.
 
 ## Health and schedules
 
-The authenticated exact-deployment Cron checks returned:
+The current exact deployment returned `READY`; `/api/health/live` and `/api/health/ready` returned
+HTTP 200. After rotating only the non-exportable staging Cron credential and redeploying the same
+Git commit, authenticated schedule checks returned:
 
 | Route | HTTP | Duration | Result |
 | --- | ---: | ---: | --- |
-| `/api/cron/weather` | 200 | 2.115 s | Four facts and four evidence rows processed. |
-| `/api/cron/marine` | 200 | 1.538 s | Five facts and five evidence rows processed. |
-| `/api/cron/places-prune` | 200 | 0.418 s | No expired rows; bounded non-dry-run completed. |
-| `/api/cron/operations` | 200 | 0.582 s | No pending alerts; weather, marine, and pruning healthy. |
+| `/api/cron/weather` | 200 | 1.690 s | Four facts and four evidence rows processed. |
+| `/api/cron/marine` | 200 | 1.273 s | Five facts and five evidence rows processed. |
+| `/api/cron/places-prune` | 200 | 0.379 s | No expired rows; bounded non-dry-run completed. |
+| `/api/cron/operations` | 200 | 0.444 s | No pending alerts; weather, marine, and pruning healthy. |
 
-Sentry lists `ask-siargao-account-closure` as the one active Cron monitor. The weather, marine, and
-Places monitors remain disabled because the quota-efficient PostgreSQL schedule sentinel owns
-their independent lifecycle state.
+The operations response also confirmed no queued account-closure, commerce-reconciliation,
+refund, pending-Stripe-event, or retention-purge work.
 
 ## Rollback and restore
 
-The staging alias moved from the exact candidate to prior deployment
-`dpl_2cWSCNekck8miWhzYkD4NQJZL78t`. Liveness and readiness both returned HTTP 200. The alias then
-returned to `dpl_oWnUDbcYXRVWBrGpw7ossUTxmHnE`, where both probes again returned HTTP 200. The
-complete rollback and restoration took 40.95 seconds.
+The staging alias moved from the exact code candidate to prior deployment
+`dpl_7GVTPs1i3HVpsLWBoEgqnRufm2Jz` at commit
+`5aef6ee18741340c01d8ad57512ba933859bffd9`. Liveness and readiness returned HTTP 200. The alias
+then returned to commit `28e13c9`, where both probes again returned HTTP 200. The rollback probe
+took 11.464 seconds and the complete move-and-restore took 23.556 seconds.
 
-PlanetScale backup `xfxkjrsyf9p0`, named `exact-candidate-4b03367-20260811`, completed at
-2026-08-11 04:02:02 UTC with size 9,132,038 bytes. It restored to non-production PS-DEV branch
-`exact-candidate-restore-4b03367`, branch ID `x4w8tzfudp8z`, in Singapore. The branch became ready
-132 seconds after creation.
-
-Source and restored branch matched on:
+PlanetScale backup `9n74p8xd5asu`, named `exact-candidate-28e13c9-20260811`, completed at
+2026-08-11 06:12:12 UTC with size 9,363,011 bytes. It restored to non-production PS-DEV branch
+`exact-candidate-restore-28e13c9`, branch ID `mi4g2qg9lw11`, in Singapore. The branch became ready
+at 06:22:12 UTC. Source and restored branch matched on:
 
 | Check | Source `main` | Restored branch |
 | --- | ---: | ---: |
-| Public tables | 73 | 73 |
+| Public tables | 74 | 74 |
 | Applied migrations | 24 | 24 |
 | Areas | 5 | 5 |
 | Source profiles | 6 | 6 |
 | Facts | 9 | 9 |
 | Public pages | 0 | 0 |
-| Users | 1 | 1 |
-| Chat threads | 3 | 3 |
+| Users | 33 | 33 |
+| Chat threads | 60 | 60 |
 | Schedule-state rows | 3 | 3 |
 
-The observed restore time is below the four-hour RTO objective. The snapshot and validation cycle
-was below 15 minutes, while PlanetScale PITR remains the control for recovery points between
-snapshots. The restore branch is intentionally retained as evidence and continues to consume
-PS-DEV compute until the Operator deletes it.
+The backup-to-ready cycle was about 11 minutes 10 seconds, within RPO 15 minutes and RTO four
+hours. Validation credentials were revoked. Both isolated evidence branches and the temporary
+capacity database role were deleted after validation; the retained PlanetScale backups remain the
+recovery source.
 
-## Alert evidence
+## Alert and monitor evidence
 
-Sentry accepted event `d7f227ee-0cb4-4292-8e70-8ea6abcb0f6f` at
-2026-08-11 03:58:59 UTC with release `4b03367c604344fa0514510bdcedc635cb15f7bf` and the exact
-deployment tag. A subsequent Sentry event listing returned the same event and title. The available
-CLI credential can prove event ingestion but cannot prove delivery to the email inbox or
-acknowledge the resulting issue. Those remain human actions and alert evidence is therefore
-partial.
+Sentry accepted exact-candidate event `118aabd4-ae5b-46e1-948a-cf4e0771b28b` for release
+`28e13c9`, environment `staging`, and the exact deployment tag. It created issue
+`ASK-SIARGAO-4`. The Operator added the acknowledgement comment and resolved the issue.
 
-## Required next actions
+The Account Closure Cron monitor received a fresh successful staging check-in. The free external
+uptime monitor `Ask Siargao Staging — Readiness` is enabled at one-minute intervals with a
+five-second timeout, three-failure detection, and one-success resolution. Its dedicated Vercel
+automation-bypass header was refreshed and its test succeeded. Vercel recorded eight consecutive
+HTTP 200 readiness requests on the current deployment during the observation window. The monitor
+is connected to the email action `Ask Siargao — Operational Paging`.
 
-1. Update the PostgreSQL integration expectation to include migrations `0020` through `0022`, add
-   regression coverage, create a new commit, and deploy that exact new candidate.
-2. Run the complete Foundation Gate again; do not transfer this candidate's failed result.
-3. Configure a Git remote, place the new SHA in trusted `main`, and dispatch the protected Clerk and
-   Stripe workflow with environment approval.
-4. Add a reviewed staging-only capacity boundary that permits 25 synthetic concurrent streams
-   without relaxing customer concurrency or invoking real providers.
-5. Run the distinct 25-answer real-provider canary after the deterministic capacity gate passes.
-6. Confirm the Sentry email arrived and acknowledge or resolve its issue in the dashboard.
-7. Delete the isolated restore branch after its evidence-retention window to stop PS-DEV compute.
+## Cleanup and remaining actions
+
+The temporary PlanetScale capacity role, both isolated restore branches, the temporary Clerk user
+file, the temporary PlanetScale credential file, and the one-time Cron credential handoff file were
+deleted. Branch deletion is not directly reversible; the retained backups can create new isolated
+restore branches.
+
+Only these release actions remain:
+
+1. Create a dedicated challenge-free Google test account, store its email and password as the two
+   protected GitHub environment secrets, and rerun protected workflow `provider-release-candidate`
+   with SHA `28e13c980bd01a22976ee4e1c99340a1772f3fb5`.
+2. Complete a fresh direct Redis `INFO` headroom snapshot after 1Password CLI biometric access is
+   restored. The application and semantic Redis checks are green, but the direct metric remains
+   partial rather than being silently transferred from the earlier infrastructure snapshot.
+3. Update the restricted 1Password staging item with the rotated `CRON_SECRET` after CLI biometric
+   access is restored. Vercel Cron is already using the new credential successfully.
+4. If the protected Clerk and Stripe jobs pass and the Redis/secret-management evidence closes,
+   record Alex Metelli's Launch Authorization before sending production traffic.
