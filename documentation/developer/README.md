@@ -17,6 +17,7 @@ Use these pages when working on the Ask Siargao codebase.
 - [Free Controlled Beta accountability](reference/free-controlled-beta-accountability.md): assigned launch-preparation owners, approved spending limits, and the independent-approver blocker.
 - [Production vendor register](reference/production-vendor-register.md): production suppliers, data categories, regions, retention, contract evidence, deletion routes, incident contacts, and secret-rotation state.
 - [Monitoring and recovery drill — 2026-08-11](reference/monitoring-and-recovery-drill-2026-08-11.md): Sentry, emergency-stop, rollback, PlanetScale restore, RPO/RTO, and rotation evidence plus remaining launch blockers.
+- [Exact-candidate evidence — 2026-08-11](reference/exact-candidate-evidence-2026-08-11.md): Foundation, provider, capacity, headroom, circuit, health, Cron, rollback, restore, and alert results for commit `4b03367c604344fa0514510bdcedc635cb15f7bf`.
 - [Demo data reference](reference/demo-data.md): synthetic and permitted local QA fixtures.
 - [Clerk auth and account lifecycle](reference/clerk-auth-session-chat-history-requirements.md): as-built sign-in, session, profile, webhook, closure, monitoring, and rollback behavior.
 - [Audit lifecycle and boundaries](explanation/audit-lifecycle-and-boundaries.md): how intake, payment, generation, public data, and privacy boundaries fit together.
