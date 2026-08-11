@@ -144,7 +144,7 @@ test("Google OAuth proof cannot fall back to a Clerk email sign-in helper", asyn
   expect(googleEnd).toBeGreaterThan(googleStart);
   expect(googleCase).toContain("completeGoogleOAuth(page)");
   expect(googleCase).not.toContain("clerk.signIn");
-  expect(googleCase).toContain('getByRole("img", { name: /sign in with google/i })');
+  expect(googleCase).toContain("locator('[aria-label=\"Sign in with Google\"]')");
   expect(googleCase).toContain("filter({ has: googleIcon })");
   expect(googleCase).not.toContain("/continue with google/i");
   expect(protectedTest).toContain('required("PROVIDER_RC_CLERK_GOOGLE_EMAIL")');
