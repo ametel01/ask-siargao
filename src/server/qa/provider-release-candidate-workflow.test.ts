@@ -263,4 +263,5 @@ test("expiry, cancellation, session policy, profile, and account receipts are as
   expect(clerkTest).toContain("clerkInstancePolicy.maxSessionAgeDays");
   expect(clerkTest).toContain('"profile_convergence"');
   expect(clerkTest).toContain('"account_management"');
+  expect(clerkTest).toContain('document.querySelector(".cl-userProfile-root")');
 });

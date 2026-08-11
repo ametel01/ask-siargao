@@ -97,7 +97,7 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
     page.waitForFunction(
       () =>
         (document.querySelector("#ask-siargao-account-management-root")?.childElementCount ?? 0) >
-        0,
+          0 || Boolean(document.querySelector(".cl-userProfile-root")),
     ),
   );
   await page.keyboard.press("Escape");
