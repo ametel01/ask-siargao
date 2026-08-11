@@ -22,13 +22,37 @@ const baseEnv = {
   PROVIDER_RC_DATABASE_ENVIRONMENT: "protected-test",
   PROVIDER_RC_DATABASE_EXPECTED_HOST: "provider-rc-db.test",
   PROVIDER_RC_DATABASE_EXPECTED_NAME: "ask_siargao_provider_rc_test",
+  PROVIDER_RC_DATABASE_RESOURCE_NAME: "ask-siargao-staging",
   PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT: "sentinel-redacted",
   PROVIDER_RC_EXPECTED_SHA: sha,
   PROVIDER_RC_PRODUCTION_ORIGIN: "https://asksiargao.com",
+  PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET: "vercel-bypass-redacted",
   STRIPE_RESTRICTED_KEY: "rk_test_redacted",
 };
 
 describe("protected provider release-candidate policy", () => {
+  test("accepts an opaque managed PostgreSQL identity when its resource name and sentinel are staging-only", () => {
+    const host = "xy12z.horizon.psdb.cloud";
+    expect(
+      validateProviderReleaseCandidateContext({
+        checkedOutCommitSha: sha,
+        env: {
+          ...baseEnv,
+          CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
+          CLERK_SECRET_KEY: "sk_test_redacted",
+          CLERK_WEBHOOK_SIGNING_SECRET: "whsec_redacted",
+          DATABASE_URL: `postgres://role:secret@${host}:5432/postgres`,
+          PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
+          PROVIDER_RC_CLERK_GOOGLE_PASSWORD: "redacted-password",
+          PROVIDER_RC_DATABASE_EXPECTED_HOST: host,
+          PROVIDER_RC_DATABASE_EXPECTED_NAME: "postgres",
+          PROVIDER_RC_DATABASE_RESOURCE_NAME: "ask-siargao-staging",
+        },
+        lane: "clerk",
+      }),
+    ).toEqual({ errors: [], valid: true });
+  });
+
   test("accepts only exact manual Clerk test-instance evidence", () => {
     expect(
       validateProviderReleaseCandidateContext({
@@ -175,11 +199,11 @@ describe("protected provider release-candidate policy", () => {
         DATABASE_URL: "postgres://provider-rc-db.test/ask_siargao_provider_rc_test",
         PROVIDER_RC_DATABASE_EXPECTED_HOST: "db.production.example",
         PROVIDER_RC_DATABASE_EXPECTED_NAME: "main",
+        PROVIDER_RC_DATABASE_RESOURCE_NAME: "ask-siargao-production",
       },
       lane: "clerk",
     });
-    expect(result.errors).toContain("protected_test_database_host_required");
-    expect(result.errors).toContain("protected_test_database_name_required");
+    expect(result.errors).toContain("protected_test_database_resource_required");
     expect(() =>
       buildProviderReleaseCandidateEvidence({
         checkedOutCommitSha: sha,

@@ -72,8 +72,10 @@ export type ProviderReleaseCandidateEnv = Partial<
     | "PROVIDER_RC_DATABASE_ENVIRONMENT"
     | "PROVIDER_RC_DATABASE_EXPECTED_HOST"
     | "PROVIDER_RC_DATABASE_EXPECTED_NAME"
+    | "PROVIDER_RC_DATABASE_RESOURCE_NAME"
     | "PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT"
     | "PROVIDER_RC_PRODUCTION_ORIGIN"
+    | "PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET"
     | "PROVIDER_RC_STRIPE_ACTIVE_USER"
     | "PROVIDER_RC_STRIPE_CLOSURE_USER"
     | "PROVIDER_RC_STRIPE_REVERSED_USER"
@@ -134,6 +136,9 @@ export function validateProviderReleaseCandidateContext(input: {
   if (!productionOrigin) errors.push("production_https_origin_required");
   if (appOrigin && productionOrigin && appOrigin === productionOrigin) {
     errors.push("production_origin_forbidden");
+  }
+  if (!env.PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET) {
+    errors.push("vercel_automation_bypass_required");
   }
   validateProtectedDatabaseConfiguration(env, errors);
 
@@ -326,17 +331,12 @@ function validateProtectedDatabaseConfiguration(
   }
   const expectedHost = env.PROVIDER_RC_DATABASE_EXPECTED_HOST ?? "";
   const expectedName = env.PROVIDER_RC_DATABASE_EXPECTED_NAME ?? "";
+  const resourceName = env.PROVIDER_RC_DATABASE_RESOURCE_NAME ?? "";
   if (
-    !nonProductionDatabaseMarker.test(expectedHost) ||
-    productionDatabaseMarker.test(expectedHost)
+    !nonProductionDatabaseMarker.test(resourceName) ||
+    productionDatabaseMarker.test(resourceName)
   ) {
-    errors.push("protected_test_database_host_required");
-  }
-  if (
-    !nonProductionDatabaseMarker.test(expectedName) ||
-    productionDatabaseMarker.test(expectedName)
-  ) {
-    errors.push("protected_test_database_name_required");
+    errors.push("protected_test_database_resource_required");
   }
   if (!env.DATABASE_URL) {
     errors.push("dedicated_database_required");

@@ -2,6 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PROVIDER_RC_APP_ORIGIN;
 if (!baseURL) throw new Error("PROVIDER_RC_APP_ORIGIN is required for the protected Stripe lane.");
+const protectionBypass = process.env.PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET;
+if (!protectionBypass) {
+  throw new Error(
+    "PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET is required for the protected Stripe lane.",
+  );
+}
 
 export default defineConfig({
   testDir: "./tests/provider",
@@ -14,6 +20,10 @@ export default defineConfig({
   workers: 1,
   use: {
     baseURL,
+    extraHTTPHeaders: {
+      "x-vercel-protection-bypass": protectionBypass,
+      "x-vercel-set-bypass-cookie": "true",
+    },
     screenshot: "off",
     trace: "off",
     video: "off",

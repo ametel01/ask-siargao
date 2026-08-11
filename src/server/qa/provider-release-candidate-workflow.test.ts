@@ -27,6 +27,21 @@ test("provider credentials are reachable only from manually approved protected j
   expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_PASSWORD/g)).toHaveLength(1);
 });
 
+test("protected browser lanes use a step-scoped Vercel automation bypass", async () => {
+  const [workflow, clerkConfig, stripeConfig] = await Promise.all([
+    readFile(workflowPath, "utf8"),
+    readFile("playwright.clerk.config.ts", "utf8"),
+    readFile("playwright.stripe.config.ts", "utf8"),
+  ]);
+
+  expect(workflow.match(/secrets\.PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET/g)).toHaveLength(2);
+  for (const config of [clerkConfig, stripeConfig]) {
+    expect(config).toContain('"x-vercel-protection-bypass"');
+    expect(config).toContain('"x-vercel-set-bypass-cookie": "true"');
+    expect(config).toContain("PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET");
+  }
+});
+
 test("protected dispatches and lanes cannot overlap or cancel mid-mutation", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   expect(workflow).toContain(
