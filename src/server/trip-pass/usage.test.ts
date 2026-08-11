@@ -318,6 +318,39 @@ describe("paid Trip Pass chat usage", () => {
     expect(store.calls).toBe(0);
   });
 
+  test("uses the process environment before falling back to signed-in free chat", async () => {
+    await withTestDb(async (db) => {
+      const previousEnvironment = {
+        APP_ENV: process.env.APP_ENV,
+        NODE_ENV: process.env.NODE_ENV,
+        REDIS_URL: process.env.REDIS_URL,
+      };
+
+      try {
+        delete process.env.APP_ENV;
+        Reflect.set(process.env, "NODE_ENV", "production");
+        process.env.REDIS_URL = "rediss://configured.example.invalid:6379";
+
+        const result = await openChatUsageSession({
+          db,
+          now,
+          requestId: "request_signed_in_free_process_env",
+          userId: "account_without_active_pass",
+        });
+
+        expect(result).toEqual({ status: "not_applicable", reason: "no_active_pass" });
+      } finally {
+        for (const [name, value] of Object.entries(previousEnvironment)) {
+          if (value === undefined) {
+            delete process.env[name];
+          } else {
+            process.env[name] = value;
+          }
+        }
+      }
+    });
+  });
+
   test("keeps a durable settlement when Redis lease cleanup fails after generation", async () => {
     await withTestDb(async (db) => {
       await seedActivePass(db, "user_paid_cleanup_down", "trip_pass_paid_cleanup_down");

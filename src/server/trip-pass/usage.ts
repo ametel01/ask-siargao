@@ -151,8 +151,9 @@ export async function openChatUsageSession(
   const now = input.now ?? new Date();
   const nowMs = now.getTime();
   const db = input.db ?? getDefaultDatabaseQueryClient();
+  const environment = input.env ?? process.env;
 
-  if (!input.store && isProductionEnvironment(input.env) && !input.env?.REDIS_URL) {
+  if (!input.store && isProductionEnvironment(environment) && !environment.REDIS_URL) {
     return { status: "unavailable", reason: "paid_usage_store_unavailable" };
   }
 
@@ -163,7 +164,7 @@ export async function openChatUsageSession(
       accountId: input.userId,
       bodyHash: input.bodyHash ?? hashText(input.requestId),
       db,
-      env: input.env,
+      env: environment,
       idempotencyKeyHash,
       requestId: input.requestId,
     });
@@ -184,7 +185,7 @@ export async function openChatUsageSession(
     };
   }
 
-  const store = input.store ?? getDefaultPaidUsageStore(input.env);
+  const store = input.store ?? getDefaultPaidUsageStore(environment);
   const passId = reservation.passId;
   const allowance = reservation.allowance;
   const releaseDurableReservation = (reason: PaidAnswerReleaseReason) =>
