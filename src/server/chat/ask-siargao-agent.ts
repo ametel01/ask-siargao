@@ -1746,6 +1746,55 @@ function buildAgentRepairAdapters({
       },
     },
     {
+      name: "final-payload-reference-integrity",
+      createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
+        if (
+          !requireStructuredFinalOutput ||
+          hasValidationRepairInput(responseInput, "validationRepairFinalPayloadReferences")
+        ) {
+          return undefined;
+        }
+        const payload = parseAgentFinalPayload(finalText);
+        if (!payload) {
+          return undefined;
+        }
+
+        const knownToolCallIds = new Set(
+          toolCalls.flatMap((toolCall) => (toolCall.toolCallId ? [toolCall.toolCallId] : [])),
+        );
+        const expandedToolCallIds = expandFinalPayloadToolCallIds(
+          payload.usedToolCallIds,
+          toolCalls,
+        );
+        const unknownToolCallIds = expandedToolCallIds.filter(
+          (toolCallId) => !knownToolCallIds.has(toolCallId),
+        );
+        const observedMemoryFiles = currentTurnMemoryFileNames(toolResults);
+        for (const fileName of hostedMemoryFileNames) {
+          observedMemoryFiles.add(fileName);
+        }
+        const unknownMemoryFiles = uniqueText(payload.usedMemoryFiles).filter(
+          (fileName) => !observedMemoryFiles.has(fileName),
+        );
+        if (unknownToolCallIds.length === 0 && unknownMemoryFiles.length === 0) {
+          return undefined;
+        }
+
+        return {
+          type: "retry",
+          payloadKey: "validationRepairFinalPayloadReferences",
+          payload: {
+            allowedMemoryFiles: [...observedMemoryFiles].sort(),
+            allowedToolCallIds: [...knownToolCallIds].sort(),
+            unknownMemoryFiles,
+            unknownToolCallIds,
+          },
+          instruction:
+            "Validation repair: the previous final JSON invented or reused memory filenames or toolCallIds that were not observed in this turn. Preserve its useful traveler-facing answer, but return one corrected final JSON object using only the allowed memory filenames and completed toolCallIds supplied here. Use empty arrays when none apply. Do not call another tool and do not invent replacement identifiers.",
+        };
+      },
+    },
+    {
       name: "legacy-structured-answer-quality",
       createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
         const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
@@ -2454,6 +2503,7 @@ function hasValidationRepairInput(
   responseInput: readonly ResponseInputItem[],
   key:
     | "validationRepairNightlifeMemoryBaseline"
+    | "validationRepairFinalPayloadReferences"
     | "validationRepairRealityCheck"
     | "validationRepairStructuredAnswerQuality"
     | "validationRepairStructuredFinalOutput"

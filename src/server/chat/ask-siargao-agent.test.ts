@@ -2727,6 +2727,14 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         }),
         _request_id: "req_unknown_used_tool",
       },
+      {
+        id: "resp_unknown_used_tool_repeated",
+        output_text: finalPayloadText({
+          answer: "This payload still cites a missing tool call.",
+          usedToolCallIds: ["missing_call"],
+        }),
+        _request_id: "req_unknown_used_tool_repeated",
+      },
     ]);
 
     await expect(
@@ -2738,6 +2746,42 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         { client, model: "gpt-test", requireStructuredFinalOutput: true },
       ),
     ).rejects.toThrow("unknown tool call ID");
+  });
+
+  test("repairs invented final payload references once before strict validation", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_invented_references",
+        output_text: finalPayloadText({
+          answer: "Use the checked Cloud 9 conditions and keep a fallback ready.",
+          usedMemoryFiles: ["SURF.md"],
+          usedToolCallIds: ["condition_surfing_cloud9_today"],
+        }),
+        _request_id: "req_invented_references",
+      },
+      {
+        id: "resp_repaired_references",
+        output_text: finalPayloadText({
+          answer: "Use the checked Cloud 9 conditions and keep a fallback ready.",
+        }),
+        _request_id: "req_repaired_references",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Give me one concise Siargao planning principle." }],
+        requestId: "agent_request_invented_references",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).toBe("Use the checked Cloud 9 conditions and keep a fallback ready.");
+    expect(result.repairCount).toBe(1);
+    expect(client.requests).toHaveLength(2);
+    expect(JSON.stringify(parseFirstInput(client.requests[1]?.input))).toContain(
+      "validationRepairFinalPayloadReferences",
+    );
   });
 
   test("repairs surf answers by loading SURF.md before final prose", async () => {
@@ -3084,6 +3128,14 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
           usedMemoryFiles: ["SURF.md"],
         }),
         _request_id: "req_unknown_memory_strict",
+      },
+      {
+        id: "resp_unknown_memory_strict_repeated",
+        output_text: finalPayloadText({
+          answer: "First afternoon answer.",
+          usedMemoryFiles: ["SURF.md"],
+        }),
+        _request_id: "req_unknown_memory_strict_repeated",
       },
     ]);
 

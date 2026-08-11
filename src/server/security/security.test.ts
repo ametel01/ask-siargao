@@ -228,6 +228,20 @@ describe("rate limiting", () => {
     expect(differentForwardedClient.allowed).toBe(true);
   });
 
+  test("admits the 25-stream release-candidate burst while retaining a per-minute ceiling", async () => {
+    const limiter = createRateLimiter({
+      store: createMemoryRateLimitStore(),
+      trustProxyHeaders: false,
+    });
+    const now = new Date("2026-06-23T08:00:00.000Z");
+    const request = new Request("https://example.test/api/chat");
+
+    for (let index = 0; index < 30; index += 1) {
+      expect((await limiter.rateLimitRequest(request, "chat", { now })).allowed).toBe(true);
+    }
+    expect((await limiter.rateLimitRequest(request, "chat", { now })).allowed).toBe(false);
+  });
+
   test("scopes public API request buckets by path", async () => {
     const limiter = createRateLimiter({
       store: createMemoryRateLimitStore(),
