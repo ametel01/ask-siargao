@@ -43,7 +43,12 @@ test("protected browser lanes use a step-scoped Vercel automation bypass", async
     expect(config).toContain("timeout: 120_000");
   }
   expect(clerkTest.match(/newProtectedContext\(browser\)/g)).toHaveLength(4);
+  expect(clerkTest).toContain('baseURL: required("PROVIDER_RC_APP_ORIGIN")');
   expect(clerkTest).toContain('"x-vercel-protection-bypass": protectionBypass');
+  expect(clerkTest).toContain("navigation.status() < 400");
+  expect(clerkTest).toContain(
+    'setTimeout(() => reject(new Error("Provider step timed out.")), 20_000)',
+  );
 });
 
 test("protected provider database probes require verified PostgreSQL TLS", async () => {

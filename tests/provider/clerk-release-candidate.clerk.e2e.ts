@@ -268,24 +268,38 @@ async function assertScenarioBoundary(browser: Browser | null, lane: "clerk") {
   const context = await newProtectedContext(browser);
   const boundary = await context.newPage();
   try {
-    await setupClerkTestingToken({ page: boundary });
-    await boundary.goto("/");
+    await safeProviderStep("Clerk boundary testing token", () =>
+      setupClerkTestingToken({ page: boundary }),
+    );
+    const navigation = await safeProviderStep("Clerk boundary navigation", () =>
+      boundary.goto("/", { waitUntil: "domcontentloaded" }),
+    );
+    safeAssert(
+      navigation !== null && navigation.status() < 400,
+      "Protected Clerk boundary navigation was denied.",
+    );
+    await safeProviderStep("Clerk boundary readiness", () =>
+      boundary.waitForFunction(() => window.Clerk?.loaded === true),
+    );
     await safeProviderStep("Clerk boundary sign-in", () =>
       clerk.signIn({
         page: boundary,
         emailAddress: requiredTestEmail("PROVIDER_RC_BOUNDARY_USER"),
       }),
     );
-    await assertLiveBoundary(boundary, lane);
+    await safeProviderStep("Clerk boundary live deployment", () =>
+      assertLiveBoundary(boundary, lane),
+    );
     await safeProviderStep("Clerk boundary sign-out", () => clerk.signOut({ page: boundary }));
   } finally {
-    await context.close();
+    await context.close().catch(() => undefined);
   }
 }
 
 function newProtectedContext(browser: Browser) {
   const protectionBypass = required("PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET");
   return browser.newContext({
+    baseURL: required("PROVIDER_RC_APP_ORIGIN"),
     extraHTTPHeaders: {
       "x-vercel-protection-bypass": protectionBypass,
       "x-vercel-set-bypass-cookie": "true",
@@ -311,10 +325,18 @@ async function assertLiveBoundary(page: Page, lane: "clerk") {
 }
 
 async function safeProviderStep<T>(label: string, step: () => Promise<T>) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await step();
+    return await Promise.race([
+      step(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Provider step timed out.")), 20_000);
+      }),
+    ]);
   } catch {
     throw new Error(`${label} failed without provider details.`);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 
