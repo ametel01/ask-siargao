@@ -1,6 +1,7 @@
 import type { AgentRuntimeRequest, AskSiargaoAgentToolName } from "@/server/chat/agent-runtime";
 import type { AgentResponseToolDefinition } from "@/server/chat/agent-tool-catalogue";
 import { interpretPlaceIntent } from "@/server/chat/place-intent";
+import { recognizeRealityCheckRequest } from "@/server/chat/reality-check";
 import type { RequiredEvidencePlan } from "@/server/chat/required-evidence";
 
 const memoryTools = ["load_agent_memory_file", "search_agent_memory"] as const;
@@ -25,6 +26,17 @@ export function selectAgentResponseTools(
   const selected = new Set<AskSiargaoAgentToolName>(memoryTools);
   const latestUserTurn =
     request.messages.filter((message) => message.role === "user").at(-1)?.content ?? "";
+  const recentUserContext = request.messages
+    .filter((message) => message.role === "user")
+    .slice(0, -1)
+    .slice(-3)
+    .map((message) => message.content)
+    .join(" ");
+  const realityCheck = recognizeRealityCheckRequest({ latestUserTurn, recentUserContext });
+  const conditionRealityCheck =
+    realityCheck.explicit &&
+    realityCheck.missingContext.length === 0 &&
+    (realityCheck.kind === "immediate_plan" || realityCheck.kind === "surf_session");
   const placeIntent = interpretPlaceIntent(request.messages);
 
   if (placeIntent) {
@@ -37,7 +49,7 @@ export function selectAgentResponseTools(
       selected.add("research_web");
     }
   }
-  if (conditionIntent(latestUserTurn)) {
+  if (conditionIntent(latestUserTurn) || conditionRealityCheck) {
     addTools(selected, conditionTools);
   }
   if (surfIntent(latestUserTurn)) {
@@ -58,7 +70,7 @@ export function selectAgentResponseTools(
     selected.add("research_web");
     addTools(selected, placesTools);
   }
-  if (webResearchIntent(latestUserTurn)) {
+  if (webResearchIntent(latestUserTurn) && !conditionRealityCheck) {
     selected.add("research_web");
   }
   if (localFactsIntent(latestUserTurn)) {

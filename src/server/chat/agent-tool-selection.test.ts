@@ -29,6 +29,16 @@ describe("agent tool selection", () => {
     expect(names).not.toContain("search_nightlife_events");
   });
 
+  test("uses governed condition providers for an immediate Cloud 9 decision", () => {
+    const names = selectedNames("Should we still go to Cloud 9 today?");
+
+    expect(names).toContain("get_weather_forecast");
+    expect(names).toContain("get_marine_conditions");
+    expect(names).toContain("get_tide_forecast");
+    expect(names).toContain("get_condition_judgment");
+    expect(names).not.toContain("research_web");
+  });
+
   test("keeps ordered required research and Places tools available", () => {
     const prompt = "Where can I rent a motorbike in Siargao today?";
     const names = selectedNames(prompt);
