@@ -42,6 +42,21 @@ test("protected browser lanes use a step-scoped Vercel automation bypass", async
   }
 });
 
+test("protected provider database probes require verified PostgreSQL TLS", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+  const databaseUrlSecret = "DATABASE_URL: $" + "{{ secrets.PROVIDER_RC_DATABASE_URL }}";
+  const blocks = [
+    jobBlock(workflow, "clerk-test-instance", "stripe-test-mode"),
+    jobBlock(workflow, "stripe-test-mode"),
+  ];
+
+  expect(workflow.match(/DATABASE_SSL_MODE: verify-full/g)).toHaveLength(2);
+  for (const block of blocks) {
+    expect(block).toContain(databaseUrlSecret);
+    expect(block).toContain("DATABASE_SSL_MODE: verify-full");
+  }
+});
+
 test("protected dispatches and lanes cannot overlap or cancel mid-mutation", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   expect(workflow).toContain(
