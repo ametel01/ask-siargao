@@ -131,7 +131,9 @@ test("Google OAuth is offered by the dedicated Clerk test instance", async ({ br
   await assertScenarioBoundary(browser, "clerk");
   await setupClerkTestingToken({ page });
   await page.goto("/sign-in");
-  const google = page.getByRole("button", { name: /continue with google/i });
+  const googleIcon = page.getByRole("img", { name: /sign in with google/i });
+  const google = page.getByRole("button").filter({ has: googleIcon });
+  await expect(google).toHaveCount(1);
   await expect(google).toBeVisible();
   await google.click();
   await safeProviderStep("Google OAuth redirect", () =>
