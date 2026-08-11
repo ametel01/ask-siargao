@@ -5235,7 +5235,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         output_text: finalPayloadText({
           answer:
             "Start with Lost In Siargao tonight. I checked Google Places for live open-now status and map links.",
-          usedToolCallIds: ["functions.search_places", "search_places"],
+          usedToolCallIds: [
+            "functions.search_places",
+            "search_places",
+            "search_places_1",
+            "places_search_dinner_recommendations",
+          ],
           displayCardIds: ["places/ChIJ_dOTfAD3AzMRpmZv_yvfBHA", "ChIJ_dOTfAD3AzMRpmZv_yvfBHA"],
         }),
         _request_id: "req_food_final",
@@ -5257,7 +5262,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         messages: [{ role: "user", content: "Where should I eat in General Luna tonight?" }],
         requestId: "agent_request_food_places_aliases",
       },
-      { client, executeTool, model: "gpt-test" },
+      { client, executeTool, model: "gpt-test", requireStructuredFinalOutput: true },
     );
 
     expect(result.publicSources).toEqual([placesSourceSummary]);

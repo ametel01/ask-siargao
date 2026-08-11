@@ -1425,9 +1425,10 @@ function expandFinalPayloadToolCallIds(
         toolCall.name === toolReference.name && toolCall.toolCallId ? [toolCall.toolCallId] : [],
       );
       if (toolReference.index !== undefined) {
-        return matchingToolCallIds[toolReference.index]
-          ? [matchingToolCallIds[toolReference.index]]
-          : [value];
+        const indexedToolCallId =
+          matchingToolCallIds[toolReference.index] ??
+          (toolReference.index > 0 ? matchingToolCallIds[toolReference.index - 1] : undefined);
+        return indexedToolCallId ? [indexedToolCallId] : [value];
       }
       return matchingToolCallIds.length ? matchingToolCallIds : [value];
     }),
@@ -1447,6 +1448,23 @@ function modelFacingToolNameReference(value: string, calledToolNames: ReadonlySe
     if (indexedAliasMatch?.[1] !== undefined) {
       return { name: toolName, index: Number(indexedAliasMatch[1]) };
     }
+  }
+
+  const candidateTokens = new Set(
+    candidate
+      .toLowerCase()
+      .split(/[^a-z0-9]+/u)
+      .filter(Boolean),
+  );
+  const semanticMatches = [...calledToolNames].filter((toolName) =>
+    toolName
+      .toLowerCase()
+      .split("_")
+      .filter(Boolean)
+      .every((token) => candidateTokens.has(token)),
+  );
+  if (semanticMatches.length === 1) {
+    return { name: semanticMatches[0] };
   }
 
   return undefined;
