@@ -1,15 +1,14 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { clerkSetup } from "@clerk/testing/playwright";
 import { test as setup } from "@playwright/test";
 
 import { assertProviderReleaseCandidateContext } from "@/server/qa/provider-release-candidate";
 
+const execFileAsync = promisify(execFile);
+
 setup("validate exact protected context and initialize Clerk testing token", async () => {
-  const process = Bun.spawn(["git", "rev-parse", "HEAD"], { stdout: "pipe", stderr: "pipe" });
-  const [stdout, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    process.exited,
-  ]);
-  if (exitCode !== 0) throw new Error("Unable to resolve the checked-out commit.");
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"]);
   assertProviderReleaseCandidateContext({ checkedOutCommitSha: stdout.trim(), lane: "stripe" });
   await clerkSetup();
 });

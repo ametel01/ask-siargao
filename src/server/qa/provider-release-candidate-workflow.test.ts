@@ -140,6 +140,18 @@ test("Google OAuth proof cannot fall back to a Clerk email sign-in helper", asyn
   expect(protectedTest).toContain("accounts.google.com");
 });
 
+test("Playwright provider setup remains compatible with its Node runtime", async () => {
+  const setupFiles = await Promise.all([
+    readFile("tests/provider/clerk.global.setup.ts", "utf8"),
+    readFile("tests/provider/stripe.global.setup.ts", "utf8"),
+  ]);
+
+  for (const setupFile of setupFiles) {
+    expect(setupFile).not.toContain("Bun.");
+    expect(setupFile).toContain('execFileAsync("git", ["rev-parse", "HEAD"])');
+  }
+});
+
 test("both lanes prove the checked-out SHA is exact and already trusted by main", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   expect(workflow.match(/ref: \$\{\{ inputs\.release_candidate_sha \}\}/g)).toHaveLength(2);
