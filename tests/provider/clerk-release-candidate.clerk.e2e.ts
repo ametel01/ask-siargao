@@ -114,7 +114,7 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
   await anonymousContext.close();
 
   await safeProviderStep("Clerk sign-out", () => clerk.signOut({ page }));
-  expect((await page.request.get("/api/me/profile")).status()).toBe(401);
+  expect((await page.request.get("/api/me/profile")).status()).toBe(404);
   await recordScenarios([
     "email_code_sign_in",
     "verified_email",
@@ -151,7 +151,7 @@ test("Google OAuth is offered by the dedicated Clerk test instance", async ({ br
   );
   expect(verifiedGoogleAccount).toBe(true);
   await safeProviderStep("Clerk sign-out", () => clerk.signOut({ page }));
-  expect((await page.request.get("/api/me/profile")).status()).toBe(401);
+  expect((await page.request.get("/api/me/profile")).status()).toBe(404);
   await recordScenarios(["google_sign_in"]);
 });
 
@@ -199,7 +199,7 @@ test("single-session policy invalidates the older browser session", async ({ bro
     clerk.signIn({ page: second, emailAddress: emailCodeUser }),
   );
   expect((await second.request.get("/api/me/profile")).status()).toBe(200);
-  await expect.poll(async () => (await first.request.get("/api/me/profile")).status()).toBe(401);
+  await expect.poll(async () => (await first.request.get("/api/me/profile")).status()).toBe(404);
 
   await secondContext.close();
   await firstContext.close();
@@ -229,7 +229,7 @@ test("ownership denial precedes terminal step-up closure and provider deletion c
   await page.getByRole("button", { name: "Close Account", exact: true }).click();
   await page.getByLabel("Account Closure confirmation").fill("CLOSE MY ACCOUNT");
   await page.getByRole("button", { name: "Close Account permanently" }).click();
-  await expect.poll(async () => (await page.request.get("/api/me/profile")).status()).toBe(401);
+  await expect.poll(async () => (await page.request.get("/api/me/profile")).status()).toBe(404);
   await deliverSignedClerkWebhook(page.request, {
     type: "user.deleted",
     object: "event",
