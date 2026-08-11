@@ -6,7 +6,11 @@ import { getTableName } from "drizzle-orm";
 
 import { siargaoTaxonomy } from "@/server/audit/destinations/siargao/taxonomy";
 import type { MigrationFile } from "@/server/db/migration-files";
-import { checksumMigrationSql, loadMigrationFiles } from "@/server/db/migration-files";
+import {
+  checksumMigrationSql,
+  listPendingMigrationNames,
+  loadMigrationFiles,
+} from "@/server/db/migration-files";
 import type { MigrationDatabase } from "@/server/db/migration-runner";
 import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
 import {
@@ -96,6 +100,20 @@ import {
 } from "@/server/trip-pass/paid-answer-reservations";
 
 describe("Step 3 database migration", () => {
+  test("derives pending migration names from the complete current ledger", () => {
+    const migrations = ["0001_initial.sql", "0002_additive.sql", "0003_latest.sql"].map((name) => ({
+      checksum: name,
+      name,
+      path: name,
+      sql: name,
+    }));
+
+    expect(listPendingMigrationNames(migrations, migrations.slice(0, 1))).toEqual([
+      "0002_additive.sql",
+      "0003_latest.sql",
+    ]);
+  });
+
   test("discovers ordered schema migrations", async () => {
     const migrationNames = (await getMigrationPaths()).map((migrationPath) =>
       path.basename(migrationPath),

@@ -1,6 +1,6 @@
 import type Stripe from "stripe";
 
-import { loadMigrationFiles } from "@/server/db/migration-files";
+import { listPendingMigrationNames, loadMigrationFiles } from "@/server/db/migration-files";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withTimeout } from "@/server/integration/entrypoint-shared";
 import { withRealPostgresHarness } from "@/server/integration/postgres-harness";
@@ -126,14 +126,7 @@ async function runHistoricalPaidAnswerMigrationUpgrade() {
       const upgrade = await harness.migrate();
       assertDeepEqual(
         upgrade.applied,
-        [
-          "0015_paid_answer_retention_retry.sql",
-          "0016_operational_findings_and_repair.sql",
-          "0016_preflight_operational_incident_dedup.sql",
-          "0017_operational_incident_leases.sql",
-          "0018_operational_command_and_observation_fencing.sql",
-          "0019_operational_page_intent_fencing.sql",
-        ],
+        listPendingMigrationNames(migrationFiles, throughHistoricalPaidAnswer),
         "historical native ledger must advance through the additive operations migration",
       );
       const upgraded = await client.query<{
@@ -240,12 +233,7 @@ async function runHistoricalOperationsMigrationUpgrade() {
       const upgrade = await harness.migrate();
       assertDeepEqual(
         upgrade.applied,
-        [
-          "0016_preflight_operational_incident_dedup.sql",
-          "0017_operational_incident_leases.sql",
-          "0018_operational_command_and_observation_fencing.sql",
-          "0019_operational_page_intent_fencing.sql",
-        ],
+        listPendingMigrationNames(migrationFiles, through0016),
         "historical 0016 ledger did not apply preflight before immutable 0017",
       );
       const converged = await client.query<{
@@ -289,11 +277,7 @@ async function runHistoricalOperationsMigrationUpgrade() {
     const upgrade = await harness.migrate();
     assertDeepEqual(
       upgrade.applied,
-      [
-        "0016_preflight_operational_incident_dedup.sql",
-        "0018_operational_command_and_observation_fencing.sql",
-        "0019_operational_page_intent_fencing.sql",
-      ],
+      listPendingMigrationNames(migrationFiles, historicalThrough0017),
       "already-applied 0017 ledger did not accept safe late preflight",
     );
   });

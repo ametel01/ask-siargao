@@ -40,6 +40,16 @@ export async function loadMigrationFiles(): Promise<MigrationFile[]> {
   );
 }
 
+export function listPendingMigrationNames(
+  migrationFiles: readonly MigrationFile[],
+  appliedMigrations: readonly MigrationFile[],
+) {
+  const appliedNames = new Set(appliedMigrations.map((migration) => migration.name));
+  return migrationFiles
+    .filter((migration) => !appliedNames.has(migration.name))
+    .map((migration) => migration.name);
+}
+
 export function checksumMigrationSql(sql: string) {
   return createHash("sha256").update(sql, "utf8").digest("hex");
 }
