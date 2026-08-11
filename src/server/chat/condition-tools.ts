@@ -1152,6 +1152,7 @@ function conditionJudgmentEvidenceAlreadyCompleted(
   const matchingCall = toolCalls.find(
     (call) =>
       call.name === "get_condition_judgment" &&
+      call.errorCode !== "invalid_tool_arguments" &&
       conditionJudgmentRequestMatches(call.arguments, required),
   );
   if (matchingCall) {
@@ -1162,6 +1163,7 @@ function conditionJudgmentEvidenceAlreadyCompleted(
     toolCalls.some(
       (call) =>
         call.name === "get_condition_judgment" &&
+        call.errorCode !== "invalid_tool_arguments" &&
         call.arguments.activity !== "visit" &&
         call.arguments.date_range === required.date_range &&
         call.arguments.location === required.location,

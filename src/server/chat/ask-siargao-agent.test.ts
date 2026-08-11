@@ -2873,7 +2873,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     );
   });
 
-  test("rejects repeated invalid final text after one structured-output repair", async () => {
+  test("returns a limited answer after repeated invalid structured final text", async () => {
     const client = fakeResponsesClient([
       {
         id: "resp_required_structured_legacy",
@@ -2887,19 +2887,22 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       },
     ]);
 
-    await expect(
-      runAskSiargaoAgentTurn(
-        {
-          messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
-          requestId: "agent_request_required_structured_repeated_legacy",
-        },
-        { client, model: "gpt-test", requireStructuredFinalOutput: true },
-      ),
-    ).rejects.toThrow("legacy plain text");
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+        requestId: "agent_request_required_structured_repeated_legacy",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).not.toContain("The repair also returned legacy text.");
+    expect(result.message).toContain("Keep the plan flexible");
+    expect(result.completionStatus).toBe("completed_with_limits");
+    expect(result.terminationReason).toBe("model_response_invalid");
     expect(client.requests).toHaveLength(2);
   });
 
-  test("rejects unknown used tool call IDs in strict structured final output", async () => {
+  test("returns a limited answer for repeated unknown tool references in strict output", async () => {
     const client = fakeResponsesClient([
       {
         id: "resp_unknown_used_tool",
@@ -2919,15 +2922,18 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       },
     ]);
 
-    await expect(
-      runAskSiargaoAgentTurn(
-        {
-          messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
-          requestId: "agent_request_unknown_used_tool",
-        },
-        { client, model: "gpt-test", requireStructuredFinalOutput: true },
-      ),
-    ).rejects.toThrow("unknown tool call ID");
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+        requestId: "agent_request_unknown_used_tool",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).not.toContain("missing tool call");
+    expect(result.toolCalls).toEqual([]);
+    expect(result.completionStatus).toBe("completed_with_limits");
+    expect(result.terminationReason).toBe("model_response_invalid");
   });
 
   test("repairs invented final payload references once before strict validation", async () => {
@@ -3301,7 +3307,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(client.requests).toHaveLength(1);
   });
 
-  test("rejects unobserved used memory files in strict structured final output", async () => {
+  test("returns a limited answer for repeated unobserved memory references in strict output", async () => {
     const client = fakeResponsesClient([
       {
         id: "resp_unknown_memory_strict",
@@ -3321,15 +3327,17 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       },
     ]);
 
-    await expect(
-      runAskSiargaoAgentTurn(
-        {
-          messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
-          requestId: "agent_request_unknown_memory_strict",
-        },
-        { client, model: "gpt-test", requireStructuredFinalOutput: true },
-      ),
-    ).rejects.toThrow("memory file(s) not loaded or returned this turn: SURF.md");
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "How should I spend my first afternoon?" }],
+        requestId: "agent_request_unknown_memory_strict",
+      },
+      { client, model: "gpt-test", requireStructuredFinalOutput: true },
+    );
+
+    expect(result.message).not.toContain("SURF.md");
+    expect(result.completionStatus).toBe("completed_with_limits");
+    expect(result.terminationReason).toBe("model_response_invalid");
   });
 
   test("drops and logs unobserved used memory files in compatibility mode", async () => {
@@ -3906,11 +3914,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         _request_id: "req_direct_surf_condition",
       },
       {
-        id: "resp_after_surf_condition",
-        output_text: "Surf answer with condition evidence but still no ranked distances.",
-        _request_id: "req_after_surf_condition",
-      },
-      {
         id: "resp_after_surf_ranking",
         output_text:
           "Closest surf spots from your shared location are Pacifico / Big Wish and Bamboo Garden, with approximate km distances.",
@@ -4009,7 +4012,7 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         },
       },
     });
-    const automaticInput = parseLastUserInputMessage(client.requests[2]?.input);
+    const automaticInput = parseLastUserInputMessage(client.requests[1]?.input);
     expect(automaticInput?.validationRepairSurfSpotRanking).toMatchObject({
       name: "rank_surf_spots_nearby",
     });
@@ -5745,11 +5748,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         _request_id: "req_direct_mixed",
       },
       {
-        id: "resp_after_mixed_plan",
-        output_text: "Itinerary evidence is present, but condition evidence is still missing.",
-        _request_id: "req_after_mixed_plan",
-      },
-      {
         id: "resp_after_mixed_condition",
         output_text: "Final mixed answer after itinerary and condition evidence.",
         _request_id: "req_after_mixed_condition",
@@ -5797,13 +5795,13 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
 
     expect(result.message).toContain("after itinerary and condition evidence");
     expect(result.toolCalls.map((toolCall) => toolCall.name)).toEqual([
-      "plan_local_itinerary",
       "get_condition_judgment",
+      "plan_local_itinerary",
     ]);
-    expect(result.toolCalls[0]?.arguments).toMatchObject({
+    expect(result.toolCalls[1]?.arguments).toMatchObject({
       theme: "sandy_beach_half_day",
     });
-    expect(result.toolCalls[1]?.arguments).toEqual({
+    expect(result.toolCalls[0]?.arguments).toEqual({
       activity: "swimming",
       location: "General Luna",
       date_range: "today",
@@ -5811,12 +5809,12 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       include_local_caveats: null,
       constraints: [],
     });
-    expect(client.requests).toHaveLength(3);
+    expect(client.requests).toHaveLength(2);
     expect(
       parseAutomaticRequiredPlanInput(client.requests[1]?.input).validationRepairItineraryPlan,
     ).toMatchObject({ name: "plan_local_itinerary" });
     expect(
-      parseAutomaticConditionInput(client.requests[2]?.input).validationRepairConditionJudgment,
+      parseAutomaticConditionInput(client.requests[1]?.input).validationRepairConditionJudgment,
     ).toMatchObject({ name: "get_condition_judgment" });
     expect(result.itineraries).toBeUndefined();
     expect(result.artifactSelection).toMatchObject({
@@ -5844,11 +5842,6 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
         id: "resp_cloud9_condition_final",
         output_text: "Condition-only answer without a structured plan.",
         _request_id: "req_cloud9_condition_final",
-      },
-      {
-        id: "resp_cloud9_plan_without_checks",
-        output_text: "Plan answer after itinerary but before live Places.",
-        _request_id: "req_cloud9_plan_without_checks",
       },
       {
         id: "resp_cloud9_checked_final",
@@ -7814,7 +7807,210 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(client.requests.at(-1)).not.toHaveProperty("tools");
   });
 
-  test("throws when a model response has neither final text nor tool calls", async () => {
+  test("finishes the Del Carmen scooter plan after repeated invalid condition calls", async () => {
+    const prompt =
+      "Based on the weather today what should I do if I'm based in Del Carmen but I have a scooter?";
+    const conditionSummary: DecisionSummary = {
+      id: "condition_decision:scooter:del_carmen:today",
+      bestAction: "Keep the scooter plan close to Del Carmen and flexible today.",
+      basis: "The checked forecast shows showers may interrupt exposed riding.",
+      fallback: "Use a covered Del Carmen stop if rain builds.",
+      avoid: "Avoid a long exposed ride when rain or road visibility worsens.",
+      timing: "today",
+      area: "Del Carmen",
+      sources: [weatherSourceSummary],
+    };
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_del_carmen_invalid_condition_1",
+        requestId: "req_del_carmen_invalid_condition_1",
+        callId: "call_del_carmen_invalid_condition_1",
+        name: "get_condition_judgment",
+        arguments: { activity: "touring" },
+      }),
+      responseWithToolCall({
+        id: "resp_del_carmen_invalid_condition_2",
+        requestId: "req_del_carmen_invalid_condition_2",
+        callId: "call_del_carmen_invalid_condition_2",
+        name: "get_condition_judgment",
+        arguments: { activity: "touring" },
+      }),
+      {
+        id: "resp_del_carmen_premature_final",
+        output_text: finalPayloadText({
+          answer: "Keep the plan flexible.",
+          usedToolCallIds: [],
+        }),
+        _request_id: "req_del_carmen_premature_final",
+      },
+      {
+        id: "resp_del_carmen_usable_final",
+        output_text: finalPayloadText({
+          answer:
+            "Stay close to Del Carmen this morning, take a short scooter loop only while visibility is good, and keep a covered stop ready if showers build.",
+          usedToolCallIds: ["auto_required_condition_judgment_1", "auto_required_itinerary_plan_1"],
+          displayDecisionSummaryIds: [conditionSummary.id],
+        }),
+        _request_id: "req_del_carmen_usable_final",
+      },
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => {
+      if (request.toolCallId?.startsWith("call_del_carmen_invalid_condition")) {
+        return {
+          name: request.name,
+          status: "error",
+          text: "Invalid arguments for get_condition_judgment.",
+          errorCode: "invalid_tool_arguments",
+          sources: [],
+        };
+      }
+      if (request.name === "get_condition_judgment") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Checked Del Carmen weather for a flexible scooter decision.",
+          sources: [weatherSourceSummary],
+          decisionSummaries: [conditionSummary],
+        };
+      }
+      if (request.name === "plan_local_itinerary") {
+        return {
+          name: request.name,
+          status: "success",
+          text: "Prepared a flexible local Del Carmen plan.",
+          data: {
+            plan: foodCrawlPlan,
+            requiredToolChecks: { places: [] },
+          },
+          sources: [localGuideSourceSummary],
+          itineraries: [foodCrawlPlan],
+        };
+      }
+      throw new Error(`Unexpected tool call: ${request.name}`);
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: prompt }],
+        requestId: "agent_request_del_carmen_scooter_recovery",
+      },
+      {
+        client,
+        executeTool,
+        maxTurns: 3,
+        maxToolCalls: 4,
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.message).toContain("Stay close to Del Carmen this morning");
+    expect(result.message).toContain("covered stop");
+    expect(result.toolCalls.map((toolCall) => [toolCall.name, toolCall.status])).toEqual([
+      ["get_condition_judgment", "error"],
+      ["get_condition_judgment", "error"],
+      ["get_condition_judgment", "success"],
+      ["plan_local_itinerary", "success"],
+    ]);
+    expect(result.publicSources).toContainEqual(weatherSourceSummary);
+    expect(client.requests).toHaveLength(4);
+    expect(client.requests[3]).not.toHaveProperty("tools");
+  });
+
+  test("returns a usable limited answer when the terminal response still calls tools", async () => {
+    const client = fakeResponsesClient([
+      responseWithToolCall({
+        id: "resp_terminal_invalid_research_1",
+        requestId: "req_terminal_invalid_research_1",
+        callId: "call_terminal_invalid_research_1",
+        name: "research_web",
+        arguments: { max_sources: "many" },
+      }),
+      responseWithToolCall({
+        id: "resp_terminal_invalid_research_2",
+        requestId: "req_terminal_invalid_research_2",
+        callId: "call_terminal_invalid_research_2",
+        name: "research_web",
+        arguments: { max_sources: "many" },
+      }),
+      responseWithToolCall({
+        id: "resp_terminal_invalid_research_3",
+        requestId: "req_terminal_invalid_research_3",
+        callId: "call_terminal_invalid_research_3",
+        name: "research_web",
+        arguments: { max_sources: "many" },
+      }),
+    ]);
+    const executeTool: AgentToolExecutor = async (request) => ({
+      name: request.name,
+      status: "error",
+      text: "Invalid arguments for research_web.",
+      errorCode: "invalid_tool_arguments",
+      sources: [],
+    });
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Where can I rent a scooter in General Luna today?" }],
+        requestId: "agent_request_terminal_limited_answer",
+      },
+      {
+        client,
+        executeTool,
+        maxTurns: 2,
+        maxToolCalls: 4,
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.completionStatus).toBe("completed_with_limits");
+    expect(result.message).toContain("couldn't verify current scooter rental options");
+    expect(result.message).toContain("helmet");
+    expect(result.message).not.toContain("could not finish");
+    expect(result.toolCalls).toHaveLength(2);
+    expect(client.requests).toHaveLength(3);
+  });
+
+  test("does not accept an evidence-free final answer at the terminal budget", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_terminal_unsupported_weather_answer",
+        output_text: finalPayloadText({
+          answer: "Ride across the island today; the weather is definitely fine.",
+          usedToolCallIds: [],
+        }),
+        _request_id: "req_terminal_unsupported_weather_answer",
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              "Based on the weather today what should I do if I'm based in Del Carmen but I have a scooter?",
+          },
+        ],
+        requestId: "agent_request_terminal_unsupported_weather_answer",
+      },
+      {
+        client,
+        maxTurns: 0,
+        model: "gpt-test",
+        requireStructuredFinalOutput: true,
+      },
+    );
+
+    expect(result.completionStatus).toBe("completed_with_limits");
+    expect(result.message).toContain("couldn't verify the current conditions");
+    expect(result.message).toContain("covered stop");
+    expect(result.message).not.toContain("definitely fine");
+    expect(client.requests).toHaveLength(1);
+  });
+
+  test("returns a limited answer when a model response has no usable output", async () => {
     const client = fakeResponsesClient([
       {
         id: "resp_missing_output",
@@ -7823,15 +8019,105 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       },
     ]);
 
-    await expect(
-      runAskSiargaoAgentTurn(
-        {
-          messages: [{ role: "user", content: "What is good today?" }],
-          requestId: "agent_request_missing_output",
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "What is good today?" }],
+        requestId: "agent_request_missing_output",
+      },
+      { client, model: "gpt-test" },
+    );
+
+    expect(result.completionStatus).toBe("completed_with_limits");
+    expect(result.message).toContain("couldn't verify enough current information");
+  });
+
+  test("returns a limited answer when the model provider is temporarily unavailable", async () => {
+    const client: AgentResponsesClient = {
+      responses: {
+        create: async () => {
+          throw new Error("temporary upstream connection failure");
         },
-        { client, model: "gpt-test" },
-      ),
-    ).rejects.toThrow("OpenAI response did not include output_text");
+      },
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Where should I eat in General Luna today?" }],
+        requestId: "agent_request_model_provider_unavailable",
+      },
+      { client, model: "gpt-test" },
+    );
+
+    expect(result.completionStatus).toBe("completed_with_limits");
+    expect(result.terminationReason).toBe("model_response_unavailable");
+    expect(result.message).toContain("couldn't verify enough current information");
+  });
+
+  test("returns checked evidence when the model fails after a tool call", async () => {
+    let modelCallCount = 0;
+    const client: AgentResponsesClient = {
+      responses: {
+        create: async () => {
+          modelCallCount += 1;
+          if (modelCallCount === 1) {
+            return responseWithToolCall({
+              id: "resp_condition_before_model_failure",
+              requestId: "req_condition_before_model_failure",
+              callId: "call_condition_before_model_failure",
+              name: "get_condition_judgment",
+              arguments: {
+                activity: "scooter",
+                location: "Del Carmen",
+                date_range: "today",
+              },
+            });
+          }
+          throw new Error("temporary synthesis connection failure");
+        },
+      },
+    };
+    const conditionSummary: DecisionSummary = {
+      id: "condition_decision:scooter:del_carmen:today:provider_failure",
+      bestAction: "Keep the scooter loop short and close to Del Carmen.",
+      basis: "Checked weather supports a flexible plan, but roads remain unchecked.",
+      fallback: "Use a covered stop if showers build.",
+      avoid: "Avoid a long exposed ride in worsening visibility.",
+      timing: "today",
+      area: "Del Carmen",
+      sources: [weatherSourceSummary],
+    };
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              "Based on the weather today what should I do if I'm based in Del Carmen but I have a scooter?",
+          },
+        ],
+        requestId: "agent_request_model_failed_after_condition",
+      },
+      {
+        client,
+        executeTool: fakeToolExecutor({
+          get_condition_judgment: {
+            name: "get_condition_judgment",
+            status: "success",
+            text: "Checked Del Carmen scooter conditions.",
+            sources: [weatherSourceSummary],
+            decisionSummaries: [conditionSummary],
+          },
+        }),
+        model: "gpt-test",
+      },
+    );
+
+    expect(result.completionStatus).toBe("completed_with_limits");
+    expect(result.terminationReason).toBe("model_response_unavailable");
+    expect(result.message).toContain("Keep the scooter loop short");
+    expect(result.message).toContain("covered stop");
+    expect(result.publicSources).toContainEqual(weatherSourceSummary);
   });
 });
 
@@ -8826,14 +9112,14 @@ function parseAutomaticRequiredCheckInput(input: unknown): {
 function parseAutomaticRequiredPlanInput(input: unknown): {
   validationRepairItineraryPlan?: { name?: string };
 } {
-  return parseLastUserInputMessage(input) ?? {};
+  return parseUserInputMessageWithKey(input, "validationRepairItineraryPlan") ?? {};
 }
 
 function parseAutomaticConditionInput(input: unknown): {
   instruction?: string;
   validationRepairConditionJudgment?: { name?: string };
 } {
-  return parseLastUserInputMessage(input) ?? {};
+  return parseUserInputMessageWithKey(input, "validationRepairConditionJudgment") ?? {};
 }
 
 function parseAutomaticMemoryInput(input: unknown): {
@@ -8890,6 +9176,31 @@ function parseLastUserInputMessage(input: unknown): Record<string, unknown> | un
   }
 
   return JSON.parse(textPart.text);
+}
+
+function parseUserInputMessageWithKey(input: unknown, key: string) {
+  if (!Array.isArray(input)) {
+    return undefined;
+  }
+  for (const item of input) {
+    if (!isRecord(item) || item.type !== "message" || item.role !== "user") {
+      continue;
+    }
+    if (!Array.isArray(item.content)) {
+      continue;
+    }
+    const textPart = item.content.find(
+      (candidate) => isRecord(candidate) && candidate.type === "input_text",
+    );
+    if (!isRecord(textPart) || typeof textPart.text !== "string") {
+      continue;
+    }
+    const parsed = JSON.parse(textPart.text) as Record<string, unknown>;
+    if (key in parsed) {
+      return parsed;
+    }
+  }
+  return undefined;
 }
 
 function responseInputItemsByType(input: unknown, type: string) {

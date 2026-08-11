@@ -61,6 +61,16 @@ export type AgentRepairPipelineResult =
       adapterName: string;
     };
 
+export class AgentRepairModelResponseError extends Error {
+  override readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("Agent repair model response failed.");
+    this.name = "AgentRepairModelResponseError";
+    this.cause = cause;
+  }
+}
+
 export type RunAgentRepairPipelineOptions = {
   adapters: readonly AgentRepairAdapter[];
   client: AgentResponsesClient;
@@ -76,6 +86,7 @@ export type RunAgentRepairPipelineOptions = {
   responseInput: readonly ResponseInputItem[];
   responseTools: readonly unknown[];
   responseContract: unknown;
+  terminalSynthesis?: boolean;
   collectHostedMemory: (response: AgentResponsesCreateResult) => void;
   collectUpstreamRequestId: (requestId: string | undefined) => void;
   serializeToolOutput: (result: AgentToolResult) => string;
@@ -101,34 +112,57 @@ export async function runAgentRepairPipeline({
   responseInput,
   responseTools,
   serializeToolOutput,
+  terminalSynthesis = false,
   toolCalls,
   toolResults,
 }: RunAgentRepairPipelineOptions): Promise<AgentRepairPipelineResult> {
-  for (const adapter of adapters) {
-    const repair = adapter.createRepair({
-      finalText,
-      responseInput,
-      toolCalls,
-      toolResults,
-    });
-    if (!repair) {
-      continue;
-    }
+  const retryInput = [...responseInput, ...responseOutputItems(response.output)];
+  const attemptedToolRepairKeys = new Set<string>();
+  const appliedToolAdapterNames: string[] = [];
+  let repairMaxOutputTokens = 3_000;
+  let toolBudgetExhausted = false;
 
-    const retryInput = [...responseInput, ...responseOutputItems(response.output)];
-    if (repair.type === "tool") {
-      if (toolCalls.length + repair.functionCalls.length > maxToolCalls) {
-        if (hasToolBudgetExhaustedRepairInput(responseInput, adapter.name)) {
+  toolRepairPasses: for (let pass = 0; pass <= adapters.length; pass += 1) {
+    let appliedToolRepair = false;
+
+    for (const adapter of adapters) {
+      const repair = adapter.createRepair({
+        finalText,
+        responseInput: retryInput,
+        toolCalls,
+        toolResults,
+      });
+      if (!repair) {
+        continue;
+      }
+      if (repair.type === "retry") {
+        break toolRepairPasses;
+      }
+
+      const pendingFunctionCalls = repair.functionCalls.filter((functionCall) => {
+        const key = toolRepairKey(functionCall);
+        if (attemptedToolRepairKeys.has(key)) {
+          return false;
+        }
+        attemptedToolRepairKeys.add(key);
+        return true;
+      });
+      if (pendingFunctionCalls.length === 0) {
+        continue;
+      }
+
+      if (toolCalls.length + pendingFunctionCalls.length > maxToolCalls) {
+        if (hasToolBudgetExhaustedRepairInput(retryInput, adapter.name)) {
           continue;
         }
 
         retryInput.push(
           repairUserInputMessage({
             instruction:
-              "Validation repair: the model requested more tool calls, but the Ask Siargao tool-call budget is exhausted. Do not call tools. Return the best final traveler-facing answer now using only checked evidence already present in the conversation. Do not invent live/current facts. If a required check is missing or unavailable, say that plainly as a caveat and omit checked/live/source claims and public artifacts that depend on it.",
+              "Validation repair: mandatory tool checks could not all run because the Ask Siargao tool-call budget is exhausted. Do not call tools. Return the best final traveler-facing answer now using only checked evidence already present in the conversation. Do not invent live/current facts. If a required check is missing or unavailable, say that plainly as a caveat and omit checked/live/source claims and public artifacts that depend on it.",
             validationRepairToolBudgetExhausted: {
               adapterName: adapter.name,
-              requestedToolCalls: repair.functionCalls.map((functionCall) => ({
+              requestedToolCalls: pendingFunctionCalls.map((functionCall) => ({
                 name: functionCall.name,
                 arguments: publicToolArguments(functionCall),
               })),
@@ -138,26 +172,13 @@ export async function runAgentRepairPipeline({
             responseContract,
           }),
         );
-
-        const retryResponse = await client.responses.create({
-          model,
-          store: false,
-          max_output_tokens: repair.maxOutputTokens ?? 3_000,
-          instructions,
-          input: retryInput,
-        });
-        collectUpstreamRequestId(retryResponse._request_id);
-        collectHostedMemory(retryResponse);
-
-        return {
-          repaired: true,
-          response: retryResponse,
-          responseInput: retryInput,
-          adapterName: adapter.name,
-        };
+        appliedToolAdapterNames.push(adapter.name);
+        repairMaxOutputTokens = Math.max(repairMaxOutputTokens, repair.maxOutputTokens ?? 3_000);
+        toolBudgetExhausted = true;
+        break toolRepairPasses;
       }
 
-      const outputs = await executeToolCalls(repair.functionCalls);
+      const outputs = await executeToolCalls(pendingFunctionCalls);
       toolCalls.push(...outputs.map((output) => output.audit));
       toolResults.push(...outputs.map((output) => output.result));
       retryInput.push(
@@ -171,23 +192,35 @@ export async function runAgentRepairPipeline({
           responseContract,
         }),
       );
-    } else {
+      appliedToolAdapterNames.push(adapter.name);
+      repairMaxOutputTokens = Math.max(repairMaxOutputTokens, repair.maxOutputTokens ?? 3_000);
+      appliedToolRepair = true;
+    }
+
+    if (!appliedToolRepair) {
+      break;
+    }
+  }
+
+  if (appliedToolAdapterNames.length > 0) {
+    if (terminalSynthesis && !toolBudgetExhausted) {
       retryInput.push(
         repairUserInputMessage({
-          instruction: repair.instruction,
-          ...(repair.payloadKey ? { [repair.payloadKey]: repair.payload } : {}),
+          instruction:
+            "Terminal synthesis: all remaining mandatory repairs have been applied. Do not call tools. Return the final traveler-facing answer now from the checked evidence and explicit caveats.",
           responseContract,
         }),
       );
     }
-
-    const retryResponse = await client.responses.create({
+    const retryResponse = await createRepairModelResponse(client, {
       model,
       store: false,
-      max_output_tokens: repair.maxOutputTokens ?? 3_000,
+      max_output_tokens: repairMaxOutputTokens,
       instructions,
-      tools: responseTools,
-      ...(responseInclude ? { include: responseInclude } : {}),
+      ...(!toolBudgetExhausted && !terminalSynthesis ? { tools: responseTools } : {}),
+      ...(!toolBudgetExhausted && !terminalSynthesis && responseInclude
+        ? { include: responseInclude }
+        : {}),
       input: retryInput,
     });
     collectUpstreamRequestId(retryResponse._request_id);
@@ -197,11 +230,78 @@ export async function runAgentRepairPipeline({
       repaired: true,
       response: retryResponse,
       responseInput: retryInput,
+      adapterName: appliedToolAdapterNames.join(","),
+    };
+  }
+
+  for (const adapter of adapters) {
+    const repair = adapter.createRepair({
+      finalText,
+      responseInput,
+      toolCalls,
+      toolResults,
+    });
+    if (!repair) {
+      continue;
+    }
+
+    if (repair.type === "tool") {
+      continue;
+    }
+    const retryOnlyInput = [...responseInput, ...responseOutputItems(response.output)];
+    retryOnlyInput.push(
+      repairUserInputMessage({
+        instruction: repair.instruction,
+        ...(repair.payloadKey ? { [repair.payloadKey]: repair.payload } : {}),
+        responseContract,
+      }),
+    );
+    if (terminalSynthesis) {
+      retryOnlyInput.push(
+        repairUserInputMessage({
+          instruction:
+            "Terminal synthesis: do not call tools. Return the final traveler-facing answer now from the checked evidence and explicit caveats.",
+          responseContract,
+        }),
+      );
+    }
+
+    const retryResponse = await createRepairModelResponse(client, {
+      model,
+      store: false,
+      max_output_tokens: repair.maxOutputTokens ?? 3_000,
+      instructions,
+      ...(!terminalSynthesis ? { tools: responseTools } : {}),
+      ...(!terminalSynthesis && responseInclude ? { include: responseInclude } : {}),
+      input: retryOnlyInput,
+    });
+    collectUpstreamRequestId(retryResponse._request_id);
+    collectHostedMemory(retryResponse);
+
+    return {
+      repaired: true,
+      response: retryResponse,
+      responseInput: retryOnlyInput,
       adapterName: adapter.name,
     };
   }
 
   return { repaired: false };
+}
+
+async function createRepairModelResponse(
+  client: AgentResponsesClient,
+  request: Parameters<AgentResponsesClient["responses"]["create"]>[0],
+) {
+  try {
+    return await client.responses.create(request);
+  } catch (error) {
+    throw new AgentRepairModelResponseError(error);
+  }
+}
+
+function toolRepairKey(functionCall: AgentRepairFunctionCall) {
+  return `${functionCall.name}:${JSON.stringify(functionCall.arguments)}`;
 }
 
 function repairUserInputMessage(input: Record<string, unknown>): ResponseInputItem {

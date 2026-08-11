@@ -342,25 +342,32 @@ export async function executeAgentTool(
     };
   }
 
-  const parsed = tool.schema.safeParse(tool.argumentsForValidation?.(request) ?? request.arguments);
+  const argumentsWithDefaults = applyArgumentDefaults(request.arguments, tool.argumentDefaults);
+  const requestForValidation =
+    argumentsWithDefaults === request.arguments
+      ? request
+      : { ...request, arguments: argumentsWithDefaults };
+  const parsed = tool.schema.safeParse(
+    tool.argumentsForValidation?.(requestForValidation) ?? argumentsWithDefaults,
+  );
   if (!parsed.success) {
-    const logData =
-      request.name === "research_web"
-        ? {
-            invalidArguments: request.arguments,
-            validationIssues: parsed.error.issues.map((issue) => ({
-              path: issue.path.join("."),
-              message: issue.message,
-            })),
-          }
-        : undefined;
+    const argumentKeys = Object.keys(request.arguments).sort();
+    const invalidArguments = {
+      keys: argumentKeys,
+      types: Object.fromEntries(
+        argumentKeys.map((key) => [key, safeArgumentType(request.arguments[key])]),
+      ),
+    };
+    const validationIssues = parsed.error.issues.map((issue) => ({
+      path: issue.path.join(".") || "<root>",
+      code: issue.code,
+    }));
+    const invalidPaths = uniqueText(validationIssues.map((issue) => issue.path));
     return {
       name: request.name,
       status: "error",
-      text: `Invalid arguments for ${request.name}: ${parsed.error.issues
-        .map((issue: { message: string }) => issue.message)
-        .join("; ")}`,
-      ...(logData ? { logData } : {}),
+      text: `Invalid arguments for ${request.name}: ${invalidPaths.join(", ")}.`,
+      logData: { invalidArguments, validationIssues },
       errorCode: "invalid_tool_arguments",
       sources: [],
     };
@@ -377,6 +384,32 @@ export async function executeAgentTool(
       sources: [],
     };
   }
+}
+
+function applyArgumentDefaults(
+  args: Record<string, unknown>,
+  defaults: Readonly<Record<string, unknown>> | undefined,
+) {
+  if (!defaults) {
+    return args;
+  }
+  const normalized = { ...args };
+  for (const [key, value] of Object.entries(defaults)) {
+    if (normalized[key] === undefined) {
+      normalized[key] = value;
+    }
+  }
+  return normalized;
+}
+
+function safeArgumentType(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  return typeof value;
 }
 
 function safeToolExecutionFailureText(toolName: string) {

@@ -3,7 +3,9 @@
 The `/api/chat` route delegates every valid chat response to the Ask Siargao agent runtime. The
 route validates JSON and request shape, derives deterministic intent signals, calls
 `runAskSiargaoAgentTurn`, validates returned source labels, and returns the model-written message
-with structured tool and source metadata.
+with structured tool and source metadata. If the model cannot produce a valid answer within the
+configured response budget, the runtime returns a bounded deterministic answer from checked
+evidence and explicit missing-check caveats instead of failing the route.
 
 The thin-harness implementation background is recorded in
 [`thin-agent-harness-spec.md`](thin-agent-harness-spec.md). The current runtime implements that
@@ -30,6 +32,16 @@ dropped and logged.
 Legacy plain-text final answers are still accepted while compatibility mode is enabled. Legacy
 answers return the model-written message but do not automatically expose tool-produced cards,
 actions, or itineraries.
+
+Successful `/api/chat` responses can also include:
+
+- `completionStatus: "completed_with_limits"` when terminal deterministic synthesis was required;
+- `terminationReason: "model_response_budget_exhausted"` when the response budget ended,
+  `"model_response_invalid"` when the terminal response was unusable, or
+  `"model_response_unavailable"` when a recoverable model-provider call failed.
+
+These fields describe a usable degraded answer, not an HTTP error. Ordinary model-completed turns
+omit them.
 
 ## Public Artifact Selection
 
@@ -59,8 +71,10 @@ Add the tool in `src/server/chat/agent-tools.ts`.
 5. Add tests in `src/server/chat/agent-tools.test.ts`.
 6. Add or update route/runtime tests only if the route contract or deterministic signals change.
 
-Do not add a hardcoded final-answer branch to `/api/chat`. Deterministic code can classify,
-validate, fetch, rank, and normalize data, but final prose belongs to the model.
+Do not add request-specific answer branches to `/api/chat`. Normal final prose belongs to the
+model. The shared agent runtime owns one generic terminal fallback that can render checked decision
+summaries, itinerary artifacts, checked cards, or bounded request-class caveats when model output
+cannot satisfy the response contract.
 
 ## Public Web Research
 
@@ -194,6 +208,11 @@ Tool arguments are validated by each Zod schema before handler code runs. Invali
 structured tool error with `errorCode: "invalid_tool_arguments"` and no provider call. Keep schemas
 strict with `additionalProperties: false` in the Responses tool definition and `.strict()` in Zod.
 
+Registered tools can provide reusable `argumentDefaults` for semantically optional fields that a
+provider may omit from an otherwise usable strict call. Tool-specific normalizers can still repair
+provider aliases and scalar shapes. Invalid-call diagnostics record only argument keys, value types,
+and validation paths/codes; they never record submitted values.
+
 Prefer small, domain-specific tools over generic database access. If a future SQL-like tool is
 needed, it must be read-only, allowlisted, row-limited, timeout-limited, and parsed before execution.
 
@@ -247,7 +266,8 @@ curated local guide.
 
 Runtime logs include request ID bindings, model, tool names, tool status, provider operation,
 provider failure status, source labels, source profile IDs, durations, upstream request IDs, and
-artifact-selection counts. Logs must not include raw tool arguments, raw restricted provider
+artifact-selection counts. Terminal fallbacks log `completionStatus`, `terminationReason`, model
+call count, and tool call count. Logs must not include raw tool arguments, raw restricted provider
 payloads, provider response bodies, secrets, review text, bookings, availability data, exact browser
 coordinates, vector-store IDs in public responses, or raw memory document bodies.
 
@@ -262,5 +282,5 @@ or migrate that boundary.
 
 The current runtime does not include persistent long-term chat memory, unrestricted database access,
 SQL tools, booking/table/room availability checks, review-text ingestion for chat answers,
-implemented nightlife event-source adapters, road-closure feeds, or automatic repair-pass prompting
-after source-consistency failures.
+implemented nightlife event-source adapters, road-closure feeds, or automatic repair after the
+route-level source-consistency boundary rejects an already returned agent result.

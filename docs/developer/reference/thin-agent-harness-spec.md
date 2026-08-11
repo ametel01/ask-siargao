@@ -45,7 +45,9 @@ which observations belong in the final answer and which artifacts should be show
 - Do not make memory retrieval a live evidence source.
 - Do not remove deterministic provider tools or source consistency checks.
 - Do not introduce multi-root user or plugin memory packs yet.
-- Do not make `/api/chat` render deterministic final prose.
+- Do not make `/api/chat` render request-specific deterministic final prose. The current runtime
+  supersedes this original non-goal with one shared terminal fallback for exhausted or unusable
+  model responses.
 
 ## Codex CLI Logic To Reuse
 
@@ -452,4 +454,6 @@ The implementation is complete when:
 - The Dapa breakfast regression is covered by tests.
 - Memory retrieval remains source-free.
 - Deterministic code still validates source claims, privacy, and provider contracts.
-- `/api/chat` never replaces the model-written answer with deterministic prose.
+- `/api/chat` does not contain request-specific prose branches. The agent runtime may return its
+  shared evidence-bounded terminal fallback when no policy-valid model answer is available within
+  budget.

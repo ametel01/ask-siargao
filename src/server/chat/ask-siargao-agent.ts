@@ -9,6 +9,7 @@ import {
 } from "@/server/chat/agent-memory";
 import {
   type AgentRepairAdapter,
+  AgentRepairModelResponseError,
   type AgentRepairToolOutput,
   runAgentRepairPipeline,
 } from "@/server/chat/agent-repair-pipeline";
@@ -17,6 +18,7 @@ import {
   type AgentMemoryMetadata,
   type AgentProgressUpdate,
   type AgentResponsesClient,
+  type AgentResponsesCreateResult,
   type AgentRuntimeDependencies,
   type AgentRuntimeRequest,
   type AgentToolCallAudit,
@@ -31,6 +33,7 @@ import {
   type DecisionSummary,
   resolveAgentRuntimeRequest,
 } from "@/server/chat/agent-runtime";
+import { buildAgentTerminalFallback } from "@/server/chat/agent-terminal-fallback";
 import { selectAgentResponseTools } from "@/server/chat/agent-tool-selection";
 import {
   type AgentToolDependencies,
@@ -49,10 +52,15 @@ import {
   conditionJudgmentRepairInstruction,
   conditionRealityCheckProposal,
 } from "@/server/chat/condition-tools";
-import { assertModelCostCircuit, reserveModelCost } from "@/server/chat/cost-circuits";
+import {
+  assertModelCostCircuit,
+  ModelCostCircuitError,
+  reserveModelCost,
+} from "@/server/chat/cost-circuits";
 import {
   assertModelCallAllowed,
   type ChatCostPolicy,
+  ChatCostPolicyBudgetError,
   resolveChatCostPolicy,
   responseModelCostPolicy,
 } from "@/server/chat/cost-policy";
@@ -212,6 +220,53 @@ export async function runAskSiargaoAgentTurn(
     requiredEvidencePlan,
   );
   const responseInclude = agentMemoryVectorStoreId ? ["file_search_call.results"] : undefined;
+  const terminalFallbackResult = (
+    activeModel: string,
+    terminationReason: AgentTurnResult["terminationReason"] = "model_response_budget_exhausted",
+  ) => {
+    const fallback = buildAgentTerminalFallback({
+      request: resolved,
+      toolCalls,
+      toolResults,
+      terminationReason,
+    });
+    const modelCost = costAccumulator.summary();
+    if (modelCost.callCount > 0) {
+      trackServerEvent({
+        name: "llm_cost_recorded",
+        payload: modelCostTelemetryPayload(modelCost),
+        now: dependencies.now?.(),
+      });
+    }
+    logger.warn(
+      {
+        completionStatus: fallback.completionStatus,
+        terminationReason: fallback.terminationReason,
+        model: activeModel,
+        modelCallCount: modelCost.callCount,
+        toolCallCount: toolCalls.length,
+      },
+      "Ask Siargao agent returned a deterministic terminal fallback.",
+    );
+    return createAgentTurnResult({
+      message: fallback.message,
+      requestId: resolved.requestId,
+      model: activeModel,
+      modelCost,
+      memory,
+      upstreamRequestIds,
+      toolCalls,
+      toolResults,
+      decisionSummaries: fallback.decisionSummaries,
+      finalPayload: fallback.finalPayload,
+      allowedCardKinds: requiredEvidencePlan.allowedCardKinds,
+      allowedCardIds: requiredEvidenceAllowedCardIds(chatEvidencePolicy, toolResults),
+      artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
+      repairCount,
+      completionStatus: fallback.completionStatus,
+      terminationReason: fallback.terminationReason,
+    });
+  };
 
   logger.info(
     {
@@ -268,75 +323,114 @@ export async function runAskSiargaoAgentTurn(
       responseContract: responseContract,
     }),
   ];
-  let response = await createBudgetedModelResponse({
-    client,
-    costAccumulator,
-    costPolicy,
-    costPolicyEnv: dependencies.costPolicyEnv,
-    costCircuitStore: dependencies.costCircuitStore,
-    now: dependencies.now,
-    params: {
-      model: resolved.model,
-      store: false,
-      max_output_tokens: maxOutputTokens,
-      instructions,
-      modelCostPolicy,
-      tools,
-      ...(responseText ? { text: responseText } : {}),
-      ...(responseInclude ? { include: responseInclude } : {}),
-      input: responseInput,
-    },
-  });
+  let response: AgentResponsesCreateResult;
+  try {
+    response = await createBudgetedModelResponse({
+      client,
+      costAccumulator,
+      costPolicy,
+      costPolicyEnv: dependencies.costPolicyEnv,
+      costCircuitStore: dependencies.costCircuitStore,
+      now: dependencies.now,
+      params: {
+        model: resolved.model,
+        store: false,
+        max_output_tokens: maxOutputTokens,
+        instructions,
+        modelCostPolicy,
+        tools,
+        ...(responseText ? { text: responseText } : {}),
+        ...(responseInclude ? { include: responseInclude } : {}),
+        input: responseInput,
+      },
+    });
+  } catch (error) {
+    if (modelFailureRequiresRouteError(error)) {
+      throw error;
+    }
+    return terminalFallbackResult(resolved.model, "model_response_unavailable");
+  }
   let activeModel = response.model ?? resolved.model;
   collectUpstreamRequestId(response._request_id, upstreamRequestIds);
   collectHostedFileSearchMemoryFileNames(response.output, memorySnapshot, hostedMemoryFileNames);
 
-  for (let turn = 0; turn < maxTurns; turn += 1) {
+  for (let turn = 0; turn <= maxTurns; turn += 1) {
+    const terminalInspection = turn === maxTurns;
     const finalText = response.output_text?.trim();
     if (finalText) {
-      const repairResult = await runAgentRepairPipeline({
-        adapters: buildAgentRepairAdapters({
-          chatEvidencePolicy,
-          hostedMemoryFileNames,
-          logger,
-          realityCheckRecognition,
-          request: resolved,
-          requireStructuredFinalOutput,
-        }),
-        client: budgetedClient,
-        executeToolCalls: (functionCalls) =>
-          executeAndAuditToolBatch({
-            executeTool,
-            functionCalls,
-            logger,
-            now: dependencies.now ?? (() => new Date()),
-            requiredEvidencePlan,
-            runtimeRequest: resolved,
-            requestId: resolved.requestId,
-            toolResults,
-          }),
-        finalText,
-        instructions,
-        maxToolCalls,
-        model: activeModel,
-        publicToolArguments,
-        response,
-        responseContract,
-        responseInclude,
-        responseInput,
-        responseTools: tools,
-        serializeToolOutput,
-        toolCalls,
-        toolResults,
-        collectUpstreamRequestId: (requestId) =>
-          collectUpstreamRequestId(requestId, upstreamRequestIds),
-        collectHostedMemory: (retryResponse) =>
-          collectHostedFileSearchMemoryFileNames(
-            retryResponse.output,
-            memorySnapshot,
-            hostedMemoryFileNames,
-          ),
+      const repairAdapters = buildAgentRepairAdapters({
+        chatEvidencePolicy,
+        hostedMemoryFileNames,
+        logger,
+        realityCheckRecognition,
+        request: resolved,
+        requireStructuredFinalOutput,
       });
+      if (
+        terminalInspection &&
+        agentRepairRequiredAtTerminal({
+          adapters: repairAdapters,
+          finalText,
+          responseInput,
+          toolCalls,
+          toolResults,
+        })
+      ) {
+        return terminalFallbackResult(activeModel);
+      }
+      let repairResult: Awaited<ReturnType<typeof runAgentRepairPipeline>>;
+      try {
+        repairResult = terminalInspection
+          ? ({ repaired: false } as const)
+          : await runAgentRepairPipeline({
+              adapters: repairAdapters,
+              client: budgetedClient,
+              executeToolCalls: (functionCalls) =>
+                executeAndAuditToolBatch({
+                  executeTool,
+                  functionCalls,
+                  logger,
+                  now: dependencies.now ?? (() => new Date()),
+                  requiredEvidencePlan,
+                  runtimeRequest: resolved,
+                  requestId: resolved.requestId,
+                  toolResults,
+                }),
+              finalText,
+              instructions,
+              maxToolCalls,
+              model: activeModel,
+              publicToolArguments,
+              response,
+              responseContract,
+              responseInclude,
+              responseInput,
+              responseTools: tools,
+              serializeToolOutput,
+              terminalSynthesis: turn + 1 >= maxTurns,
+              toolCalls,
+              toolResults,
+              collectUpstreamRequestId: (requestId) =>
+                collectUpstreamRequestId(requestId, upstreamRequestIds),
+              collectHostedMemory: (retryResponse) =>
+                collectHostedFileSearchMemoryFileNames(
+                  retryResponse.output,
+                  memorySnapshot,
+                  hostedMemoryFileNames,
+                ),
+            });
+      } catch (error) {
+        if (error instanceof AgentRepairModelResponseError) {
+          if (modelFailureRequiresRouteError(error.cause)) {
+            throw error.cause;
+          }
+          return terminalFallbackResult(activeModel, "model_response_unavailable");
+        }
+        if (modelFailureRequiresRouteError(error)) {
+          throw error;
+        }
+        return terminalFallbackResult(activeModel, "model_response_invalid");
+      }
       if (repairResult.repaired) {
         repairCount += 1;
         await emitAgentProgress(dependencies.onProgress, {
@@ -366,25 +460,32 @@ export async function runAskSiargaoAgentTurn(
             responseContract,
           }),
         ];
-        response = await createBudgetedModelResponse({
-          client,
-          costAccumulator,
-          costPolicy,
-          costPolicyEnv: dependencies.costPolicyEnv,
-          costCircuitStore: dependencies.costCircuitStore,
-          now: dependencies.now,
-          params: {
-            model: activeModel,
-            store: false,
-            max_output_tokens: maxOutputTokens,
-            instructions,
-            modelCostPolicy,
-            tools,
-            ...(responseText ? { text: responseText } : {}),
-            ...(responseInclude ? { include: responseInclude } : {}),
-            input: responseInput,
-          },
-        });
+        try {
+          response = await createBudgetedModelResponse({
+            client,
+            costAccumulator,
+            costPolicy,
+            costPolicyEnv: dependencies.costPolicyEnv,
+            costCircuitStore: dependencies.costCircuitStore,
+            now: dependencies.now,
+            params: {
+              model: activeModel,
+              store: false,
+              max_output_tokens: maxOutputTokens,
+              instructions,
+              modelCostPolicy,
+              tools,
+              ...(responseText ? { text: responseText } : {}),
+              ...(responseInclude ? { include: responseInclude } : {}),
+              input: responseInput,
+            },
+          });
+        } catch (error) {
+          if (modelFailureRequiresRouteError(error)) {
+            throw error;
+          }
+          return terminalFallbackResult(activeModel, "model_response_unavailable");
+        }
         activeModel = response.model ?? activeModel;
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
         collectHostedFileSearchMemoryFileNames(
@@ -506,7 +607,11 @@ export async function runAskSiargaoAgentTurn(
 
     const functionCalls = extractFunctionCalls(response.output);
     if (functionCalls.length === 0) {
-      throw new Error("OpenAI response did not include output_text.");
+      return terminalFallbackResult(activeModel, "model_response_invalid");
+    }
+
+    if (terminalInspection) {
+      return terminalFallbackResult(activeModel);
     }
 
     if (toolCalls.length + functionCalls.length > maxToolCalls) {
@@ -528,23 +633,30 @@ export async function runAskSiargaoAgentTurn(
             responseContract,
           }),
         ];
-        response = await createBudgetedModelResponse({
-          client,
-          costAccumulator,
-          costPolicy,
-          costPolicyEnv: dependencies.costPolicyEnv,
-          costCircuitStore: dependencies.costCircuitStore,
-          now: dependencies.now,
-          params: {
-            model: activeModel,
-            store: false,
-            max_output_tokens: maxOutputTokens,
-            instructions,
-            modelCostPolicy,
-            ...(responseText ? { text: responseText } : {}),
-            input: responseInput,
-          },
-        });
+        try {
+          response = await createBudgetedModelResponse({
+            client,
+            costAccumulator,
+            costPolicy,
+            costPolicyEnv: dependencies.costPolicyEnv,
+            costCircuitStore: dependencies.costCircuitStore,
+            now: dependencies.now,
+            params: {
+              model: activeModel,
+              store: false,
+              max_output_tokens: maxOutputTokens,
+              instructions,
+              modelCostPolicy,
+              ...(responseText ? { text: responseText } : {}),
+              input: responseInput,
+            },
+          });
+        } catch (error) {
+          if (modelFailureRequiresRouteError(error)) {
+            throw error;
+          }
+          return terminalFallbackResult(activeModel, "model_response_unavailable");
+        }
         activeModel = response.model ?? activeModel;
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
         collectHostedFileSearchMemoryFileNames(
@@ -575,23 +687,30 @@ export async function runAskSiargaoAgentTurn(
           responseContract,
         }),
       ];
-      response = await createBudgetedModelResponse({
-        client,
-        costAccumulator,
-        costPolicy,
-        costPolicyEnv: dependencies.costPolicyEnv,
-        costCircuitStore: dependencies.costCircuitStore,
-        now: dependencies.now,
-        params: {
-          model: activeModel,
-          store: false,
-          max_output_tokens: maxOutputTokens,
-          instructions,
-          modelCostPolicy,
-          ...(responseText ? { text: responseText } : {}),
-          input: responseInput,
-        },
-      });
+      try {
+        response = await createBudgetedModelResponse({
+          client,
+          costAccumulator,
+          costPolicy,
+          costPolicyEnv: dependencies.costPolicyEnv,
+          costCircuitStore: dependencies.costCircuitStore,
+          now: dependencies.now,
+          params: {
+            model: activeModel,
+            store: false,
+            max_output_tokens: maxOutputTokens,
+            instructions,
+            modelCostPolicy,
+            ...(responseText ? { text: responseText } : {}),
+            input: responseInput,
+          },
+        });
+      } catch (error) {
+        if (modelFailureRequiresRouteError(error)) {
+          throw error;
+        }
+        return terminalFallbackResult(activeModel, "model_response_unavailable");
+      }
       activeModel = response.model ?? activeModel;
       collectUpstreamRequestId(response._request_id, upstreamRequestIds);
       collectHostedFileSearchMemoryFileNames(
@@ -655,31 +774,73 @@ export async function runAskSiargaoAgentTurn(
       stage: "synthesis",
       message: "Turning the checked results into a useful answer.",
     });
-    response = await createBudgetedModelResponse({
-      client,
-      costAccumulator,
-      costPolicy,
-      costPolicyEnv: dependencies.costPolicyEnv,
-      costCircuitStore: dependencies.costCircuitStore,
-      now: dependencies.now,
-      params: {
-        model: activeModel,
-        store: false,
-        max_output_tokens: maxOutputTokens,
-        instructions,
-        modelCostPolicy,
-        ...(responseText ? { text: responseText } : {}),
-        ...(forceFinalAnswer ? {} : { tools }),
-        ...(!forceFinalAnswer && responseInclude ? { include: responseInclude } : {}),
-        input: responseInput,
-      },
-    });
+    try {
+      response = await createBudgetedModelResponse({
+        client,
+        costAccumulator,
+        costPolicy,
+        costPolicyEnv: dependencies.costPolicyEnv,
+        costCircuitStore: dependencies.costCircuitStore,
+        now: dependencies.now,
+        params: {
+          model: activeModel,
+          store: false,
+          max_output_tokens: maxOutputTokens,
+          instructions,
+          modelCostPolicy,
+          ...(responseText ? { text: responseText } : {}),
+          ...(forceFinalAnswer ? {} : { tools }),
+          ...(!forceFinalAnswer && responseInclude ? { include: responseInclude } : {}),
+          input: responseInput,
+        },
+      });
+    } catch (error) {
+      if (modelFailureRequiresRouteError(error)) {
+        throw error;
+      }
+      return terminalFallbackResult(activeModel, "model_response_unavailable");
+    }
     activeModel = response.model ?? activeModel;
     collectUpstreamRequestId(response._request_id, upstreamRequestIds);
     collectHostedFileSearchMemoryFileNames(response.output, memorySnapshot, hostedMemoryFileNames);
   }
 
-  throw new Error("Ask Siargao agent exceeded the maximum turn count.");
+  return terminalFallbackResult(activeModel);
+}
+
+function agentRepairRequiredAtTerminal(input: {
+  adapters: readonly AgentRepairAdapter[];
+  finalText: string;
+  responseInput: readonly ResponseInputItem[];
+  toolCalls: readonly AgentToolCallAudit[];
+  toolResults: readonly AgentToolResult[];
+}) {
+  for (const adapter of input.adapters) {
+    try {
+      const repair = adapter.createRepair({
+        finalText: input.finalText,
+        responseInput: input.responseInput,
+        toolCalls: input.toolCalls,
+        toolResults: input.toolResults,
+      });
+      if (repair) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+function modelFailureRequiresRouteError(error: unknown) {
+  if (error instanceof ChatCostPolicyBudgetError || error instanceof ModelCostCircuitError) {
+    return true;
+  }
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return /\b(?:OPENAI_API_KEY|DEEPSEEK_API_KEY)\b/u.test(error.message);
 }
 
 async function emitAgentProgress(
@@ -1652,24 +1813,6 @@ function buildAgentRepairAdapters({
 
   return [
     {
-      name: "initial-itinerary-plan",
-      createRepair: ({ toolCalls, toolResults }) => {
-        const repairCall = missingInitialItineraryPlanRepairCall(request, toolCalls, toolResults);
-        if (!repairCall) {
-          return undefined;
-        }
-
-        return {
-          type: "tool",
-          functionCalls: [repairCall],
-          payloadKey: "validationRepairItineraryPlan",
-          payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
-          instruction:
-            "Validation repair: you attempted a final itinerary answer before choosing plan_local_itinerary as required. Use this runtime-repaired itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
-        };
-      },
-    },
-    {
       name: "condition-judgment",
       createRepair: ({ toolCalls }) => {
         if (realityCheckRequiresClarification(realityCheckRecognition)) {
@@ -1686,6 +1829,24 @@ function buildAgentRepairAdapters({
           payloadKey: "validationRepairConditionJudgment",
           payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
           instruction: conditionJudgmentRepairInstruction(repairCall.arguments),
+        };
+      },
+    },
+    {
+      name: "initial-itinerary-plan",
+      createRepair: ({ toolCalls, toolResults }) => {
+        const repairCall = missingInitialItineraryPlanRepairCall(request, toolCalls, toolResults);
+        if (!repairCall) {
+          return undefined;
+        }
+
+        return {
+          type: "tool",
+          functionCalls: [repairCall],
+          payloadKey: "validationRepairItineraryPlan",
+          payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
+          instruction:
+            "Validation repair: you attempted a final itinerary answer before choosing plan_local_itinerary as required. Use this runtime-repaired itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
         };
       },
     },

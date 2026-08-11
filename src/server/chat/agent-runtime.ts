@@ -231,6 +231,11 @@ export type AgentTurnResult = {
   decisionSummaries?: readonly DecisionSummary[];
   artifactSelection?: AgentArtifactSelectionSummary;
   repairCount?: number;
+  completionStatus?: "complete" | "completed_with_limits";
+  terminationReason?:
+    | "model_response_budget_exhausted"
+    | "model_response_invalid"
+    | "model_response_unavailable";
 };
 
 export type ChatClientGeolocationConsentScope = "single_request" | "trip_session";
@@ -441,6 +446,8 @@ export function createAgentTurnResult({
   upstreamRequestIds,
   modelCost,
   repairCount,
+  completionStatus,
+  terminationReason,
 }: {
   message: string;
   requestId: string;
@@ -461,6 +468,8 @@ export function createAgentTurnResult({
   finalPayload?: AgentFinalPayload;
   artifactSelectionMode?: AgentArtifactSelectionMode;
   repairCount?: number;
+  completionStatus?: AgentTurnResult["completionStatus"];
+  terminationReason?: AgentTurnResult["terminationReason"];
 }): AgentTurnResult {
   const sourceCarriers = toolResults ?? toolCalls;
   const artifactCarriers = toolResults ?? [];
@@ -511,6 +520,8 @@ export function createAgentTurnResult({
     model,
     ...(modelCost && modelCost.callCount > 0 ? { modelCost } : {}),
     ...(repairCount ? { repairCount } : {}),
+    ...(completionStatus ? { completionStatus } : {}),
+    ...(terminationReason ? { terminationReason } : {}),
     toolCalls,
     sources: reconciledSources,
     publicSources,

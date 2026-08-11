@@ -148,6 +148,11 @@ export function createConditionToolFamily(handlers: ConditionToolHandlers): Agen
           strict: true,
         },
         schema: conditionJudgmentRequestSchema,
+        argumentDefaults: {
+          beach_name: null,
+          include_local_caveats: null,
+          constraints: null,
+        },
         execute: handlers.getConditionJudgment,
       }),
     },

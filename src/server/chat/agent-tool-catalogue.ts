@@ -65,6 +65,7 @@ export type RegisteredTool<Arguments> = {
   definition: AgentToolDefinition;
   schema: z.ZodType<Arguments>;
   execute: ToolHandler<Arguments>;
+  argumentDefaults?: Readonly<Record<string, unknown>>;
   argumentsForValidation?: (request: AgentToolExecutionRequest) => unknown;
 };
 

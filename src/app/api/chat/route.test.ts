@@ -111,6 +111,36 @@ describe("chat route", () => {
     expect(dependencies.agentDependencies[0]?.requireStructuredFinalOutput).toBe(true);
   });
 
+  test("delivers a usable limited Del Carmen scooter answer as a successful chat result", async () => {
+    const dependencies = chatDependencies({
+      message:
+        "Stay close to Del Carmen this morning, take a short scooter loop only while visibility is good, and keep a covered stop ready if showers build.",
+      completionStatus: "completed_with_limits",
+      terminationReason: "model_response_budget_exhausted",
+      sources: [genericSourceSummary],
+    });
+    const response = await chatResponse(
+      jsonRequest({
+        messages: [
+          {
+            role: "user",
+            content:
+              "Based on the weather today what should I do if I'm based in Del Carmen but I have a scooter?",
+          },
+        ],
+      }),
+      dependencies,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toContain("Stay close to Del Carmen");
+    expect(body.message).toContain("covered stop");
+    expect(body.completionStatus).toBe("completed_with_limits");
+    expect(body.terminationReason).toBe("model_response_budget_exhausted");
+    expect(body.error).toBeUndefined();
+  });
+
   test("streams progress events before the final chat result", async () => {
     const dependencies = chatDependencies({ message: "Streamed Cloud 9 answer." });
     const response = await chatResponse(
@@ -3061,6 +3091,8 @@ function chatDependencies(
         ...(result.itineraries ? { itineraries: result.itineraries } : {}),
         ...(result.decisionSummaries ? { decisionSummaries: result.decisionSummaries } : {}),
         ...(result.artifactSelection ? { artifactSelection: result.artifactSelection } : {}),
+        ...(result.completionStatus ? { completionStatus: result.completionStatus } : {}),
+        ...(result.terminationReason ? { terminationReason: result.terminationReason } : {}),
       };
     },
     agentDependencies,

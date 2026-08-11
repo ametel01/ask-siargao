@@ -806,6 +806,8 @@ function buildChatResponseBody({
     message: publicTurn.display.message,
     requestId: result.requestId,
     model: result.model,
+    ...(result.completionStatus ? { completionStatus: result.completionStatus } : {}),
+    ...(result.terminationReason ? { terminationReason: result.terminationReason } : {}),
     ...(result.upstreamRequestIds?.length ? { upstreamRequestIds: result.upstreamRequestIds } : {}),
     toolCalls: publicTurn.display.toolCalls,
     sources: publicTurn.display.sources,

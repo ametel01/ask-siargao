@@ -279,6 +279,16 @@ describe("condition judgment contracts", () => {
       conditionJudgmentRepairCall(request, [
         toolCallFixture({
           name: "get_condition_judgment",
+          status: "error",
+          errorCode: "invalid_tool_arguments",
+          arguments: required,
+        }),
+      ]),
+    ).toMatchObject({ name: "get_condition_judgment", arguments: required });
+    expect(
+      conditionJudgmentRepairCall(request, [
+        toolCallFixture({
+          name: "get_condition_judgment",
           arguments: { ...required, activity: "scooter" },
         }),
       ]),
@@ -597,7 +607,7 @@ const localGuideSource: ConditionSourceSummary = {
 
 function toolCallFixture(
   overrides: Pick<AgentToolCallAudit, "name" | "arguments"> &
-    Partial<Pick<AgentToolCallAudit, "status">>,
+    Partial<Pick<AgentToolCallAudit, "status" | "errorCode">>,
 ): AgentToolCallAudit {
   return {
     id: "tool-call",

@@ -1130,7 +1130,7 @@ describe("agent tools", () => {
     expect(result.text).toContain("Public web research status:");
   });
 
-  test("returns diagnostics for invalid web research arguments", async () => {
+  test("returns value-free diagnostics for invalid tool arguments", async () => {
     const result = await executeAgentTool({
       requestId: "agent_request_research_invalid_diagnostics",
       name: "research_web",
@@ -1144,11 +1144,15 @@ describe("agent tools", () => {
     expect(result.errorCode).toBe("invalid_tool_arguments");
     expect(result.logData).toMatchObject({
       invalidArguments: {
-        queries: [],
-        max_sources: "many",
+        keys: ["max_sources", "queries"],
+        types: {
+          max_sources: "string",
+          queries: "array",
+        },
       },
       validationIssues: expect.any(Array),
     });
+    expect(JSON.stringify(result)).not.toContain("many");
   });
 
   test("returns insufficient web evidence as a terminal source state", async () => {
@@ -2303,7 +2307,7 @@ not-json
 
     expect(result.status).toBe("error");
     expect(result.errorCode).toBe("invalid_tool_arguments");
-    expect(result.text).toContain("Unrecognized key");
+    expect(result.text).toContain("filters");
     expect(result.sources).toEqual([]);
   });
 
@@ -3037,6 +3041,29 @@ not-json
     const manualCaveat = data.judgment.signals.find((signal) => signal.kind === "manual_caveat");
     expect(manualCaveat?.evidenceIds).toEqual(["curated_local_guide:pacifico_beach"]);
     expect(result.text).not.toContain("Doot");
+  });
+
+  test("normalizes omitted nullable condition arguments before validation", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_condition_minimal_deepseek",
+        name: "get_condition_judgment",
+        arguments: {
+          activity: "scooter",
+          location: "Del Carmen",
+          date_range: "today",
+        },
+      },
+      {
+        getLatestSiargaoWeatherSnapshot: async () => liveWeatherSnapshot("Del Carmen"),
+        buildOpenMeteoMarineIngestionBatch: unavailableMarineBatch,
+        buildTideForecastSnapshot: unavailableTideForecastSnapshot,
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.errorCode).toBeUndefined();
+    expect(result.text).toContain("Condition judgment for scooter at Del Carmen");
   });
 
   test("returns provider-unavailable condition evidence when weather fails", async () => {
