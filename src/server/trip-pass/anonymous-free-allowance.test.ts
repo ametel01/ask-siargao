@@ -209,6 +209,58 @@ describe("anonymous free allowance", () => {
     }
   });
 
+  test("uses the process environment when an explicit environment is not injected", async () => {
+    const primingResult = await beginAnonymousFreeChat(request(), {
+      env,
+      now: () => new Date("2026-07-14T01:59:00.000Z"),
+      requestId: "request_process_env_prime",
+    });
+    expect(primingResult.status).toBe("allowed");
+    if (primingResult.status === "allowed") {
+      await primingResult.settle({ success: false });
+    }
+
+    const previousEnvironment = {
+      APP_ENV: process.env.APP_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+      REDIS_URL: process.env.REDIS_URL,
+      TRIP_PASS_ANON_HMAC_KEY: process.env.TRIP_PASS_ANON_HMAC_KEY,
+    };
+
+    try {
+      delete process.env.APP_ENV;
+      Reflect.set(process.env, "NODE_ENV", "production");
+      process.env.REDIS_URL = "rediss://configured.example.invalid:6379";
+      process.env.TRIP_PASS_ANON_HMAC_KEY = "process-environment-secret";
+
+      const result = await beginAnonymousFreeChat(request(), {
+        now: () => new Date("2026-07-14T02:00:00.000Z"),
+        requestId: "request_process_env",
+      });
+
+      expect(result.status).toBe("allowed");
+      if (result.status === "allowed") {
+        await result.settle({ success: false });
+      }
+
+      const authenticatedResult = await beginAuthenticatedFreeChat(
+        request(),
+        { userId: "account_process_environment" },
+        {
+          now: () => new Date("2026-07-14T02:01:00.000Z"),
+          requestId: "request_authenticated_process_env",
+        },
+      );
+
+      expect(authenticatedResult.status).toBe("allowed");
+      if (authenticatedResult.status === "allowed") {
+        await authenticatedResult.settle({ success: false });
+      }
+    } finally {
+      restoreEnvironment(previousEnvironment);
+    }
+  });
+
   test("binds the seven-day chat allowance to the trip identity across network changes", async () => {
     const store = createMemoryQuotaStore();
     const first = await beginAnonymousFreeChat(request({ forwardedFor: "203.0.113.10" }), {
@@ -659,6 +711,16 @@ describe("anonymous free allowance", () => {
     ]);
   });
 });
+
+function restoreEnvironment(previous: Record<string, string | undefined>) {
+  for (const [name, value] of Object.entries(previous)) {
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+  }
+}
 
 function request(input: { cookie?: string; forwardedFor?: string } = {}) {
   return new Request("https://ask-siargao.test/api/chat", {

@@ -108,20 +108,21 @@ export async function beginAuthenticatedFreeChat(
 ): Promise<AnonymousFreeAllowanceBeginResult> {
   const now = options.now?.() ?? new Date();
   const nowMs = now.getTime();
-  const config = readAnonymousIdentityConfig(options.env, request);
+  const environment = options.env ?? process.env;
+  const config = readAnonymousIdentityConfig(environment, request);
   const headers = new Headers();
 
   if (config.status === "unavailable") {
     return denied("unavailable", headers, "anonymous_identity_unavailable", null);
   }
-  if (!options.store && isProductionEnvironment(options.env) && !options.env?.REDIS_URL) {
+  if (!options.store && isProductionEnvironment(environment) && !environment.REDIS_URL) {
     return denied("unavailable", headers, "anonymous_quota_store_unavailable", null);
   }
 
   const cohortHash = hmacIdentifier(
     config,
     normalizeNetworkCohort(request, {
-      env: options.env,
+      env: environment,
       trustProxyHeaders: options.trustProxyHeaders,
     }),
     "network",
@@ -133,7 +134,7 @@ export async function beginAuthenticatedFreeChat(
     tripHash: userHash,
     tripVersion: config.keyVersion,
   } satisfies AnonymousFreeActor;
-  const store = options.store ?? getDefaultAnonymousFreeAllowanceStore(options.env);
+  const store = options.store ?? getDefaultAnonymousFreeAllowanceStore(environment);
   const requestId = options.requestId ?? createReservationId(options.createId);
   const leaseId = requestId;
   const keyVersion = config.keyVersion;
@@ -285,13 +286,14 @@ export async function beginAnonymousFreeUsage(
 ): Promise<AnonymousFreeAllowanceBeginResult> {
   const now = options.now?.() ?? new Date();
   const nowMs = now.getTime();
-  const config = readAnonymousIdentityConfig(options.env, request);
+  const environment = options.env ?? process.env;
+  const config = readAnonymousIdentityConfig(environment, request);
   const headers = new Headers();
 
   if (config.status === "unavailable") {
     return denied("unavailable", headers, "anonymous_identity_unavailable", null);
   }
-  if (!options.store && isProductionEnvironment(options.env) && !options.env?.REDIS_URL) {
+  if (!options.store && isProductionEnvironment(environment) && !environment.REDIS_URL) {
     return denied("unavailable", headers, "anonymous_quota_store_unavailable", null);
   }
 
@@ -313,7 +315,7 @@ export async function beginAnonymousFreeUsage(
   const cohortHash = hmacIdentifier(
     config,
     normalizeNetworkCohort(request, {
-      env: options.env,
+      env: environment,
       trustProxyHeaders: options.trustProxyHeaders,
     }),
     "network",
@@ -326,7 +328,7 @@ export async function beginAnonymousFreeUsage(
     tripVersion: cookie.keyVersion,
   } satisfies AnonymousFreeActor;
   const keyVersion = config.keyVersion;
-  const store = options.store ?? getDefaultAnonymousFreeAllowanceStore(options.env);
+  const store = options.store ?? getDefaultAnonymousFreeAllowanceStore(environment);
   const requestId = options.requestId ?? createReservationId(options.createId);
 
   if (config.enforceCohortLimits && cookie.state !== "valid" && cookie.state !== "rotated") {
