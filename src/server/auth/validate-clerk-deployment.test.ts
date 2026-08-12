@@ -14,6 +14,7 @@ const vercelProjectId = "prj_askSiargaoStableProject";
 const validationScript = fileURLToPath(new URL("./validate-clerk-deployment.ts", import.meta.url));
 
 const completeProductionEnv = {
+  CHAT_MODEL_PROVIDER: "openai",
   CLERK_AUTH_MODE: "enabled",
   CLERK_AUTHORIZED_PARTIES: `${productionOrigin},${stagingOrigin}`,
   CLERK_DEPLOYMENT_CONTEXT: "production",
@@ -27,6 +28,10 @@ const completeProductionEnv = {
   NEXT_PUBLIC_APP_URL: productionOrigin,
   NEXT_PUBLIC_CLERK_AUTH_MODE: "enabled",
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_public",
+  OPENAI_API_KEY: "sk-openai-never-print",
+  OPEN_METEO_API_MODE: "off",
+  REDIS_URL: "rediss://production.example.test:6379",
+  TIDE_FORECAST_MODE: "off",
   VERCEL_ENV: "production",
   VERCEL_PROJECT_ID: vercelProjectId,
   VERCEL_PROJECT_PRODUCTION_URL: productionProjectUrl,
@@ -41,6 +46,7 @@ describe("Clerk deployment validation command", () => {
     expect(result.stdout).toContain("production/enabled");
     expect(result.stderr).not.toContain("sk_live_never_print");
     expect(result.stderr).not.toContain("whsec_never_print");
+    expect(result.stderr).not.toContain("sk-openai-never-print");
   });
 
   test("passes production redeploys with changed generated Vercel URLs", async () => {

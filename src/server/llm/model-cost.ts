@@ -52,6 +52,12 @@ export type ModelCostPriceCatalog = {
         outputTokens: string;
       };
     };
+    openai: {
+      "gpt-5.4-mini": {
+        inputTokens: string;
+        outputTokens: string;
+      };
+    };
   };
 };
 
@@ -62,7 +68,7 @@ export type ResponsesClientForCostTracking = {
 };
 
 export const modelCostPriceCatalog = {
-  version: "deepseek-v4-flash-2026-07-14-export",
+  version: "deepseek-v4-flash+gpt-5.4-mini-2026-08-12",
   currency: "USD",
   pricesPerToken: {
     deepseek: {
@@ -72,6 +78,12 @@ export const modelCostPriceCatalog = {
         outputTokens: "0.00000028",
       },
     },
+    openai: {
+      "gpt-5.4-mini": {
+        inputTokens: "0.00000075",
+        outputTokens: "0.0000045",
+      },
+    },
   },
 } as const satisfies ModelCostPriceCatalog;
 
@@ -79,16 +91,41 @@ export function estimateModelCallCostUsd(
   usage: NormalizedModelUsage,
   catalog: ModelCostPriceCatalog = modelCostPriceCatalog,
 ) {
-  if (usage.provider !== "deepseek" || usage.model !== "deepseek-v4-flash") {
-    return "0";
+  if (usage.provider === "openai" && isGpt54MiniModel(usage.model)) {
+    const prices = catalog.pricesPerToken.openai["gpt-5.4-mini"];
+    return addDecimalStrings([
+      multiplyDecimalByInteger(prices.inputTokens, usage.inputTokens ?? 0),
+      multiplyDecimalByInteger(prices.outputTokens, usage.outputTokens ?? 0),
+    ]);
   }
-  const prices = catalog.pricesPerToken.deepseek["deepseek-v4-flash"];
-  const costs = [
-    multiplyDecimalByInteger(prices.inputCacheHitTokens, usage.inputCacheHitTokens ?? 0),
-    multiplyDecimalByInteger(prices.inputCacheMissTokens, usage.inputCacheMissTokens ?? 0),
-    multiplyDecimalByInteger(prices.outputTokens, usage.outputTokens ?? 0),
-  ];
-  return addDecimalStrings(costs);
+  if (usage.provider === "deepseek" && usage.model === "deepseek-v4-flash") {
+    const prices = catalog.pricesPerToken.deepseek["deepseek-v4-flash"];
+    const costs = [
+      multiplyDecimalByInteger(prices.inputCacheHitTokens, usage.inputCacheHitTokens ?? 0),
+      multiplyDecimalByInteger(prices.inputCacheMissTokens, usage.inputCacheMissTokens ?? 0),
+      multiplyDecimalByInteger(prices.outputTokens, usage.outputTokens ?? 0),
+    ];
+    return addDecimalStrings(costs);
+  }
+  return "0";
+}
+
+export function canEstimateModelCallCost(usage: NormalizedModelUsage) {
+  if (usage.provider === "openai" && isGpt54MiniModel(usage.model)) {
+    return usage.inputTokens !== undefined || usage.outputTokens !== undefined;
+  }
+  if (usage.provider === "deepseek" && usage.model === "deepseek-v4-flash") {
+    return (
+      usage.inputCacheHitTokens !== undefined ||
+      usage.inputCacheMissTokens !== undefined ||
+      usage.outputTokens !== undefined
+    );
+  }
+  return false;
+}
+
+function isGpt54MiniModel(model: string) {
+  return model === "gpt-5.4-mini" || model.startsWith("gpt-5.4-mini-");
 }
 
 export function normalizeDeepSeekChatCompletionUsage({
@@ -153,10 +190,12 @@ export function normalizeOpenAIResponsesUsage({
 }
 
 export function createModelCostAccumulator({
+  primaryProvider = "deepseek",
   requestId,
   priceCatalog = modelCostPriceCatalog,
 }: {
   requestId: string;
+  primaryProvider?: ModelProviderName;
   priceCatalog?: ModelCostPriceCatalog;
 }) {
   const calls: ModelCostLineItem[] = [];
@@ -192,7 +231,7 @@ export function createModelCostAccumulator({
             const startedAt = Date.now();
             const response = await client.responses.create(params);
             this.recordUsage({
-              fallback: response.usage?.provider === "openai",
+              fallback: response.usage ? response.usage.provider !== primaryProvider : false,
               latencyMs: Date.now() - startedAt,
               usage: response.usage,
             });

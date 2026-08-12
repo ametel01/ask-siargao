@@ -23,17 +23,21 @@ export type ResponsesClientLike = {
 };
 
 type ChatModelProviderOptions = {
+  provider?: ChatModelProvider;
   deepSeekApiKey?: string;
   deepSeekBaseUrl?: string;
   deepSeekClient?: ChatCompletionsClientLike;
   deepSeekModel?: string;
   openAiFallbackEnabled?: boolean;
   openAiApiKey?: string;
-  openAiClient?: ResponsesClientLike;
+  openAiClient?: OpenAIResponsesClientLike;
   openAiFallbackModel?: string;
   timeoutMs?: number;
   maxRetries?: number;
 };
+
+export type ChatModelProvider = "deepseek" | "openai";
+type ChatModelEnvironment = Record<string, string | undefined>;
 
 type ChatCompletionsClientLike = {
   chat: {
@@ -43,14 +47,66 @@ type ChatCompletionsClientLike = {
   };
 };
 
+type OpenAIResponsesClientLike = {
+  responses: {
+    create: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  };
+};
+
 const defaultDeepSeekBaseUrl = "https://api.deepseek.com";
 export const defaultDeepSeekChatModel = "deepseek-v4-flash";
-const defaultOpenAiFallbackChatModel = "gpt-5.4-mini";
+export const defaultOpenAiChatModel = "gpt-5.4-mini";
 export const defaultChatProviderTimeoutMs = 15_000;
 export const defaultChatProviderMaxRetries = 1;
 
-export function resolvePrimaryChatModel(model?: string) {
-  return model ?? process.env.DEEPSEEK_MODEL ?? defaultDeepSeekChatModel;
+export function resolveChatModelProvider(
+  env: ChatModelEnvironment = process.env,
+): ChatModelProvider {
+  return env.CHAT_MODEL_PROVIDER?.trim().toLowerCase() === "openai" ? "openai" : "deepseek";
+}
+
+export function requireValidChatModelDeployment(env: ChatModelEnvironment = process.env) {
+  const rawProvider = env.CHAT_MODEL_PROVIDER?.trim().toLowerCase();
+  if (rawProvider && rawProvider !== "deepseek" && rawProvider !== "openai") {
+    throw new Error("CHAT_MODEL_PROVIDER must be one of: deepseek, openai.");
+  }
+  const provider = resolveChatModelProvider(env);
+  const production = isProductionEnvironment(env);
+  if (production && provider === "deepseek" && !env.DEEPSEEK_API_KEY?.trim()) {
+    throw new Error("DEEPSEEK_API_KEY is required for the production DeepSeek chat provider.");
+  }
+  if (
+    production &&
+    provider === "deepseek" &&
+    env.NEXT_PUBLIC_MODEL_PROVIDER_CONSENT_REQUIRED?.trim().toLowerCase() !== "true"
+  ) {
+    throw new Error(
+      "NEXT_PUBLIC_MODEL_PROVIDER_CONSENT_REQUIRED=true is required for the production DeepSeek chat provider.",
+    );
+  }
+  if (production && provider === "openai" && !env.OPENAI_API_KEY?.trim()) {
+    throw new Error("OPENAI_API_KEY is required for the production OpenAI chat provider.");
+  }
+  return provider;
+}
+
+function isProductionEnvironment(env: ChatModelEnvironment) {
+  if (env.VERCEL_ENV) {
+    return env.VERCEL_ENV === "production";
+  }
+  if (env.APP_ENV) {
+    return env.APP_ENV === "production";
+  }
+  return env.NODE_ENV === "production";
+}
+
+export function resolvePrimaryChatModel(model?: string, env: ChatModelEnvironment = process.env) {
+  if (model) {
+    return model;
+  }
+  return resolveChatModelProvider(env) === "openai"
+    ? (env.OPENAI_MODEL ?? defaultOpenAiChatModel)
+    : (env.DEEPSEEK_MODEL ?? defaultDeepSeekChatModel);
 }
 
 export function createConfiguredChatResponsesClient(
@@ -58,14 +114,37 @@ export function createConfiguredChatResponsesClient(
 ): ResponsesClientLike {
   const timeout = options.timeoutMs ?? defaultChatProviderTimeoutMs;
   const maxRetries = options.maxRetries ?? defaultChatProviderMaxRetries;
+  const provider = options.provider ?? resolveChatModelProvider();
   const deepSeekApiKey = options.deepSeekApiKey ?? process.env.DEEPSEEK_API_KEY;
   const openAiFallbackEnabled = options.openAiFallbackEnabled ?? true;
-  const openAiApiKey = openAiFallbackEnabled
-    ? (options.openAiApiKey ?? process.env.OPENAI_API_KEY)
-    : undefined;
-  const deepSeekModel = options.deepSeekModel ?? resolvePrimaryChatModel();
+  const openAiApiKey =
+    provider === "openai" || openAiFallbackEnabled
+      ? (options.openAiApiKey ?? process.env.OPENAI_API_KEY)
+      : undefined;
+  const deepSeekModel =
+    options.deepSeekModel ?? process.env.DEEPSEEK_MODEL ?? defaultDeepSeekChatModel;
   const openAiFallbackModel =
-    options.openAiFallbackModel ?? process.env.OPENAI_MODEL ?? defaultOpenAiFallbackChatModel;
+    options.openAiFallbackModel ?? process.env.OPENAI_MODEL ?? defaultOpenAiChatModel;
+
+  if (provider === "openai") {
+    const openAiPrimary =
+      (options.openAiClient
+        ? withOpenAIResponseModel(options.openAiClient, openAiFallbackModel, false)
+        : undefined) ??
+      (openAiApiKey
+        ? createOpenAIResponsesClient({
+            apiKey: openAiApiKey,
+            fallback: false,
+            model: openAiFallbackModel,
+            maxRetries,
+            timeout,
+          })
+        : undefined);
+    if (!openAiPrimary) {
+      throw new Error("OPENAI_API_KEY is required for the OpenAI primary chat provider.");
+    }
+    return openAiPrimary;
+  }
 
   const primary =
     deepSeekApiKey || options.deepSeekClient
@@ -81,11 +160,12 @@ export function createConfiguredChatResponsesClient(
       : undefined;
   const fallback =
     (openAiFallbackEnabled && options.openAiClient
-      ? withOpenAIResponseModel(options.openAiClient, openAiFallbackModel)
+      ? withOpenAIResponseModel(options.openAiClient, openAiFallbackModel, true)
       : undefined) ??
-    (openAiApiKey
-      ? createOpenAIResponsesFallbackClient({
+    (openAiFallbackEnabled && openAiApiKey
+      ? createOpenAIResponsesClient({
           apiKey: openAiApiKey,
+          fallback: true,
           model: openAiFallbackModel,
           maxRetries,
           timeout,
@@ -123,7 +203,11 @@ export function createConfiguredChatResponsesClient(
   };
 }
 
-function withOpenAIResponseModel(client: ResponsesClientLike, model: string): ResponsesClientLike {
+function withOpenAIResponseModel(
+  client: OpenAIResponsesClientLike,
+  model: string,
+  fallback: boolean,
+): ResponsesClientLike {
   return {
     responses: {
       create: async (params) => {
@@ -134,30 +218,36 @@ function withOpenAIResponseModel(client: ResponsesClientLike, model: string): Re
         });
         return {
           ...response,
-          model: response.model ?? model,
+          model: readString(response.model) ?? model,
           usage: normalizeOpenAIResponsesUsage({
-            fallback: true,
+            fallback,
             model,
-            response: response as Record<string, unknown>,
+            response,
           }),
-        };
+        } as ResponsesCreateResult;
       },
     },
   };
 }
 
-function createOpenAIResponsesFallbackClient({
+function createOpenAIResponsesClient({
   apiKey,
+  fallback,
   model,
   maxRetries,
   timeout,
 }: {
   apiKey: string;
+  fallback: boolean;
   model: string;
   maxRetries: number;
   timeout: number;
 }): ResponsesClientLike {
-  const client = new OpenAI({ apiKey, maxRetries, timeout }) as ResponsesClientLike;
+  const client = new OpenAI({
+    apiKey,
+    maxRetries,
+    timeout,
+  }) as unknown as OpenAIResponsesClientLike;
 
   return {
     responses: {
@@ -171,7 +261,7 @@ function createOpenAIResponsesFallbackClient({
           ...response,
           model: readString(response.model) ?? model,
           usage: normalizeOpenAIResponsesUsage({
-            fallback: true,
+            fallback,
             model,
             response: response as Record<string, unknown>,
           }),

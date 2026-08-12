@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   addDecimalStrings,
+  canEstimateModelCallCost,
   createModelCostAccumulator,
   estimateModelCallCostUsd,
   modelCostPriceCatalog,
@@ -11,6 +12,23 @@ import {
 } from "@/server/llm/model-cost";
 
 describe("model cost accounting", () => {
+  test("identifies usage that can be priced without inventing missing token counts", () => {
+    expect(
+      canEstimateModelCallCost({
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        mode: "unknown",
+        inputTokens: 1,
+      }),
+    ).toBe(true);
+    expect(
+      canEstimateModelCallCost({ provider: "openai", model: "gpt-5.4-mini", mode: "unknown" }),
+    ).toBe(false);
+    expect(
+      canEstimateModelCallCost({ provider: "openai", model: "unsupported-model", mode: "unknown" }),
+    ).toBe(false);
+  });
+
   test("reconciles the supplied DeepSeek export totals exactly", () => {
     const exportRows = [
       {
@@ -50,7 +68,28 @@ describe("model cost accounting", () => {
     expect(dailyCosts).toEqual(exportRows.map((row) => row.expectedCostUsd));
     expect(addDecimalStrings(dailyCosts)).toBe("0.111115984");
     expect(exportRows.reduce((total, row) => total + row.requestCount, 0)).toBe(76);
-    expect(modelCostPriceCatalog.version).toBe("deepseek-v4-flash-2026-07-14-export");
+    expect(modelCostPriceCatalog.version).toBe("deepseek-v4-flash+gpt-5.4-mini-2026-08-12");
+  });
+
+  test("prices OpenAI primary usage from the official GPT-5.4 mini token rates", () => {
+    expect(
+      estimateModelCallCostUsd({
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        mode: "unknown",
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toBe("5.25");
+    expect(
+      estimateModelCallCostUsd({
+        provider: "openai",
+        model: "gpt-5.4-mini-2026-08-01",
+        mode: "unknown",
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }),
+    ).toBe("5.25");
   });
 
   test("uses decimal arithmetic without floating-point drift", () => {
@@ -115,5 +154,32 @@ describe("model cost accounting", () => {
     expect(payloadJson).not.toContain("trip_cookie_secret");
     expect(payloadJson).not.toContain("9.784");
     expect(payloadJson).not.toContain("126.158");
+  });
+
+  test("does not label the configured OpenAI primary as fallback", async () => {
+    const accumulator = createModelCostAccumulator({
+      requestId: "chat_request_openai_primary",
+      primaryProvider: "openai",
+    });
+    const client = accumulator.wrapClient({
+      responses: {
+        create: async (_params: Record<string, unknown>) => ({
+          usage: {
+            provider: "openai" as const,
+            model: "gpt-5.4-mini",
+            mode: "unknown" as const,
+            inputTokens: 1_000,
+            outputTokens: 100,
+          },
+        }),
+      },
+    });
+
+    await client.responses.create({ input: "bounded test" });
+
+    expect(accumulator.summary()).toMatchObject({
+      fallbackUsed: false,
+      totalModeledCostUsd: "0.0012",
+    });
   });
 });

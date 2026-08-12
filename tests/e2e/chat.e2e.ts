@@ -178,6 +178,56 @@ declare global {
 const savedTripStorageKey = "ask-siargao:saved-trip:v1";
 const tripContextStorageKey = "ask-siargao:trip-context:v1";
 
+test("requires explicit DeepSeek processing acknowledgement before the first chat request", async ({
+  context,
+  page,
+}) => {
+  await context.clearCookies();
+  await page.route("**/api/me/profile", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "unauthenticated" }),
+    });
+  });
+  let chatRequests = 0;
+  await page.route("**/api/chat", async (route) => {
+    chatRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "Consent-aware response." }),
+    });
+  });
+
+  await page.goto("/chat");
+  await page.getByLabel("Ask anything about Siargao").fill("Where should I eat tonight?");
+  await page.getByRole("button", { name: "Send question" }).click();
+
+  const dialog = page.getByTestId("model-provider-consent-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Know where your question goes")).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "Read the full privacy notice" })).toHaveAttribute(
+    "href",
+    "/legal/privacy",
+  );
+  await expect(dialog.getByRole("button", { name: "Agree and send" })).toBeDisabled();
+  expect(chatRequests).toBe(0);
+
+  await dialog.getByRole("checkbox").check();
+  await dialog.getByRole("button", { name: "Agree and send" }).click();
+
+  await expect.poll(() => chatRequests).toBe(1);
+  await expect(page.getByText("Consent-aware response.")).toBeVisible();
+  await expect
+    .poll(async () =>
+      (await context.cookies()).some(
+        (cookie) => cookie.name === "ask_siargao_model_provider_consent",
+      ),
+    )
+    .toBe(true);
+});
+
 test("sends a desktop composer message to the chat API and renders the assistant response", async ({
   page,
 }, testInfo) => {
@@ -3327,8 +3377,9 @@ test("renders three selected recommendations with one best fit and bounded alter
   await page.getByLabel("Ask anything about Siargao").fill("Compare three cafe options");
   await page.getByRole("button", { name: "Send question" }).click();
 
-  const cardTitles = await page
-    .getByTestId("recommendation-card")
+  const recommendationCards = page.getByTestId("recommendation-card");
+  await expect(recommendationCards).toHaveCount(3);
+  const cardTitles = await recommendationCards
     .locator("h4")
     .evaluateAll((elements) => elements.map((element) => element.textContent?.trim()));
   expect(cardTitles).toEqual(["Best Cafe", "Alt Cafe", "Covered Backup"]);

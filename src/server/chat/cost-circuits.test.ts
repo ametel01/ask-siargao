@@ -3,11 +3,46 @@ import { describe, expect, test } from "bun:test";
 import {
   assertModelCostCircuit,
   ModelCostCircuitError,
+  requireValidProductionModelCostCircuit,
   reserveModelCost,
 } from "@/server/chat/cost-circuits";
 import { createMemoryQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
 
 describe("model cost circuits", () => {
+  test("validates the shared production circuit and conservative reservation", () => {
+    expect(() =>
+      requireValidProductionModelCostCircuit({
+        GLOBAL_MODEL_DAILY_USD_LIMIT: "10",
+        MODEL_COST_RESERVATION_MICRO_USD: "1000000",
+        REDIS_URL: "rediss://production.example.test:6379",
+        VERCEL_ENV: "production",
+      }),
+    ).not.toThrow();
+    expect(() => requireValidProductionModelCostCircuit({ VERCEL_ENV: "production" })).toThrow(
+      "REDIS_URL",
+    );
+    expect(() =>
+      requireValidProductionModelCostCircuit({
+        MODEL_COST_RESERVATION_MICRO_USD: "2000",
+        REDIS_URL: "rediss://production.example.test:6379",
+        VERCEL_ENV: "production",
+      }),
+    ).toThrow("at least 1000000");
+    expect(() =>
+      requireValidProductionModelCostCircuit({
+        GLOBAL_MODEL_DAILY_USD_LIMIT: "11",
+        REDIS_URL: "rediss://production.example.test:6379",
+        VERCEL_ENV: "production",
+      }),
+    ).toThrow("must not exceed 10");
+    expect(() =>
+      requireValidProductionModelCostCircuit({
+        NODE_ENV: "production",
+        VERCEL_ENV: "preview",
+      }),
+    ).not.toThrow();
+  });
+
   test("allows calls when provider and global budgets have room", async () => {
     const store = createMemoryQuotaStore();
     const env = {
@@ -24,17 +59,17 @@ describe("model cost circuits", () => {
     ).resolves.toMatchObject({ status: "allowed", provider: "deepseek" });
   });
 
-  test("defaults production to a USD 10 global circuit and a 2,000 micro-USD reservation", async () => {
+  test("defaults production to a USD 10 global circuit and a conservative USD 1 reservation", async () => {
     const result = await reserveModelCost(
       { model: "deepseek-v4-flash", requestId: "production_default" },
       {
-        env: { NODE_ENV: "production" },
+        env: { VERCEL_ENV: "production" },
         store: createMemoryQuotaStore(),
         now: () => new Date("2026-07-14T00:00:00.000Z"),
       },
     );
 
-    expect(result).toMatchObject({ status: "allowed", amountMicros: 2_000 });
+    expect(result).toMatchObject({ status: "allowed", amountMicros: 1_000_000 });
   });
 
   test("reconciles conservative reservations to actual modeled cost", async () => {

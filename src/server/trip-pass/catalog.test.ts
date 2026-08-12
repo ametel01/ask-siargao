@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   readTripPassEnvironment,
+  requireValidTripPassCheckoutMode,
   tripPassCostPolicy,
   tripPassFreeMeterLimits,
   tripPassLegacyFreeMeterLimits,
@@ -189,10 +190,42 @@ describe("Trip Pass catalog", () => {
     });
   });
 
-  test("rejects malformed flag and budget configuration", () => {
-    expect(() => readTripPassEnvironment({ TRIP_PASS_CHECKOUT_MODE: "maybe" })).toThrow(
+  test("forces malformed checkout mode off and reports it without breaking free runtime", () => {
+    let invalidCheckoutModeReports = 0;
+    const environment = readTripPassEnvironment(
+      { TRIP_PASS_CHECKOUT_MODE: "maybe" },
+      { onInvalidCheckoutMode: () => invalidCheckoutModeReports++ },
+    );
+
+    expect(environment.checkout).toEqual({
+      enabled: false,
+      mode: "off",
+      priceId: undefined,
+      canaryAccountIds: [],
+      status: "disabled",
+      unavailableReason: null,
+    });
+    expect(invalidCheckoutModeReports).toBe(1);
+  });
+
+  test("rejects malformed checkout mode during deployment validation", () => {
+    expect(() => requireValidTripPassCheckoutMode({ TRIP_PASS_CHECKOUT_MODE: "maybe" })).toThrow(
       "TRIP_PASS_CHECKOUT_MODE must be one of",
     );
+  });
+
+  test("keeps malformed checkout mode off when Sentry configuration is malformed", () => {
+    let environment: ReturnType<typeof readTripPassEnvironment> | undefined;
+    expect(() => {
+      environment = readTripPassEnvironment({
+        SENTRY_DSN: "not-a-sentry-dsn",
+        TRIP_PASS_CHECKOUT_MODE: "malformed-with-bad-sentry",
+      });
+    }).not.toThrow();
+    expect(environment?.checkout.mode).toBe("off");
+  });
+
+  test("rejects malformed non-checkout flag and budget configuration", () => {
     expect(() => readTripPassEnvironment({ TRIP_PASS_EXTENSION_ENABLED: "maybe" })).toThrow(
       "Invalid boolean feature flag",
     );

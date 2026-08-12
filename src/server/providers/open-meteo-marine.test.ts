@@ -4,6 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { runInitialMigration } from "@/server/db/test-database";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import {
+  buildOpenMeteoMarineIngestionBatch,
   buildOpenMeteoMarineUrl,
   createOpenMeteoMarineIngestionBatch,
   parseOpenMeteoMarineResponse,
@@ -65,6 +66,21 @@ const fixture = {
 };
 
 describe("Open-Meteo Marine adapter", () => {
+  test("does not call the noncommercial API when production mode is off", async () => {
+    let fetchCalls = 0;
+
+    await expect(
+      buildOpenMeteoMarineIngestionBatch({
+        env: { VERCEL_ENV: "production" },
+        fetcher: async () => {
+          fetchCalls += 1;
+          return Response.json(fixture);
+        },
+      }),
+    ).rejects.toThrow("open_meteo_api_disabled");
+    expect(fetchCalls).toBe(0);
+  });
+
   test("builds the marine URL with current and hourly sea-condition variables", () => {
     const url = new URL(buildOpenMeteoMarineUrl());
 

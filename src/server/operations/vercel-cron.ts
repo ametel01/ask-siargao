@@ -22,6 +22,7 @@ import {
 import { runOperationalWorker } from "@/server/operations/worker-runner";
 import { buildOpenMeteoIngestionBatch } from "@/server/providers/open-meteo";
 import { buildOpenMeteoMarineIngestionBatch } from "@/server/providers/open-meteo-marine";
+import { readOpenMeteoApiMode } from "@/server/providers/production-provider-mode";
 import { upsertProviderFactGraphBatch } from "@/server/providers/provider-write-batches";
 
 export function authorizeVercelCron(request: Request, secret = process.env.CRON_SECRET) {
@@ -127,14 +128,18 @@ export async function runMonitoredOperationalCron(
 export async function runWeatherCron(
   kind: "marine" | "weather",
   db: DatabaseQueryClient = getDefaultDatabaseQueryClient(),
+  env: Record<string, string | undefined> = process.env,
 ) {
+  if (readOpenMeteoApiMode(env) === "off") {
+    return { kind, status: "disabled" as const };
+  }
   return runTrackedOperationalSchedule(
     kind,
     async () => {
       const batch =
         kind === "marine"
-          ? await buildOpenMeteoMarineIngestionBatch({})
-          : await buildOpenMeteoIngestionBatch({});
+          ? await buildOpenMeteoMarineIngestionBatch({ env })
+          : await buildOpenMeteoIngestionBatch({ env });
       const write = async (transaction: DatabaseQueryClient) =>
         upsertProviderFactGraphBatch(transaction, batch);
       if (db.transaction) {

@@ -402,8 +402,12 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
     await expect(paidActions.first()).toHaveAttribute("href", "/settings#pass");
     await expect(paidActions.last()).toHaveAttribute("href", "/settings#pass");
     await expect(
-      pricing.getByRole("link", { name: "Terms, privacy, and refunds" }),
+      pricing.getByRole("link", { name: "Trip Pass terms and refunds" }),
     ).toHaveAttribute("href", "/legal/trip-pass");
+    await expect(pricing.getByRole("link", { name: "Privacy notice" })).toHaveAttribute(
+      "href",
+      "/legal/privacy",
+    );
     await expect(
       pricing.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b|\bguaranteed\b/i),
     ).toHaveCount(0);

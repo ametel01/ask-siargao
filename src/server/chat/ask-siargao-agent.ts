@@ -54,8 +54,12 @@ import type {
 } from "@/server/chat/itinerary-tools";
 import { inspectRealityCheckRequest, parseRealityCheckProposal } from "@/server/chat/reality-check";
 import { buildEvidenceLifecycle, type EvidenceLifecycle } from "@/server/chat/required-evidence";
-import { createConfiguredChatResponsesClient } from "@/server/llm/chat-model-provider";
 import {
+  createConfiguredChatResponsesClient,
+  resolveChatModelProvider,
+} from "@/server/llm/chat-model-provider";
+import {
+  canEstimateModelCallCost,
   createModelCostAccumulator,
   estimateModelCallCostUsd,
   modelCostTelemetryPayload,
@@ -121,7 +125,10 @@ export async function runAskSiargaoAgentTurn(
 ): Promise<AgentTurnResult> {
   const resolved = resolveAgentRuntimeRequest(request, dependencies);
   const costPolicy = resolveChatCostPolicy(resolved, { env: dependencies.costPolicyEnv });
-  const costAccumulator = createModelCostAccumulator({ requestId: resolved.requestId });
+  const costAccumulator = createModelCostAccumulator({
+    requestId: resolved.requestId,
+    primaryProvider: resolveChatModelProvider(dependencies.costPolicyEnv),
+  });
   const client = costAccumulator.wrapClient(
     dependencies.client ??
       createConfiguredChatResponsesClient({
@@ -1011,10 +1018,9 @@ async function createBudgetedModelResponse({
   try {
     const response = await client.responses.create(params);
     if (reservation.status === "allowed") {
-      const modeledCostUsd = response.usage ? estimateModelCallCostUsd(response.usage) : "0";
       const actualMicros =
-        response.usage?.provider === "deepseek"
-          ? Number.parseInt((Number(modeledCostUsd) * 1_000_000).toFixed(0), 10)
+        response.usage && canEstimateModelCallCost(response.usage)
+          ? Math.max(1, Math.ceil(Number(estimateModelCallCostUsd(response.usage)) * 1_000_000))
           : reservation.amountMicros;
       await reservation.settle(actualMicros);
     }

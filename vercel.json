@@ -2,8 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     { "path": "/api/cron/operations", "schedule": "* * * * *" },
-    { "path": "/api/cron/weather", "schedule": "0 */3 * * *" },
-    { "path": "/api/cron/marine", "schedule": "0 */3 * * *" },
     { "path": "/api/cron/places-prune", "schedule": "30 18 * * *" }
   ],
   "regions": ["sin1"]

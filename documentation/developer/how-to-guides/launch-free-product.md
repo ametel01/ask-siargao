@@ -9,10 +9,13 @@ records the historical evidence and decisions behind this policy.
 
 ## Release contract
 
-The free experience provides ten Travel Answers over seven days. Free Controlled Beta exposes public
-landing and governed knowledge pages plus authenticated free chat under explicit traffic, cost,
-monitoring, and rollback controls. General Free Availability removes beta traffic caps while
-retaining the free allowance, cost circuit, monitoring, rollback controls, and checkout-off boundary.
+The free experience provides ten Travel Answers over seven days. The initial Free Controlled Beta
+exposes the public landing page plus authenticated free chat under explicit traffic, cost,
+monitoring, and rollback controls. Governed knowledge routes remain fail-closed and outside the
+initial launch scope until at least one production page has passed the existing evidence,
+republishability, confidence, and freshness gates. General Free Availability removes beta traffic
+caps while retaining the free allowance, cost circuit, monitoring, rollback controls, and
+checkout-off boundary.
 
 Do not start either lane while the daily provider and model budget or any required accountable role
 is `UNASSIGNED`.
@@ -22,12 +25,21 @@ is `UNASSIGNED`.
 Before preparing a Release Candidate, verify that:
 
 - destructive privacy mutations enforce the shared same-origin policy;
+- production DeepSeek chat requires the public `/legal/privacy` disclosure and exact current
+  model-provider acknowledgement cookie before the API consumes rate-limit or model capacity;
 - production PostgreSQL verifies server identity and production Redis uses encrypted transport;
 - raw Google Places queries do not enter durable logs;
-- production public pages never substitute synthetic fixtures for missing or failed governed data;
+- production public pages never substitute synthetic fixtures for missing or failed governed data,
+  and unpublished knowledge routes return unavailable/not found rather than entering beta scope;
 - Clerk webhooks reject oversized declared and streamed bodies before verification;
+- every application response carries the tested report-only Content Security Policy;
 - CI actions and service images are pinned immutably; and
 - every enabled Shared Trip Link expires after 30 days by default and remains revocable.
+
+The initial report-only CSP is an enforcement rehearsal inspected during controlled browser QA. It
+does not accept browser violation reports at an application endpoint, avoiding a new
+attacker-controlled ingestion surface. Add a bounded, privacy-reviewed reporting endpoint before
+promoting the policy to enforcement if production violation telemetry becomes a requirement.
 
 If web research has not gained an explicit untrusted-content boundary and adversarial
 prompt-injection coverage, keep it disabled. Approved structured providers may remain enabled.
@@ -97,6 +109,10 @@ Enforce these initial limits:
 - stop immediately for an authentication, privacy, or data-integrity incident.
 
 Keep Trip Pass checkout globally `off` throughout the beta.
+
+Do not count unavailable knowledge routes as launched beta surfaces. Add them to the exposure scope
+only after production publishing evidence proves the same governed page through its human, LLM,
+JSON, sitemap, and index representations.
 
 ## 6. Promote to General Free Availability
 

@@ -132,6 +132,24 @@ describe("Trip Pass account presentation", () => {
       expect(JSON.stringify(unavailable)).not.toContain("missing_stripe_trip_pass_price_id");
     });
   });
+
+  test("keeps checkout presentation disabled when checkout mode is malformed", async () => {
+    await withPresentationDb(async (db) => {
+      await insertUser(db, "user_malformed_checkout");
+
+      const presentation = await buildTripPassAccountPresentation(
+        { userId: "user_malformed_checkout", now },
+        { db, env: { TRIP_PASS_CHECKOUT_MODE: "malformed" } },
+      );
+
+      expect(presentation.status).toBe("free");
+      expect(presentation.checkout).toEqual({
+        status: "disabled",
+        reason: "checkout_disabled",
+      });
+      expect(presentation.actions.startCheckout).toBe(false);
+    });
+  });
 });
 
 async function withPresentationDb(work: (db: PGlite) => Promise<void>) {

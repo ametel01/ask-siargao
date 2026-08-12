@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildTideForecastSnapshot,
   parseTideForecastPage,
   tideForecastLocations,
   tideForecastSourceProfileId,
@@ -24,6 +25,23 @@ window.FCGON = {"tideDays":[{"date":"2026-06-28","sunrise":1782595020,"sunset":1
 `;
 
 describe("Tide-Forecast parser", () => {
+  test("does not fetch the development-only page in production", async () => {
+    let fetchCalls = 0;
+
+    await expect(
+      buildTideForecastSnapshot({
+        dateRange: "today",
+        env: { VERCEL_ENV: "production" },
+        fetcher: async () => {
+          fetchCalls += 1;
+          return new Response(fixtureHtml);
+        },
+        requestedLocation: "Cloud 9",
+      }),
+    ).rejects.toThrow("tide_forecast_disabled");
+    expect(fetchCalls).toBe(0);
+  });
+
   test("extracts tomorrow tides, embedded sea periods, and recommended surf windows", () => {
     const snapshot = parseTideForecastPage({
       dateRange: "tomorrow",

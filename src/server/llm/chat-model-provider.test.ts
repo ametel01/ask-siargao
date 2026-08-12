@@ -5,8 +5,11 @@ import {
   defaultChatProviderMaxRetries,
   defaultChatProviderTimeoutMs,
   defaultDeepSeekChatModel,
+  defaultOpenAiChatModel,
   type ResponsesClientLike,
   type ResponsesCreateResult,
+  requireValidChatModelDeployment,
+  resolveChatModelProvider,
   resolvePrimaryChatModel,
 } from "@/server/llm/chat-model-provider";
 
@@ -20,6 +23,89 @@ describe("chat model provider", () => {
     } finally {
       restoreEnv("DEEPSEEK_MODEL", originalModel);
     }
+  });
+
+  test("selects OpenAI explicitly as primary without enabling fallback semantics", async () => {
+    const deepSeekRequests: Record<string, unknown>[] = [];
+    const openAiRequests: Record<string, unknown>[] = [];
+    const client = createConfiguredChatResponsesClient({
+      provider: "openai",
+      openAiFallbackEnabled: false,
+      deepSeekClient: {
+        chat: {
+          completions: {
+            create: async (params) => {
+              deepSeekRequests.push(params);
+              return { choices: [{ message: { content: "wrong provider" } }] };
+            },
+          },
+        },
+      },
+      openAiClient: {
+        responses: {
+          create: async (params) => {
+            openAiRequests.push(params);
+            return {
+              model: "gpt-5.4-mini",
+              output_text: "OpenAI primary answer.",
+              usage: { input_tokens: 20, output_tokens: 5, total_tokens: 25 },
+            };
+          },
+        },
+      },
+    });
+
+    const response = await client.responses.create({ input: "Hello" });
+
+    expect(response.output_text).toBe("OpenAI primary answer.");
+    expect(response.usage?.provider).toBe("openai");
+    expect(openAiRequests).toHaveLength(1);
+    expect(deepSeekRequests).toHaveLength(0);
+  });
+
+  test("resolves and validates the production provider explicitly", () => {
+    expect(resolveChatModelProvider({ CHAT_MODEL_PROVIDER: "openai" })).toBe("openai");
+    expect(resolvePrimaryChatModel(undefined, { CHAT_MODEL_PROVIDER: "openai" })).toBe(
+      defaultOpenAiChatModel,
+    );
+    expect(
+      requireValidChatModelDeployment({
+        APP_ENV: "production",
+        CHAT_MODEL_PROVIDER: "openai",
+        OPENAI_API_KEY: "test_api_key",
+      }),
+    ).toBe("openai");
+    expect(() =>
+      requireValidChatModelDeployment({
+        APP_ENV: "production",
+        CHAT_MODEL_PROVIDER: "openai",
+      }),
+    ).toThrow("OPENAI_API_KEY");
+    expect(() => requireValidChatModelDeployment({ CHAT_MODEL_PROVIDER: "unknown" })).toThrow(
+      "CHAT_MODEL_PROVIDER must be one of",
+    );
+    expect(() =>
+      requireValidChatModelDeployment({
+        APP_ENV: "production",
+        CHAT_MODEL_PROVIDER: "deepseek",
+        DEEPSEEK_API_KEY: "test_api_key",
+      }),
+    ).toThrow("NEXT_PUBLIC_MODEL_PROVIDER_CONSENT_REQUIRED=true");
+    expect(
+      requireValidChatModelDeployment({
+        APP_ENV: "production",
+        CHAT_MODEL_PROVIDER: "deepseek",
+        DEEPSEEK_API_KEY: "test_api_key",
+        NEXT_PUBLIC_MODEL_PROVIDER_CONSENT_REQUIRED: "true",
+      }),
+    ).toBe("deepseek");
+    expect(
+      requireValidChatModelDeployment({
+        CHAT_MODEL_PROVIDER: "openai",
+        NODE_ENV: "production",
+        VERCEL_ENV: "preview",
+      }),
+    ).toBe("openai");
   });
 
   test("uses bounded provider timeout and retry defaults", () => {
@@ -320,6 +406,7 @@ describe("chat model provider", () => {
       },
       deepSeekModel: "deepseek-v4-flash",
       openAiClient: fallbackClient,
+      openAiApiKey: "configured-but-disabled-openai-key",
       openAiFallbackEnabled: false,
       openAiFallbackModel: "gpt-5.4-mini",
     });
