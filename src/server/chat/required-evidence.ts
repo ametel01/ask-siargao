@@ -120,7 +120,6 @@ export type EvidenceLifecycleRetryRepair = {
 };
 
 export type EvidenceLifecycleFinalization = {
-  admissibleEvidence: RequiredEvidenceAdmissibleEvidence;
   allowedCardIds: readonly string[] | undefined;
   allowedCardKinds: readonly RecommendationCardKind[] | undefined;
   allowedItineraryIds: readonly string[] | undefined;
@@ -270,7 +269,6 @@ export function buildEvidenceLifecycle(
         }
       : admittedFinalPayload;
     return {
-      admissibleEvidence,
       allowedCardIds:
         realityCheckOutcome.artifacts?.allowedCardIds ?? admissibleEvidence.allowedCardIds,
       allowedCardKinds: admissibleEvidence.allowedCardKinds,

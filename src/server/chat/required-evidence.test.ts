@@ -866,7 +866,7 @@ describe("required evidence planning", () => {
     });
 
     expect(finalized.finalPayload?.displayCardIds).toEqual(["place_bravo"]);
-    expect(finalized.admissibleEvidence.allowedCardIds).toEqual(["place_bravo"]);
+    expect(finalized.allowedCardIds).toEqual(["place_bravo"]);
   });
 
   test("gates automatic card selection when the final payload omits card ids", () => {
