@@ -19,7 +19,7 @@ import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-re
 
 const now = new Date("2026-07-14T08:00:00.000Z");
 describe("Trip Pass diagnostics", () => {
-  test("keeps repairable commerce findings out of Trip Pass diagnostics", async () => {
+  test("does not advertise diagnostic issues as repairable Findings", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_paid_without_pass", "user_paid_without_pass");
       await insertPassWithStaleReservation(db, "trip_pass_stale", "user_stale");
@@ -31,6 +31,7 @@ describe("Trip Pass diagnostics", () => {
       expect(snapshot).not.toHaveProperty("infrastructure");
       expect(snapshot.issues.map((issue) => issue.code)).not.toContain("paid_without_pass");
       expect(snapshot.issues.map((issue) => issue.code)).toContain("stale_usage_reservation");
+      expect(snapshot.issues.map((issue) => issue.severity)).not.toContain("repairable");
       await expectCounts(db, { grants: "0", passes: "1" });
       await expectUsageEventType(db, "usage_event_stale", "reserved");
     });
@@ -56,6 +57,7 @@ describe("Trip Pass diagnostics", () => {
         expect.objectContaining({
           code: "missing_usage_meters",
           localRef: passId,
+          severity: "warning",
           details: expect.objectContaining({ meterCount: 4, expectedMeters: 5 }),
         }),
       );
@@ -137,7 +139,7 @@ describe("Trip Pass diagnostics", () => {
             code: "stale_usage_reservation",
             localRef: "cs_test_should_not_render",
             reason: "sent to traveler@example.com with pi_test_should_not_render",
-            severity: "repairable",
+            severity: "warning",
           },
         ],
         scope: {},

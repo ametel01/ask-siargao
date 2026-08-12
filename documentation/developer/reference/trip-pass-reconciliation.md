@@ -58,8 +58,9 @@ opaque order, pass, or Account reference and returns redacted status and meter s
 
 The diagnostic snapshot has no `mode`, mutation confirmation flag, planned actions, provider
 payment comparison, or environment-health payload. A diagnostic issue is not a Reconciliation
-Finding and cannot be passed directly to the Repair API. Repair remains available only for a
-durable open Finding through the workflow below.
+Finding, its severity is never a claim that it is repairable, and it cannot be passed directly to
+the Repair API. Repair remains available only for a durable open Finding through the workflow
+below.
 
 ## Repair API
 

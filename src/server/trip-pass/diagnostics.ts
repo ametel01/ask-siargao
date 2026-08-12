@@ -11,7 +11,7 @@ export type TripPassDiagnosticScope = {
   userId?: string;
 };
 
-export type TripPassDiagnosticSeverity = "warning" | "repairable" | "blocked";
+export type TripPassDiagnosticSeverity = "warning" | "blocked";
 
 export type TripPassDiagnosticIssue = {
   code:
@@ -228,7 +228,7 @@ async function collectTripPassDiagnosticIssues(input: {
   for (const pass of missingMeters) {
     issues.push({
       code: "missing_usage_meters",
-      severity: "repairable",
+      severity: "warning",
       localRef: pass.id,
       reason: "pass is missing one or more usage meter rows",
       details: {
@@ -276,7 +276,7 @@ function usageEventIssues(
     ) {
       issues.push({
         code: "stale_usage_reservation",
-        severity: "repairable",
+        severity: "warning",
         localRef: event.id,
         reason: "reserved usage event exceeded the release window",
         details: {

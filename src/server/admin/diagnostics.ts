@@ -428,7 +428,7 @@ export function createSampleDiagnosticsSnapshot(now = new Date("2026-06-23T08:00
       issues: [
         {
           code: "stale_usage_reservation",
-          severity: "repairable",
+          severity: "warning",
           localRef: "usage_event_stale_001",
           reason: "reserved usage event exceeded the release window",
           details: { passRef: "trip_pass_support_001", meterType: "live_refresh" },
