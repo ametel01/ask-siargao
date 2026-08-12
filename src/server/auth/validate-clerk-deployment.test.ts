@@ -59,6 +59,20 @@ describe("Clerk deployment validation command", () => {
     expect(result.stdout).toContain("production/enabled");
   });
 
+  test("passes when Vercel selects the root project domain for a www canonical origin", async () => {
+    const canonicalOrigin = "https://www.asksiargao.com";
+    const result = await runValidationCommand({
+      ...completeProductionEnv,
+      CLERK_AUTHORIZED_PARTIES: `${canonicalOrigin},${stagingOrigin}`,
+      CLERK_PRODUCTION_ORIGIN: canonicalOrigin,
+      NEXT_PUBLIC_APP_URL: canonicalOrigin,
+      VERCEL_PROJECT_PRODUCTION_URL: "asksiargao.com",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("production/enabled");
+  });
+
   test("fails missing production mode before a request can be served", async () => {
     const result = await runValidationCommand({
       ...completeProductionEnv,

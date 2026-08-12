@@ -778,10 +778,8 @@ function validateVercelStableDeploymentIdentity(input: {
 
 function validateProductionProjectUrl(input: {
   errors: ClerkConfigError[];
-  productionOrigin: string | undefined;
   vercelProjectProductionUrl: string | undefined;
 }) {
-  const productionHost = input.productionOrigin ? new URL(input.productionOrigin).host : undefined;
   const projectProductionHost = parseExactVercelUrl(
     input.vercelProjectProductionUrl,
     "VERCEL_PROJECT_PRODUCTION_URL",
@@ -796,15 +794,6 @@ function validateProductionProjectUrl(input: {
         message: "Production deployments require VERCEL_PROJECT_PRODUCTION_URL.",
       });
     }
-    return;
-  }
-
-  if (productionHost && projectProductionHost !== productionHost) {
-    input.errors.push({
-      code: "vercel_project_production_url_mismatch",
-      field: "VERCEL_PROJECT_PRODUCTION_URL",
-      message: "VERCEL_PROJECT_PRODUCTION_URL must match CLERK_PRODUCTION_ORIGIN.",
-    });
   }
 }
 
