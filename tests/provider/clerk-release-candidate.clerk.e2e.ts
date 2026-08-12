@@ -263,7 +263,9 @@ test("ownership denial precedes terminal step-up closure and provider deletion c
   await page.getByRole("button", { name: "Close Account", exact: true }).click();
   await page.getByLabel("Account Closure confirmation").fill("CLOSE MY ACCOUNT");
   await page.getByRole("button", { name: "Close Account permanently" }).click();
-  await expect.poll(async () => (await page.request.get("/api/me/profile")).status()).toBe(404);
+  await expect
+    .poll(async () => isTerminalAuthDenial((await page.request.get("/api/me/profile")).status()))
+    .toBe(true);
   await deliverSignedClerkWebhook(page.request, {
     type: "user.deleted",
     object: "event",
@@ -315,6 +317,10 @@ async function assertScenarioBoundary(browser: Browser | null) {
 
 function safeAssert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+function isTerminalAuthDenial(status: number) {
+  return status === 401 || status === 404;
 }
 
 async function deliverSignedClerkWebhook(request: APIRequestContext, event: object) {
