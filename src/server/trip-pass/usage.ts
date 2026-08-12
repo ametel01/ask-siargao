@@ -27,6 +27,21 @@ export type PaidChatUsageAllowance = {
   };
 };
 
+export type PaidTravelAnswerSettlementInput =
+  | {
+      releaseReason?: PaidAnswerReleaseReason;
+      success: false;
+    }
+  | {
+      answerMessageId: string;
+      persistAnswer: (
+        transaction: DatabaseQueryClient,
+        allowance: PaidChatUsageAllowance,
+      ) => Promise<Record<string, unknown>>;
+      providerRequestIds?: readonly string[];
+      success: true;
+    };
+
 export type PaidChatUsageSessionResult =
   | {
       status: "allowed";
@@ -36,16 +51,7 @@ export type PaidChatUsageSessionResult =
       reserveDecisionMeter(input: {
         meterType: PaidDecisionMeterType;
       }): Promise<PaidDecisionMeterReservation>;
-      settle(input: {
-        answerMessageId?: string;
-        persistAnswer?: (
-          transaction: DatabaseQueryClient,
-          allowance: PaidChatUsageAllowance,
-        ) => Promise<Record<string, unknown>>;
-        providerRequestIds?: readonly string[];
-        releaseReason?: PaidAnswerReleaseReason;
-        success: boolean;
-      }): Promise<PaidChatUsageSettlement>;
+      settle(input: PaidTravelAnswerSettlementInput): Promise<PaidChatUsageSettlement>;
     }
   | {
       status: "not_applicable";

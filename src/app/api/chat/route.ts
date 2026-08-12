@@ -11,10 +11,9 @@ export async function POST(request: Request) {
 
   return chatResponse(
     request,
-    {
-      ...createDefaultChatRouteDependencies(),
+    createDefaultChatRouteDependencies({
       deferPersistence: (task) => after(task),
-    },
+    }),
     rateLimit.headers,
   );
 }

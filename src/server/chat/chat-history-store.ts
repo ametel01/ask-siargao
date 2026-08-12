@@ -448,6 +448,20 @@ export async function appendChatHistoryMessage(
   );
 }
 
+export async function storeAssistantTravelAnswer(
+  db: DatabaseQueryClient,
+  input: Omit<ChatHistoryMessageInput, "role">,
+) {
+  await appendChatHistoryMessage(db, {
+    ...input,
+    role: "assistant",
+  });
+  await touchChatThread(db, {
+    threadId: input.threadId,
+    lastMessageAt: input.createdAt,
+  });
+}
+
 export async function touchChatThread(
   db: DatabaseQueryClient,
   input: {

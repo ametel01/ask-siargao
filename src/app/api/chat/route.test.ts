@@ -20,6 +20,10 @@ import type {
 } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { createChatThread } from "@/server/chat/chat-history-store";
+import {
+  answerTravelQuestion,
+  type DurableTravelAnswerDependencies,
+} from "@/server/chat/durable-travel-answer";
 import { runInitialMigration } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
 import { upsertUserProfile } from "@/server/profile/user-profile-store";
@@ -74,6 +78,61 @@ describe("chat route", () => {
     expect(body.error).toBe("invalid_chat_request");
     expect(body.issues[0].path).toBe("messages");
     expect(dependencies.requests).toHaveLength(0);
+  });
+
+  test("frames a locally substituted durable Travel Answer module", async () => {
+    const receivedBodies: string[] = [];
+    const dependencies: ChatRouteDependencies = {
+      answerTravelQuestion: async (input) => {
+        receivedBodies.push(input.body);
+        return {
+          body: { message: "Substituted domain answer." },
+          headers: new Headers({ "x-travel-answer": "substituted" }),
+          latency: { preflightMs: 1 },
+          status: 201,
+        };
+      },
+    };
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I eat?" }] }),
+      dependencies,
+    );
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("x-travel-answer")).toBe("substituted");
+    expect(await response.json()).toEqual({ message: "Substituted domain answer." });
+    expect(receivedBodies).toHaveLength(1);
+  });
+
+  test("streams a locally substituted durable Travel Answer module without header callbacks", async () => {
+    const dependencies: ChatRouteDependencies = {
+      answerTravelQuestion: async () => ({
+        body: { message: "Streamed substituted answer." },
+        headers: new Headers({ "x-travel-answer": "streamed-substitute" }),
+        latency: { preflightMs: 1 },
+        status: 200,
+      }),
+    };
+
+    const response = await chatResponse(
+      jsonRequest(
+        { messages: [{ role: "user", content: "Where should I eat?" }] },
+        { headers: { accept: "application/x-ndjson" } },
+      ),
+      dependencies,
+    );
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+
+    expect(response.headers.get("x-travel-answer")).toBe("streamed-substitute");
+    expect(events.at(-1)).toMatchObject({
+      type: "result",
+      status: 200,
+      body: { message: "Streamed substituted answer." },
+    });
   });
 
   test("routes ordinary valid Siargao chat through the agent runtime", async () => {
@@ -423,6 +482,62 @@ describe("chat route", () => {
     expect(dependencies.requests).toHaveLength(1);
     await expectChatMeterUsed(db, "trip_pass_paid_disconnect", 1);
     await expectPaidAnswerReservation(db, "user_paid_disconnect", "settled");
+
+    await db.close();
+  });
+
+  test("finishes and replays a paid answer after streamed delivery is canceled", async () => {
+    const db = await openChatRouteTestDatabase();
+    await seedActiveTripPass(db, "user_paid_stream_cancel", "trip_pass_paid_stream_cancel");
+    const dependencies = chatDependencies({
+      message: "Paid answer completed after stream cancellation.",
+      sources: [genericSourceSummary],
+    });
+    const runAgent = dependencies.runAskSiargaoAgentTurn;
+    if (!runAgent) throw new Error("chat test agent dependency is required");
+    let continueGeneration: () => void = () => {};
+    const generationGate = new Promise<void>((resolve) => {
+      continueGeneration = resolve;
+    });
+    const completion = completionLogger();
+    dependencies.db = db;
+    dependencies.now = tripPassTestNow;
+    dependencies.logger = completion.logger;
+    dependencies.auth = async () => ({
+      userId: "user_paid_stream_cancel",
+      sessionClaims: { email: "paid-stream-cancel@example.com" },
+    });
+    dependencies.runAskSiargaoAgentTurn = async (...args) => {
+      await generationGate;
+      return runAgent(...args);
+    };
+    const requestBody = { messages: [{ role: "user", content: "Where should I eat?" }] };
+    const headers = {
+      accept: "application/x-ndjson",
+      "idempotency-key": "paid-stream-cancel-token",
+    };
+
+    const streamed = await chatResponse(jsonRequest(requestBody, { headers }), dependencies);
+    const reader = streamed.body?.getReader();
+    expect(reader).toBeDefined();
+    await reader?.read();
+    await reader?.cancel();
+    continueGeneration();
+    await completion.completed;
+
+    const retry = await chatResponse(
+      jsonRequest(requestBody, {
+        headers: { "idempotency-key": "paid-stream-cancel-token" },
+      }),
+      dependencies,
+    );
+    const retryBody = await retry.json();
+
+    expect(retry.status).toBe(200);
+    expect(retryBody.message).toBe("Paid answer completed after stream cancellation.");
+    expect(dependencies.requests).toHaveLength(1);
+    await expectChatMeterUsed(db, "trip_pass_paid_stream_cancel", 1);
+    await expectPaidAnswerReservation(db, "user_paid_stream_cancel", "settled");
 
     await db.close();
   });
@@ -2752,15 +2867,13 @@ describe("chat route", () => {
   });
 
   test("returns stable unavailable response when the agent runtime is not configured", async () => {
+    const dependencies = chatDependencies();
+    dependencies.runAskSiargaoAgentTurn = async () => {
+      throw new Error("OPENAI_API_KEY is required for Ask Siargao agent chat.");
+    };
     const response = await chatResponse(
       jsonRequest({ messages: [{ role: "user", content: "Hi" }] }),
-      {
-        auth: null,
-        beginAnonymousFreeChat: null,
-        runAskSiargaoAgentTurn: async () => {
-          throw new Error("OPENAI_API_KEY is required for Ask Siargao agent chat.");
-        },
-      },
+      dependencies,
     );
     const body = await response.json();
 
@@ -2771,7 +2884,7 @@ describe("chat route", () => {
   test("default dependencies wire the agent runtime", () => {
     const dependencies = createDefaultChatRouteDependencies();
 
-    expect(dependencies.runAskSiargaoAgentTurn).toBeDefined();
+    expect(dependencies.answerTravelQuestion).toBeDefined();
   });
 });
 
@@ -3060,16 +3173,18 @@ function chatDependencies(
 ) {
   const requests: AgentRuntimeRequest[] = [];
   type CapturedAgentDependencies = Parameters<
-    NonNullable<ChatRouteDependencies["runAskSiargaoAgentTurn"]>
+    NonNullable<DurableTravelAnswerDependencies["runAskSiargaoAgentTurn"]>
   >[1];
   const agentDependencies: CapturedAgentDependencies[] = [];
-  const dependencies: ChatRouteDependencies & {
-    agentDependencies: typeof agentDependencies;
-    requests: typeof requests;
-  } = {
+  const dependencies: DurableTravelAnswerDependencies &
+    ChatRouteDependencies & {
+      agentDependencies: typeof agentDependencies;
+      requests: typeof requests;
+    } = {
     auth: null,
     beginAuthenticatedFreeChat: null,
     beginAnonymousFreeChat: null,
+    answerTravelQuestion: (input, options) => answerTravelQuestion(input, dependencies, options),
     runAskSiargaoAgentTurn: async (request, runtimeDependencies) => {
       requests.push(request);
       agentDependencies.push(runtimeDependencies);
@@ -3246,6 +3361,26 @@ function captureLogger() {
   } as unknown as Logger;
 
   return { childBindings, events, logger };
+}
+
+function completionLogger() {
+  let resolveCompleted: () => void = () => {};
+  const completed = new Promise<void>((resolve) => {
+    resolveCompleted = resolve;
+  });
+  const logger = {
+    child: () => logger,
+    debug: () => {},
+    error: () => resolveCompleted(),
+    info: (_payload: Record<string, unknown>, message: string) => {
+      if (message === "Chat request answered.") {
+        resolveCompleted();
+      }
+    },
+    warn: () => {},
+  } as unknown as Logger;
+
+  return { completed, logger };
 }
 
 function truncatedSha256(value: string) {
