@@ -104,38 +104,20 @@ test("both lanes prove the checked-out SHA is exact and already trusted by main"
   expect(workflow).toContain(`provider-rc-stripe-${shaExpression}`);
 });
 
-test("protected evidence is emitted only after its semantic provider lane", async () => {
+test("workflow selects one lifecycle-owned execution per provider lane", async () => {
   const workflow = await readFile(workflowPath, "utf8");
-  expect(workflow.indexOf("bun run test:e2e:clerk")).toBeLessThan(
-    workflow.indexOf("bun run privacy:closure-worker"),
-  );
-  expect(workflow.indexOf("bun run qa:provider-rc-preflight -- --lane clerk")).toBeLessThan(
-    workflow.indexOf("bun run test:e2e:clerk"),
-  );
-  expect(workflow.indexOf("bun run privacy:closure-worker")).toBeLessThan(
-    workflow.indexOf("bun run test:e2e:clerk:verify-deletion"),
-  );
-  expect(workflow.indexOf("bun run test:e2e:clerk:verify-deletion")).toBeLessThan(
-    workflow.indexOf("bun run test:e2e:clerk:final-boundary"),
-  );
-  expect(workflow.indexOf("bun run test:e2e:clerk:final-boundary")).toBeLessThan(
-    workflow.indexOf("bun run qa:provider-rc-evidence -- --lane clerk"),
-  );
-  expect(workflow.indexOf("bun run test:smoke:trip-pass-stripe")).toBeLessThan(
-    workflow.lastIndexOf("bun run privacy:closure-worker"),
-  );
-  expect(workflow.indexOf("bun run qa:provider-rc-preflight -- --lane stripe")).toBeLessThan(
-    workflow.indexOf("bun run test:smoke:trip-pass-stripe"),
-  );
-  expect(workflow.lastIndexOf("bun run privacy:closure-worker")).toBeLessThan(
-    workflow.indexOf("bun run payments:closure-refund-worker"),
-  );
-  expect(workflow.indexOf("bun run payments:closure-refund-worker")).toBeLessThan(
-    workflow.indexOf("bun run test:e2e:stripe:final-boundary"),
-  );
-  expect(workflow.indexOf("bun run test:e2e:stripe:final-boundary")).toBeLessThan(
-    workflow.indexOf("bun run qa:provider-rc-evidence -- --lane stripe"),
-  );
+  const clerk = jobBlock(workflow, "clerk-test-instance", "stripe-test-mode");
+  const stripe = jobBlock(workflow, "stripe-test-mode");
+
+  expect(clerk).toContain("run: bun run qa:provider-rc -- --lane clerk");
+  expect(stripe).toContain("run: bun run qa:provider-rc -- --lane stripe");
+  expect(workflow.match(/bun run qa:provider-rc -- --lane/g)).toHaveLength(2);
+  for (const block of [clerk, stripe]) {
+    expect(block).not.toContain("qa:provider-rc-preflight");
+    expect(block).not.toContain("qa:provider-rc-evidence");
+    expect(block).not.toContain("privacy:closure-worker");
+    expect(block).not.toContain("final-boundary");
+  }
 });
 
 test("workflow names the lifecycle that owns both protected lanes", async () => {

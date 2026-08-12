@@ -1,9 +1,8 @@
 import type { ProviderReleaseCandidateLane } from "@/server/qa/provider-release-candidate";
-import { createLiveProviderReleaseCandidateLifecycle } from "@/server/qa/provider-release-candidate-live-boundary";
+import { runLiveProviderReleaseCandidateLane } from "@/server/qa/provider-release-candidate-live-boundary";
 
 const lane = readLane();
-const lifecycle = await createLiveProviderReleaseCandidateLifecycle(lane);
-const completed = await lifecycle.complete();
+const completed = await runLiveProviderReleaseCandidateLane(lane);
 
 console.log(
   JSON.stringify({

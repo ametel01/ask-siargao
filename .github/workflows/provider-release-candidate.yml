@@ -86,13 +86,7 @@ jobs:
           COMMERCE_RETENTION_POLICY_VERSION: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_POLICY_VERSION }}
           COMMERCE_RETENTION_DAYS: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_DAYS }}
           STRIPE_RESTRICTED_KEY: ${{ secrets.PROVIDER_RC_STRIPE_RESTRICTED_KEY }}
-        run: |
-          bun run qa:provider-rc-preflight -- --lane clerk
-          bun run test:e2e:clerk
-          bun run privacy:closure-worker
-          bun run test:e2e:clerk:verify-deletion
-          bun run test:e2e:clerk:final-boundary
-          bun run qa:provider-rc-evidence -- --lane clerk
+        run: bun run qa:provider-rc -- --lane clerk
 
       - name: Upload exact Clerk evidence
         if: ${{ !cancelled() }}
@@ -173,13 +167,7 @@ jobs:
           STRIPE_RESTRICTED_KEY: ${{ secrets.PROVIDER_RC_STRIPE_RESTRICTED_KEY }}
           STRIPE_TRIP_PASS_PRICE_ID: ${{ secrets.PROVIDER_RC_STRIPE_TRIP_PASS_PRICE_ID }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.PROVIDER_RC_STRIPE_WEBHOOK_SECRET }}
-        run: |
-          bun run qa:provider-rc-preflight -- --lane stripe
-          bun run test:smoke:trip-pass-stripe
-          bun run privacy:closure-worker
-          bun run payments:closure-refund-worker
-          bun run test:e2e:stripe:final-boundary
-          bun run qa:provider-rc-evidence -- --lane stripe
+        run: bun run qa:provider-rc -- --lane stripe
 
       - name: Upload exact Stripe evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

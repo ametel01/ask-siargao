@@ -10,6 +10,45 @@ export const providerReleaseCandidateEnvironment = "provider-release-candidate";
 
 export type ProviderReleaseCandidateLane = "clerk" | "stripe";
 
+export const providerReleaseCandidateLanePhases = {
+  clerk: [
+    "acceptance",
+    "account_closure_worker",
+    "provider_deletion_convergence",
+    "final_boundary",
+  ],
+  stripe: [
+    "acceptance",
+    "account_closure_worker",
+    "paid_after_closure_refund_worker",
+    "final_boundary",
+  ],
+} as const satisfies Record<ProviderReleaseCandidateLane, readonly string[]>;
+
+export type ProviderReleaseCandidateLanePhase<
+  Lane extends ProviderReleaseCandidateLane = ProviderReleaseCandidateLane,
+> = (typeof providerReleaseCandidateLanePhases)[Lane][number];
+
+export async function runProviderReleaseCandidateLane<
+  Lane extends ProviderReleaseCandidateLane,
+  Completion,
+>(
+  lane: Lane,
+  dependencies: {
+    lifecycle: {
+      begin(): Promise<unknown>;
+      complete(): Promise<Completion>;
+    };
+    runPhase(phase: ProviderReleaseCandidateLanePhase<Lane>): Promise<void>;
+  },
+) {
+  await dependencies.lifecycle.begin();
+  for (const phase of providerReleaseCandidateLanePhases[lane]) {
+    await dependencies.runPhase(phase);
+  }
+  return dependencies.lifecycle.complete();
+}
+
 export const providerReleaseCandidateStripeEventTypes = [
   "checkout.session.completed",
   "checkout.session.async_payment_succeeded",

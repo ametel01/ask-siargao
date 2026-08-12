@@ -7,6 +7,7 @@ import {
   type ProviderReleaseCandidateEnv,
   type ProviderReleaseCandidateLifecycleDependencies,
   providerReleaseCandidateScenarios,
+  runProviderReleaseCandidateLane,
 } from "@/server/qa/provider-release-candidate";
 
 const sha = "a".repeat(40);
@@ -24,6 +25,75 @@ afterEach(async () => {
 });
 
 describe("provider Release Evidence lifecycle", () => {
+  test("executes the Clerk lane in semantic Release Evidence order", async () => {
+    const events: string[] = [];
+    const completed = { evidencePath: `.tmp/provider-release-candidate/clerk-${sha}.json` };
+
+    const result = await runProviderReleaseCandidateLane("clerk", {
+      lifecycle: {
+        async begin() {
+          events.push("preflight");
+        },
+        async complete() {
+          events.push("evidence");
+          return completed;
+        },
+      },
+      async runPhase(phase) {
+        events.push(phase);
+      },
+    });
+
+    expect(events).toEqual([
+      "preflight",
+      "acceptance",
+      "account_closure_worker",
+      "provider_deletion_convergence",
+      "final_boundary",
+      "evidence",
+    ]);
+    expect(result).toBe(completed);
+  });
+
+  test("does not start a downstream lane phase while its predecessor is pending", async () => {
+    const acceptanceGate = Promise.withResolvers<void>();
+    const acceptanceStarted = Promise.withResolvers<void>();
+    const events: string[] = [];
+
+    const execution = runProviderReleaseCandidateLane("stripe", {
+      lifecycle: {
+        async begin() {
+          events.push("preflight");
+        },
+        async complete() {
+          events.push("evidence");
+        },
+      },
+      async runPhase(phase) {
+        events.push(phase);
+        if (phase === "acceptance") {
+          acceptanceStarted.resolve();
+          await acceptanceGate.promise;
+        }
+      },
+    });
+
+    await acceptanceStarted.promise;
+    await Promise.resolve();
+    expect(events).toEqual(["preflight", "acceptance"]);
+
+    acceptanceGate.resolve();
+    await execution;
+    expect(events).toEqual([
+      "preflight",
+      "acceptance",
+      "account_closure_worker",
+      "paid_after_closure_refund_worker",
+      "final_boundary",
+      "evidence",
+    ]);
+  });
+
   test("rejects an invalid candidate before exposing lifecycle operations", async () => {
     const harness = await createLifecycleHarness();
     harness.dependencies.env.GITHUB_EVENT_NAME = "pull_request";

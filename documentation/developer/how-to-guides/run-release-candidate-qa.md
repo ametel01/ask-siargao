@@ -66,6 +66,11 @@ dedicated Clerk test-instance, Stripe test-mode, protected-test database, and pr
 origin credentials after trust proof. The workflow denies forks, non-manual events, non-`main`
 SHAs, production-looking resources, live Stripe keys, schema drift, and deployed-SHA drift.
 
+Each workflow job selects its lane with `bun run qa:provider-rc -- --lane clerk` or `--lane stripe`
+and publishes the resulting exact-SHA artifact. The Release Evidence lane module owns preflight,
+provider acceptance, worker draining, final-boundary sealing, receipt validation, and evidence
+completion in semantic order; the workflow does not reproduce that sequence as shell steps.
+
 Clerk proves real email-code and Google OAuth sessions, route and ownership policy, account
 management, signed webhook convergence, seven-day session maximum, and terminal deletion. Stripe
 proves Checkout creation, a distinct 30-minute expiry boundary, authenticated cancellation,
