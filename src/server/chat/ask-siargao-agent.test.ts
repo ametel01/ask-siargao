@@ -17,6 +17,7 @@ import type {
 import { executeAgentTool } from "@/server/chat/agent-tools";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { createMeteredToolExecutor, runAskSiargaoAgentTurn } from "@/server/chat/ask-siargao-agent";
+import { createMemoryQuotaStore } from "@/server/security/rate-limit";
 import type {
   PaidChatUsageSessionResult,
   PaidDecisionMeterReservation,
@@ -110,6 +111,88 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
     expect(firstInput.responseContract?.completion).toContain(
       "Every in-scope Siargao question must receive the best useful traveler-facing answer available",
     );
+  });
+
+  test("accounts for the explicitly configured OpenAI primary without fallback labeling", async () => {
+    const client = fakeResponsesClient([
+      {
+        id: "resp_openai_primary",
+        output_text: "Cloud 9 is an easy starting point.",
+        usage: {
+          provider: "openai",
+          model: "gpt-5.4-mini",
+          mode: "unknown",
+          inputTokens: 1_000,
+          outputTokens: 100,
+          totalTokens: 1_100,
+        },
+      },
+    ]);
+
+    const result = await runAskSiargaoAgentTurn(
+      {
+        messages: [{ role: "user", content: "Where should I start?" }],
+        requestId: "agent_request_openai_primary",
+      },
+      {
+        agentMemoryVectorStoreId: "",
+        client,
+        costPolicyEnv: { CHAT_MODEL_PROVIDER: "openai" },
+        model: "gpt-5.4-mini",
+      },
+    );
+
+    expect(result.modelCost).toMatchObject({
+      fallbackUsed: false,
+      totalModeledCostUsd: "0.0012",
+    });
+  });
+
+  test("preserves a cost reservation when a successful response has no priceable usage", async () => {
+    const store = createMemoryQuotaStore();
+    const client = fakeResponsesClient([
+      {
+        id: "resp_unpriced_success",
+        output_text: "Cloud 9 is an easy starting point.",
+      },
+    ]);
+    const costPolicyEnv = {
+      GLOBAL_MODEL_DAILY_USD_LIMIT: "0.000001",
+      MODEL_COST_RESERVATION_MICRO_USD: "1",
+    };
+
+    await expect(
+      runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: "Where should I start?" }],
+          requestId: "agent_request_unpriced_first",
+        },
+        {
+          agentMemoryVectorStoreId: "",
+          client,
+          costCircuitStore: store,
+          costPolicyEnv,
+          model: "unpriced-model",
+        },
+      ),
+    ).resolves.toMatchObject({ message: expect.stringContaining("Cloud 9") });
+
+    await expect(
+      runAskSiargaoAgentTurn(
+        {
+          messages: [{ role: "user", content: "And another answer?" }],
+          requestId: "agent_request_unpriced_second",
+        },
+        {
+          agentMemoryVectorStoreId: "",
+          client,
+          costCircuitStore: store,
+          costPolicyEnv,
+          model: "unpriced-model",
+        },
+      ),
+    ).rejects.toThrow("Model cost circuit blocked openai");
+    expect(client.requests).toHaveLength(1);
   });
 
   test("repairs malformed fenced JSON before returning a default chat answer", async () => {

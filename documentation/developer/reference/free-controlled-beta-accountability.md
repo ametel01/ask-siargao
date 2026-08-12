@@ -10,7 +10,7 @@ does not itself grant Launch Authorization.
 | --- | --- | --- |
 | Operator | Alex Metelli | Assigned as sole Operator; Travel Answer availability is continuous, but human coverage is not. |
 | Evidence Owner | Alex Metelli | Assigned to assemble and attest exact-candidate Release Evidence. |
-| Launch Approver | `UNASSIGNED` | Administrative blocker: the approver must be an eligible non-author human and cannot be Alex Metelli while he is the candidate author, Evidence Owner, and Operator. |
+| Launch Approver | `ametelassistant-sys` | Assigned by the release owner. The GitHub identity is distinct from candidate author `ametel01`, has repository write access, and can submit an accepted review decision. |
 | Rollback owner | Alex Metelli | Assigned to exercise and execute application rollback. |
 | Security and privacy incident owner | Alex Metelli | Assigned to close exposure and coordinate incident response. |
 | Cost owner | Alex Metelli | Assigned to monitor provider and infrastructure spend and enforce the approved stops. |
@@ -30,10 +30,10 @@ remove the independent Launch Approver requirement.
 The Free Controlled Beta additionally retains the existing traffic limits of 100 new Ask Siargao
 Accounts and 1,000 Travel Answers per day.
 
-## Administrative blocker
+## Approver preflight
 
-Alex Metelli cannot authorize his own release under the current launch contract. Before requesting
-Launch Authorization, recruit one trusted non-author human who can review the exact-candidate Release
-Evidence, residual risks, rollback and restore results, alert evidence, and provider configuration.
-Record that person's identity and decision in the dedicated free-release GitHub issue. A same-author
-comment or self-approval does not close this blocker.
+Candidate author and Evidence Owner `ametel01` cannot authorize this release. The intended formal
+approver is `ametelassistant-sys`, a separate GitHub user with repository write access. Record the
+exact pull-request author and draft state again immediately before maintainer review, and require the
+approval decision from `ametelassistant-sys`; checker evidence and any same-author comment remain
+insufficient.

@@ -41,6 +41,20 @@ describe("chat cost policy", () => {
     });
   });
 
+  test("preserves free chat when checkout mode is malformed", () => {
+    const policy = resolveChatCostPolicy(
+      { messages: [{ role: "user", content: "Plan a first day." }] },
+      { env: { TRIP_PASS_CHECKOUT_MODE: "malformed" } },
+    );
+
+    expect(policy).toMatchObject({
+      enabled: true,
+      tier: "free",
+      maxOutputTokens: 1500,
+      maxToolCalls: 4,
+    });
+  });
+
   test("uses bounded non-thinking free policy and disables automatic OpenAI fallback", () => {
     const policy = resolveChatCostPolicy(
       { messages: [{ role: "user", content: "Plan a first day." }] },

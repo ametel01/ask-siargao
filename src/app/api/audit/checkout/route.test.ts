@@ -13,12 +13,15 @@ import type { createCheckoutSessionForAudit } from "@/server/payments/stripe";
 const now = new Date("2026-06-23T08:00:00.000Z");
 
 describe("audit checkout route", () => {
-  test("rejects malformed JSON request bodies", async () => {
+  test("returns the retirement tombstone for malformed requests", async () => {
     const response = await checkoutResponse(rawRequest("{"), checkoutDependencies());
     const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body.error).toBe("invalid_checkout_request");
+    expect(response.status).toBe(410);
+    expect(body).toEqual({
+      error: "checkout_not_available",
+      message: "Legacy Trip Risk Audit checkout is not available.",
+    });
   });
 
   test("keeps legacy audit checkout closed even when the audit request is not found", async () => {

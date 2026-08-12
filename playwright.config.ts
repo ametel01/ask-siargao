@@ -1,12 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseServerEnv =
-  "CLERK_AUTH_MODE=disabled NEXT_PUBLIC_CLERK_AUTH_MODE=disabled CLERK_DEPLOYMENT_CONTEXT=local NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY=";
+  "CLERK_AUTH_MODE=disabled NEXT_PUBLIC_CLERK_AUTH_MODE=disabled CLERK_DEPLOYMENT_CONTEXT=local NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY= CLERK_SECRET_KEY= DATABASE_URL= REDIS_URL=";
 const protectedUiHarnessEnv =
   "PLAYWRIGHT_PROTECTED_UI_HARNESS=1 PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN=ask-siargao-playwright-protected-ui-harness-token-2026";
 const isProductionPerformanceRun = process.env.PLAYWRIGHT_PRODUCTION_PERF === "1";
 const serverEnv = isProductionPerformanceRun
-  ? baseServerEnv
+  ? `APP_ENV=local ${baseServerEnv}`
   : `${baseServerEnv} ${protectedUiHarnessEnv}`;
 const serverCommand = isProductionPerformanceRun
   ? `${serverEnv} bun run start -- --hostname 127.0.0.1 --port 3100`

@@ -31,9 +31,35 @@ export type ModelCostCircuitOptions = {
 
 const oneDayMs = 24 * 60 * 60 * 1_000;
 const defaultReservationMicros = 2_000;
+const productionReservationMicros = 1_000_000;
 const productionGlobalModelDailyUsdLimit = 10;
 
 let defaultStore: QuotaStore | undefined;
+
+export function requireValidProductionModelCostCircuit(
+  env: Record<string, string | undefined> = process.env,
+) {
+  if (!isProduction(env)) {
+    return;
+  }
+  if (!env.REDIS_URL?.trim()) {
+    throw new Error("REDIS_URL is required for the shared production model cost circuit.");
+  }
+  const configuredGlobalLimit = readOptionalNonNegativeNumber(
+    "GLOBAL_MODEL_DAILY_USD_LIMIT",
+    env.GLOBAL_MODEL_DAILY_USD_LIMIT,
+  );
+  if (configuredGlobalLimit !== undefined && configuredGlobalLimit > 10) {
+    throw new Error("GLOBAL_MODEL_DAILY_USD_LIMIT must not exceed 10 in production.");
+  }
+  const configuredReservation = readOptionalPositiveInteger(
+    "MODEL_COST_RESERVATION_MICRO_USD",
+    env.MODEL_COST_RESERVATION_MICRO_USD,
+  );
+  if (configuredReservation !== undefined && configuredReservation < productionReservationMicros) {
+    throw new Error("MODEL_COST_RESERVATION_MICRO_USD must be at least 1000000 in production.");
+  }
+}
 
 export async function reserveModelCost(
   input: {
@@ -176,7 +202,7 @@ function defaultCostCircuitStore(env: Record<string, string | undefined> = proce
 function parseReservationMicros(env: Record<string, string | undefined> = process.env) {
   const value = env.MODEL_COST_RESERVATION_MICRO_USD;
   if (!value?.trim()) {
-    return defaultReservationMicros;
+    return isProduction(env) ? productionReservationMicros : defaultReservationMicros;
   }
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : defaultReservationMicros;
@@ -187,7 +213,13 @@ function normalizeActualMicros(value: number, fallback: number) {
 }
 
 function isProduction(env: Record<string, string | undefined> = process.env) {
-  return env.NODE_ENV === "production" || env.APP_ENV === "production";
+  if (env.VERCEL_ENV) {
+    return env.VERCEL_ENV === "production";
+  }
+  if (env.APP_ENV) {
+    return env.APP_ENV === "production";
+  }
+  return env.NODE_ENV === "production";
 }
 
 function usdToMicros(value: number) {
@@ -211,4 +243,26 @@ async function releaseConsumedBudget(
 
 function utcDay(nowMs: number) {
   return new Date(nowMs).toISOString().slice(0, 10);
+}
+
+function readOptionalNonNegativeNumber(name: string, value: string | undefined) {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative number.`);
+  }
+  return parsed;
+}
+
+function readOptionalPositiveInteger(name: string, value: string | undefined) {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+  return parsed;
 }

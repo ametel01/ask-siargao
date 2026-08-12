@@ -1,4 +1,11 @@
+import { createHash } from "node:crypto";
+
+import { createComponentLogger } from "@/server/observability/logger";
+import { createSentryHttpSink } from "@/server/operations/sentry-alerts";
 import { getServerSecret } from "@/server/security/privacy";
+
+const tripPassConfigurationLogger = createComponentLogger("trip-pass.configuration");
+const pagedInvalidCheckoutModes = new Set<string>();
 
 export const tripPassProductCode = "siargao_trip_pass_14d_v2";
 export const tripPassProductFamily = "siargao_trip_pass";
@@ -141,8 +148,16 @@ export type TripPassEnvironment = ReturnType<typeof readTripPassEnvironment>;
 
 type Environment = Record<string, string | undefined>;
 
-export function readTripPassEnvironment(env: Environment = process.env) {
-  const checkoutMode = parseCheckoutMode(env.TRIP_PASS_CHECKOUT_MODE);
+export function readTripPassEnvironment(
+  env: Environment = process.env,
+  options: { onInvalidCheckoutMode?: () => void } = {},
+) {
+  const checkoutMode = parseCheckoutModeRuntime(env.TRIP_PASS_CHECKOUT_MODE, () => {
+    options.onInvalidCheckoutMode?.();
+    if (!options.onInvalidCheckoutMode) {
+      pageInvalidCheckoutMode(env);
+    }
+  });
   const extensionEnabled = parseBooleanFlag(env.TRIP_PASS_EXTENSION_ENABLED);
   const deepSeekCostPolicyEnabled =
     env.DEEPSEEK_COST_POLICY_ENABLED === undefined
@@ -249,7 +264,20 @@ function parseBooleanFlag(value: string | undefined) {
   throw new Error(`Invalid boolean feature flag value: ${value}`);
 }
 
-function parseCheckoutMode(value: string | undefined) {
+export function requireValidTripPassCheckoutMode(env: Environment = process.env) {
+  return parseCheckoutModeStrict(env.TRIP_PASS_CHECKOUT_MODE);
+}
+
+function parseCheckoutModeRuntime(value: string | undefined, onInvalid: () => void) {
+  try {
+    return parseCheckoutModeStrict(value);
+  } catch {
+    onInvalid();
+    return "off" as const;
+  }
+}
+
+function parseCheckoutModeStrict(value: string | undefined) {
   if (value === undefined || value.trim() === "") {
     return "off" as const;
   }
@@ -258,6 +286,44 @@ function parseCheckoutMode(value: string | undefined) {
     return normalized;
   }
   throw new Error("TRIP_PASS_CHECKOUT_MODE must be one of: off, canary, on.");
+}
+
+function pageInvalidCheckoutMode(env: Environment) {
+  const fingerprint = createHash("sha256")
+    .update(env.TRIP_PASS_CHECKOUT_MODE ?? "")
+    .digest("hex")
+    .slice(0, 16);
+  if (pagedInvalidCheckoutModes.has(fingerprint)) {
+    return;
+  }
+  pagedInvalidCheckoutModes.add(fingerprint);
+  tripPassConfigurationLogger.error(
+    { errorCode: "invalid_trip_pass_checkout_mode" },
+    "Trip Pass checkout mode is invalid; checkout is forced off.",
+  );
+
+  const dsn = optionalServerSecret("SENTRY_DSN", env);
+  if (!dsn) {
+    return;
+  }
+  void Promise.resolve()
+    .then(() =>
+      createSentryHttpSink({ dsn }).send({
+        errorCode: "invalid_trip_pass_checkout_mode",
+        eventId: createHash("sha256")
+          .update(`trip-pass-checkout-mode:${fingerprint}`)
+          .digest("hex")
+          .slice(0, 32),
+        impact: "high",
+        operation: "configuration",
+      }),
+    )
+    .catch(() => {
+      tripPassConfigurationLogger.error(
+        { errorCode: "invalid_trip_pass_checkout_mode_page_failed" },
+        "Failed to page the Operator about invalid Trip Pass checkout configuration.",
+      );
+    });
 }
 
 function parseCanaryAccountIds(value: string | undefined) {

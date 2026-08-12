@@ -91,6 +91,25 @@ describe("quota-efficient operational schedule sentinel", () => {
     });
   });
 
+  test("does not page disabled production forecast schedules", async () => {
+    await withMigratedDatabase(async (db) => {
+      await recordOperationalScheduleFailure("weather", db, new Date("2026-08-11T01:00:00.000Z"));
+      await recordOperationalScheduleFailure("marine", db, new Date("2026-08-11T01:00:00.000Z"));
+
+      const result = await evaluateOperationalSchedules({
+        db,
+        env: { VERCEL_ENV: "production" },
+        now: new Date("2026-08-11T06:00:00.000Z"),
+      });
+
+      expect(result).toEqual({
+        issues: [],
+        ok: true,
+        states: [{ scheduleKey: "places_prune", status: "observing" }],
+      });
+    });
+  });
+
   test("records tracked success and failure without retaining raw exception text", async () => {
     await withMigratedDatabase(async (db) => {
       await expect(

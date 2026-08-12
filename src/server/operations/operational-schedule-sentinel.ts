@@ -1,4 +1,5 @@
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+import { readOpenMeteoApiMode } from "@/server/providers/production-provider-mode";
 
 export const operationalScheduleDefinitions = {
   marine: { graceMinutes: 30, scheduleMinutes: 180 },
@@ -122,6 +123,7 @@ export async function recordOperationalScheduleFailure(
 
 export async function evaluateOperationalSchedules(dependencies: {
   db: DatabaseQueryClient;
+  env?: Record<string, string | undefined>;
   now?: Date;
 }) {
   const now = dependencies.now ?? new Date();
@@ -141,6 +143,9 @@ export async function evaluateOperationalSchedules(dependencies: {
       status: OperationalScheduleStatus;
     }> = [];
     for (const row of locked.rows) {
+      if (!isScheduleEnabled(row.schedule_key, dependencies.env)) {
+        continue;
+      }
       let status = row.status;
       let lifecycle = Number(row.lifecycle);
       const lastHealthyEvidence = new Date(row.last_succeeded_at ?? row.monitoring_started_at);
@@ -180,6 +185,16 @@ export async function evaluateOperationalSchedules(dependencies: {
   return dependencies.db.transaction
     ? dependencies.db.transaction(evaluate)
     : evaluate(dependencies.db);
+}
+
+function isScheduleEnabled(
+  scheduleKey: OperationalScheduleKey,
+  env: Record<string, string | undefined> = process.env,
+) {
+  if (scheduleKey === "weather" || scheduleKey === "marine") {
+    return readOpenMeteoApiMode(env) !== "off";
+  }
+  return true;
 }
 
 async function ensureOperationalScheduleStates(db: DatabaseQueryClient, now: Date) {

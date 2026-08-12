@@ -16,6 +16,7 @@ export type OperationalAlert = {
     | "redis_availability"
     | "paid_after_closure_refund"
     | "live_reconciliation"
+    | "configuration"
     | "scheduled_maintenance";
 };
 

@@ -1,4 +1,5 @@
 import type { FetchLike } from "@/server/providers/open-meteo";
+import { requireTideForecastEnabled } from "@/server/providers/production-provider-mode";
 import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
 
 const tideForecastBaseUrl = "https://www.tide-forecast.com";
@@ -122,11 +123,13 @@ export function tideForecastLocationForSiargaoLabel(_label: string): TideForecas
 
 export async function buildTideForecastSnapshot(input: {
   dateRange: TideForecastDateRange;
+  env?: Record<string, string | undefined>;
   fetchedAt?: Date;
   fetcher?: FetchLike;
   location?: TideForecastLocation;
   requestedLocation: string;
 }) {
+  requireTideForecastEnabled(input.env);
   const fetchedAt = input.fetchedAt ?? new Date();
   const location = input.location ?? tideForecastLocations.dapa;
   const response = await fetchWithProviderTimeout(input.fetcher ?? fetch, location.stationUrl, {

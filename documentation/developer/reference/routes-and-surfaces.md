@@ -11,7 +11,7 @@ classification:
 | --- | --- |
 | `protected` | `/settings`, `/profile`, `/admin/diagnostics`, `/audits/[auditRequestId]/status`, `/api/me/**`, `/api/chat/threads/**`, and `/api/chat/ratings` |
 | `externally_verified` | `/api/clerk/webhooks` and `/api/stripe/webhook` |
-| `public` | `/`, `/chat`, sign-in/sign-up, public knowledge pages, LLM/robots/sitemap routes, signed report/share delivery, audit intake/checkout, anonymous chat/save/share APIs, public JSON APIs, and `/audits/demo/report` in its non-production QA context |
+| `public` | `/`, `/chat`, sign-in/sign-up, public knowledge pages, LLM/robots/sitemap routes, signed report/share delivery, retired audit intake/checkout tombstones, anonymous chat/save/share APIs, public JSON APIs, and `/audits/demo/report` in its non-production QA context |
 
 Unknown application paths matched by `src/proxy.ts` are denied. Supplemental policies such as rate
 limits, signed report/share tokens, admin token checks, non-production QA availability, and
@@ -35,8 +35,8 @@ resource ownership remain handler-level authorities; they do not replace the bas
 
 | Route | Method | Purpose | Protection |
 | --- | --- | --- | --- |
-| `/api/audit/intake` | `POST` | Validate intake, resolve accommodation context, run completeness gate, and return preview risk when eligible | Intake rate limit |
-| `/api/audit/checkout` | `POST` | Create Stripe Checkout only for complete, eligible audits | Checkout rate limit |
+| `/api/audit/intake` | `POST` | Return the stable `410` retirement tombstone; this route cannot create or advertise a payment-ready audit | Intake rate limit |
+| `/api/audit/checkout` | `POST` | Return the stable `410` retirement tombstone without invoking the legacy payment lifecycle | Checkout rate limit |
 | `/api/stripe/webhook` | `POST` | Bound and verify Stripe webhook signatures, commit a normalized versioned event receipt, then apply or retry payment state | Webhook secret; verified processing is independent of Redis/provider-call rate limits |
 
 ## Auth APIs
@@ -137,7 +137,10 @@ issued affected share URLs resolve through the existing generic unavailable/not-
 
 ## Public Knowledge Surfaces
 
-Each public page family is generated from the same repository-backed `PublicKnowledgePage` governed facts. The local demo repository is built from persisted-page-shaped fixtures, while production should read the same shape from governed public page and evidence rows.
+Each public page family is generated from the same repository-backed `PublicKnowledgePage` governed
+facts. The local demo repository is built from persisted-page-shaped fixtures. Production reads the
+same shape only from governed public page and evidence rows; missing production content remains
+unavailable and is outside the initial Free Controlled Beta exposure scope.
 The code source of truth for current families and path derivation is `src/server/public-pages/public-surface-registry.ts`; update that registry before changing this table.
 
 | Family | Human Route | LLM Markdown Route | JSON Route |

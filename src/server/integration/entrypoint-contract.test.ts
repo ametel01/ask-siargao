@@ -291,8 +291,12 @@ describe("integration entry-point contracts", () => {
     expect(extractWorkflowJob(workflow, "integration-redis")).toContain(
       "run: bun run test:integration:redis",
     );
-    expect(workflow).toContain("image: postgres:17.6-alpine3.22");
-    expect(workflow).toContain("image: redis:8.2.1-alpine3.22");
+    expect(workflow).toContain(
+      "image: postgres@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94 # 17.6-alpine3.22",
+    );
+    expect(workflow).toContain(
+      "image: redis@sha256:987c376c727652f99625c7d205a1cba3cb2c53b92b0b62aade2bd48ee1593232 # 8.2.1-alpine3.22",
+    );
     expect(workflow).toContain("POSTGRES_PASSWORD: ask_siargao_issue145_password");
     expect(workflow).toContain("- 5432:5432");
     expect(workflow).toContain("- 6379:6379");

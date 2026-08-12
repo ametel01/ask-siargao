@@ -19,6 +19,7 @@ import type {
 } from "@/server/facts/types";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import type { FetchLike } from "@/server/providers/open-meteo";
+import { requireOpenMeteoApiEnabled } from "@/server/providers/production-provider-mode";
 import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
 import type { SourceRegistry } from "@/server/providers/source-registry";
 
@@ -193,11 +194,13 @@ async function fetchOpenMeteoMarine(
 }
 
 export async function buildOpenMeteoMarineIngestionBatch(input: {
+  env?: Record<string, string | undefined>;
   fetchedAt?: Date;
   fetcher?: FetchLike;
   location?: OpenMeteoMarineLocation;
   registry?: SourceRegistry;
 }) {
+  requireOpenMeteoApiEnabled(input.env);
   const fetchedAt = input.fetchedAt ?? new Date();
   const fetchedAtIso = fetchedAt.toISOString();
   const registry = input.registry ?? createDefaultSourceRegistry();

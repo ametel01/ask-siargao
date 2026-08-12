@@ -76,8 +76,18 @@ export const clerkRoutePolicyEntries = [
   route("src/app/llms.txt/route.ts", "/llms.txt", "public", "public LLM route index"),
   route("src/app/robots.txt/route.ts", "/robots.txt", "public", "public robots route"),
   route("src/app/sitemap.xml/route.ts", "/sitemap.xml", "public", "public sitemap route"),
-  api("src/app/api/audit/checkout/route.ts", "/api/audit/checkout", "public", "audit checkout"),
-  api("src/app/api/audit/intake/route.ts", "/api/audit/intake", "public", "audit intake"),
+  api(
+    "src/app/api/audit/checkout/route.ts",
+    "/api/audit/checkout",
+    "public",
+    "retired audit checkout tombstone",
+  ),
+  api(
+    "src/app/api/audit/intake/route.ts",
+    "/api/audit/intake",
+    "public",
+    "retired audit intake tombstone",
+  ),
   api(
     "src/app/api/admin/repairs/route.ts",
     "/api/admin/repairs",

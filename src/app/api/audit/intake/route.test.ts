@@ -8,28 +8,27 @@ describe("audit intake route", () => {
     resetRateLimitStoreForTests();
   });
 
-  test("rejects malformed JSON request bodies with a stable error", async () => {
+  test("returns the retirement tombstone for malformed requests", async () => {
     const response = await POST(rawRequest("{"));
     const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body.error).toBe("invalid_json");
-    expect(body.message).toBe("Request body must be valid JSON.");
+    expect(response.status).toBe(410);
+    expect(body).toEqual({
+      error: "audit_intake_retired",
+      message: "Legacy Trip Risk Audit intake is no longer available.",
+    });
     expect(response.headers.get("x-ratelimit-limit")).toBe("8");
   });
 
-  test("rejects schema-invalid JSON with intake issues", async () => {
+  test("returns the retirement tombstone for schema-invalid requests", async () => {
     const response = await POST(jsonRequest({ arrivalOrigin: "Manila" }));
     const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body.error).toBe("invalid_intake");
-    expect(body.issues.some((issue: { path: string }) => issue.path === "topConstraint")).toBe(
-      true,
-    );
+    expect(response.status).toBe(410);
+    expect(body.error).toBe("audit_intake_retired");
   });
 
-  test("accepts valid minimal intake JSON", async () => {
+  test("cannot advertise payment readiness for valid legacy intake", async () => {
     const response = await POST(
       jsonRequest({
         travelMonth: "2026-08",
@@ -40,13 +39,12 @@ describe("audit intake route", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body.auditRequest.status).toBe("complete_for_payment");
-    expect(body.checkoutReadiness.status).toBe("ready_for_payment");
-    expect(body.checkoutReadiness.checkoutEligible).toBe(true);
-    expect(body.accommodationResolution).toBeUndefined();
-    expect(body.completeness).toBeUndefined();
-    expect(body.auditInput.arrivalRouteSlug).toBe("surigao-city-to-dapa-ferry");
+    expect(response.status).toBe(410);
+    expect(body).toEqual({
+      error: "audit_intake_retired",
+      message: "Legacy Trip Risk Audit intake is no longer available.",
+    });
+    expect(JSON.stringify(body)).not.toContain("ready_for_payment");
   });
 });
 
