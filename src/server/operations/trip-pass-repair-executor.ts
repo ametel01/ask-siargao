@@ -1,13 +1,16 @@
 import Stripe from "stripe";
-
+import type { DatabaseQueryClient } from "@/server/db/query-client";
 import type {
   AuthoritativeCommerceReader,
   AuthoritativePaymentFact,
 } from "@/server/operations/live-reconciliation";
 import type {
-  LocalRepairExecutor,
+  PreparedRepairAction,
+  RepairActionContext,
+  RepairActionDispatcher,
   RepairActionType,
   RepairFinding,
+  RepairStateChange,
 } from "@/server/operations/repair-actions";
 import { createStripeCommerceReader } from "@/server/operations/stripe-commerce-reader";
 import { initializeTripPassMeters, tripPassMeterLimits } from "@/server/payments/trip-pass";
@@ -17,239 +20,349 @@ import {
   lockTripPassAccountWrites,
 } from "@/server/trip-pass/payment-lifecycle";
 
-export function createTripPassLocalRepairExecutor(dependencies: {
+export function createTripPassRepairActionDispatcher(dependencies: {
   commerceReader: AuthoritativeCommerceReader;
-}): LocalRepairExecutor {
+}): RepairActionDispatcher {
+  const actions = {
+    account_recovery: accountRecoveryAction(),
+    goodwill_grant: goodwillGrantAction(dependencies.commerceReader),
+    grant_missing_trip_pass: grantMissingTripPassAction(dependencies.commerceReader),
+    initialize_missing_meters: initializeMissingMetersAction(),
+    manual_commerce_transition: manualCommerceTransitionAction(dependencies.commerceReader),
+    release_stale_reservation: releaseStaleReservationAction(),
+  } satisfies Record<RepairActionType, TripPassRepairAction>;
+
   return {
-    async lock({ actionType, db, finding }) {
-      if (requiresAuthoritativeProof(actionType)) {
-        if (finding.local_entity_type !== "trip_pass_order") {
-          throw new Error("repair_lock_scope_unavailable");
-        }
-        await lockOrderAccount(finding.local_entity_ref, db);
-        return;
-      }
-      const query =
-        actionType === "initialize_missing_meters"
-          ? "select id from trip_passes where id = $1 for update"
-          : actionType === "release_stale_reservation"
-            ? "select id from trip_usage_events where id = $1 for update"
-            : actionType === "account_recovery"
-              ? "select id from account_closure_operations where id = $1 for update"
-              : null;
-      if (!query) throw new Error("repair_lock_scope_unavailable");
-      const locked = await db.query<{ id: string }>(query, [finding.local_entity_ref]);
-      if (!locked.rows[0]) throw new Error("repair_lock_scope_changed");
+    prepareExecution({ actionType, ...context }) {
+      return actions[actionType].prepareExecution(context);
     },
-    async prepare({ actionType, db, finding }) {
-      if (!requiresAuthoritativeProof(actionType)) return undefined;
-      if (finding.local_entity_type !== "trip_pass_order") {
-        throw new Error("repair_authoritative_proof_unavailable");
-      }
-      const order = await loadAuthoritativeOrderState(finding.local_entity_ref, db);
-      const fact = await dependencies.commerceReader.readPaymentFact({
-        checkoutSessionId: order.checkoutSessionId,
-        paymentIntentId: order.paymentIntentId,
-      });
-      return {
-        checkoutSessionId: order.checkoutSessionId,
-        fact,
-        findingId: finding.id,
-        orderId: finding.local_entity_ref,
-        paymentIntentId: order.paymentIntentId,
-        version: "stripe-payment-proof-v1",
-      } satisfies PreparedAuthoritativeRepairProof;
-    },
-    async preview({ actionType, db, finding, preparedProof }) {
-      if (requiresAuthoritativeProof(actionType) && preparedProof !== undefined) {
-        await assertAuthoritativeProof(actionType, finding, preparedProof, db);
-      }
-      if (actionType === "grant_missing_trip_pass" && finding.kind === "paid_without_pass") {
-        const state = await loadOrderGrantState(finding.local_entity_ref, db);
-        return {
-          before: state,
-          after: { grantCount: Math.max(state.grantCount, 1), orderStatus: state.orderStatus },
-        };
-      }
-      if (actionType === "initialize_missing_meters" && finding.kind === "missing_usage_meters") {
-        const state = await loadPassMeterState(finding.local_entity_ref, db);
-        return {
-          before: state,
-          after: {
-            meterCount: Object.keys(tripPassMeterLimits).length,
-            passStatus: state.passStatus,
-          },
-        };
-      }
-      if (
-        actionType === "release_stale_reservation" &&
-        finding.kind === "stale_usage_reservation"
-      ) {
-        const state = await loadUsageEventState(finding.local_entity_ref, db);
-        return { before: state, after: { eventType: "released" } };
-      }
-      if (
-        actionType === "manual_commerce_transition" &&
-        finding.kind === "payment_state_mismatch" &&
-        finding.summary_code === "authoritative_payment_terms_mismatch" &&
-        finding.local_entity_type === "trip_pass_order"
-      ) {
-        const state = await loadManualTransitionState(finding.local_entity_ref, db);
-        assertManualTransitionAllowed(state);
-        return {
-          before: publicOrderRepairState(state),
-          after: { ...publicOrderRepairState(state), status: "failed" },
-        };
-      }
-      if (
-        actionType === "goodwill_grant" &&
-        finding.kind === "provider_application_failed" &&
-        finding.local_entity_type === "trip_pass_order"
-      ) {
-        const state = await loadManualTransitionState(finding.local_entity_ref, db);
-        assertGoodwillGrantAllowed(state);
-        return {
-          before: publicOrderRepairState(state),
-          after: { ...publicOrderRepairState(state), grantCount: 1, passStatus: "active" },
-        };
-      }
-      if (
-        actionType === "account_recovery" &&
-        finding.kind === "privacy_cleanup_failed" &&
-        finding.local_entity_type === "closure_operation"
-      ) {
-        const state = await loadClosureOperationState(finding.local_entity_ref, db);
-        if (state.status !== "failed") throw new Error("account_recovery_not_retryable");
-        return { before: state, after: { ...state, lastErrorCode: null, status: "pending" } };
-      }
-      throw new Error("unsupported_repair_action_for_finding");
-    },
-    async apply({ actionType, db, finding, preparedProof }) {
-      if (requiresAuthoritativeProof(actionType)) {
-        await assertAuthoritativeProof(actionType, finding, preparedProof, db);
-      }
-      if (actionType === "grant_missing_trip_pass" && finding.kind === "paid_without_pass") {
-        const order = await db.query<{ user_id: string | null }>(
-          "select user_id from trip_pass_orders where id = $1",
-          [finding.local_entity_ref],
-        );
-        const accountId = order.rows[0]?.user_id;
-        if (!accountId) throw new Error("repair_order_owner_unavailable");
-        const result = await grantTripPass(
-          {
-            now: await databaseClock(db),
-            orderId: finding.local_entity_ref,
-            sourceEventId: `repair:${finding.id}`,
-            sourceType: "manual_operator",
-            userId: accountId,
-          },
-          db,
-        );
-        const after = await loadOrderGrantState(finding.local_entity_ref, db);
-        return { ...after, result: result.status };
-      }
-      if (actionType === "initialize_missing_meters" && finding.kind === "missing_usage_meters") {
-        const pass = await db.query<{ expires_at: Date | string }>(
-          "select expires_at from trip_passes where id = $1",
-          [finding.local_entity_ref],
-        );
-        if (!pass.rows[0]) throw new Error("repair_trip_pass_unavailable");
-        await initializeTripPassMeters(
-          {
-            meterLimits: tripPassMeterLimits,
-            now: await databaseClock(db),
-            resetAt: new Date(pass.rows[0].expires_at),
-            tripPassId: finding.local_entity_ref,
-          },
-          db,
-        );
-        return loadPassMeterState(finding.local_entity_ref, db);
-      }
-      if (
-        actionType === "release_stale_reservation" &&
-        finding.kind === "stale_usage_reservation"
-      ) {
-        await db.query(
-          `update trip_usage_events set event_type = 'released', occurred_at = clock_timestamp()
-         where id = $1 and event_type = 'reserved'`,
-          [finding.local_entity_ref],
-        );
-        return loadUsageEventState(finding.local_entity_ref, db);
-      }
-      if (
-        actionType === "manual_commerce_transition" &&
-        finding.kind === "payment_state_mismatch" &&
-        finding.summary_code === "authoritative_payment_terms_mismatch" &&
-        finding.local_entity_type === "trip_pass_order"
-      ) {
-        const state = await lockOrderAccount(finding.local_entity_ref, db);
-        assertManualTransitionAllowed(state);
-        const updated = await db.query<{ id: string }>(
-          `update trip_pass_orders set status = 'failed', completed_at = clock_timestamp(),
-           lifecycle_updated_at = clock_timestamp(), updated_at = clock_timestamp()
-         where id = $1 and status in ('pending', 'checkout_created')
-         returning id`,
-          [finding.local_entity_ref],
-        );
-        if (!updated.rows[0]) throw new Error("manual_transition_state_changed");
-        return publicOrderRepairState(
-          await loadManualTransitionState(finding.local_entity_ref, db),
-        );
-      }
-      if (
-        actionType === "goodwill_grant" &&
-        finding.kind === "provider_application_failed" &&
-        finding.local_entity_type === "trip_pass_order"
-      ) {
-        const state = await lockOrderAccount(finding.local_entity_ref, db);
-        assertGoodwillGrantAllowed(state);
-        const result = await grantTripPass(
-          {
-            now: await databaseClock(db),
-            orderId: finding.local_entity_ref,
-            sourceEventId: `goodwill:${finding.id}`,
-            sourceType: "manual_operator",
-            userId: state.accountId,
-          },
-          db,
-        );
-        return {
-          ...publicOrderRepairState(await loadManualTransitionState(finding.local_entity_ref, db)),
-          passStatus: result.pass.status,
-          result: result.status,
-        };
-      }
-      if (
-        actionType === "account_recovery" &&
-        finding.kind === "privacy_cleanup_failed" &&
-        finding.local_entity_type === "closure_operation"
-      ) {
-        const state = await loadClosureOperationState(finding.local_entity_ref, db);
-        if (state.status !== "failed") throw new Error("account_recovery_not_retryable");
-        const tombstone = await db.query<{ subject_hash: string }>(
-          `select t.subject_hash from account_closure_operations o
-         join account_closure_tombstones t on t.id = o.tombstone_id
-         where o.id = $1 for update of o`,
-          [finding.local_entity_ref],
-        );
-        if (!tombstone.rows[0]) throw new Error("account_recovery_operation_unavailable");
-        const updated = await db.query<{ id: string }>(
-          `update account_closure_operations set status = 'pending', next_attempt_at = clock_timestamp(),
-           last_error_code = null, completed_at = null, updated_at = clock_timestamp()
-         where id = $1 and status = 'failed' returning id`,
-          [finding.local_entity_ref],
-        );
-        if (!updated.rows[0]) throw new Error("account_recovery_state_changed");
-        return loadClosureOperationState(finding.local_entity_ref, db);
-      }
-      throw new Error("unsupported_repair_action_for_finding");
+    preview({ actionType, ...context }) {
+      return actions[actionType].preview(context);
     },
   };
 }
 
-export const tripPassLocalRepairExecutor = createTripPassLocalRepairExecutor({
+export const tripPassRepairActionDispatcher = createTripPassRepairActionDispatcher({
   commerceReader: createProductionCommerceReader(),
 });
+
+type TripPassRepairAction = {
+  prepareExecution(input: RepairActionContext): Promise<PreparedRepairAction>;
+  preview(input: RepairActionContext): Promise<RepairStateChange>;
+};
+
+type RepairActionImplementation = {
+  apply(input: RepairActionContext): Promise<Record<string, unknown>>;
+  preview(input: RepairActionContext): Promise<RepairStateChange>;
+  supports(finding: RepairFinding): boolean;
+};
+
+function grantMissingTripPassAction(
+  commerceReader: AuthoritativeCommerceReader,
+): TripPassRepairAction {
+  return authoritativeRepairAction(commerceReader, {
+    proof: { allowedPaymentStates: ["paid"], requiresPaymentIntent: true },
+    supports: (finding) => finding.kind === "paid_without_pass",
+    async preview({ db, finding }) {
+      const state = await loadOrderGrantState(finding.local_entity_ref, db);
+      return {
+        before: state,
+        after: { grantCount: Math.max(state.grantCount, 1), orderStatus: state.orderStatus },
+      };
+    },
+    async apply({ db, finding }) {
+      const order = await db.query<{ user_id: string | null }>(
+        "select user_id from trip_pass_orders where id = $1",
+        [finding.local_entity_ref],
+      );
+      const accountId = order.rows[0]?.user_id;
+      if (!accountId) throw new Error("repair_order_owner_unavailable");
+      const result = await grantTripPass(
+        {
+          now: await databaseClock(db),
+          orderId: finding.local_entity_ref,
+          sourceEventId: `repair:${finding.id}`,
+          sourceType: "manual_operator",
+          userId: accountId,
+        },
+        db,
+      );
+      const after = await loadOrderGrantState(finding.local_entity_ref, db);
+      return { ...after, result: result.status };
+    },
+  });
+}
+
+function initializeMissingMetersAction(): TripPassRepairAction {
+  return localRepairAction({
+    supports: (finding) => finding.kind === "missing_usage_meters",
+    async lock({ db, finding }) {
+      await lockEntity("trip_passes", finding.local_entity_ref, db);
+    },
+    async preview({ db, finding }) {
+      const state = await loadPassMeterState(finding.local_entity_ref, db);
+      return {
+        before: state,
+        after: {
+          meterCount: Object.keys(tripPassMeterLimits).length,
+          passStatus: state.passStatus,
+        },
+      };
+    },
+    async apply({ db, finding }) {
+      const pass = await db.query<{ expires_at: Date | string }>(
+        "select expires_at from trip_passes where id = $1",
+        [finding.local_entity_ref],
+      );
+      if (!pass.rows[0]) throw new Error("repair_trip_pass_unavailable");
+      await initializeTripPassMeters(
+        {
+          meterLimits: tripPassMeterLimits,
+          now: await databaseClock(db),
+          resetAt: new Date(pass.rows[0].expires_at),
+          tripPassId: finding.local_entity_ref,
+        },
+        db,
+      );
+      return loadPassMeterState(finding.local_entity_ref, db);
+    },
+  });
+}
+
+function releaseStaleReservationAction(): TripPassRepairAction {
+  return localRepairAction({
+    supports: (finding) => finding.kind === "stale_usage_reservation",
+    async lock({ db, finding }) {
+      await lockEntity("trip_usage_events", finding.local_entity_ref, db);
+    },
+    async preview({ db, finding }) {
+      const state = await loadUsageEventState(finding.local_entity_ref, db);
+      return { before: state, after: { eventType: "released" } };
+    },
+    async apply({ db, finding }) {
+      await db.query(
+        `update trip_usage_events set event_type = 'released', occurred_at = clock_timestamp()
+         where id = $1 and event_type = 'reserved'`,
+        [finding.local_entity_ref],
+      );
+      return loadUsageEventState(finding.local_entity_ref, db);
+    },
+  });
+}
+
+function manualCommerceTransitionAction(
+  commerceReader: AuthoritativeCommerceReader,
+): TripPassRepairAction {
+  return authoritativeRepairAction(commerceReader, {
+    proof: {
+      allowedPaymentStates: ["pending", "unpaid"],
+      requiresPaymentIntent: false,
+    },
+    supports: (finding) =>
+      finding.kind === "payment_state_mismatch" &&
+      finding.summary_code === "authoritative_payment_terms_mismatch" &&
+      finding.local_entity_type === "trip_pass_order",
+    async preview({ db, finding }) {
+      const state = await loadManualTransitionState(finding.local_entity_ref, db);
+      assertManualTransitionAllowed(state);
+      return {
+        before: publicOrderRepairState(state),
+        after: { ...publicOrderRepairState(state), status: "failed" },
+      };
+    },
+    async apply({ db, finding }) {
+      const state = await lockOrderAccount(finding.local_entity_ref, db);
+      assertManualTransitionAllowed(state);
+      const updated = await db.query<{ id: string }>(
+        `update trip_pass_orders set status = 'failed', completed_at = clock_timestamp(),
+           lifecycle_updated_at = clock_timestamp(), updated_at = clock_timestamp()
+         where id = $1 and status in ('pending', 'checkout_created')
+         returning id`,
+        [finding.local_entity_ref],
+      );
+      if (!updated.rows[0]) throw new Error("manual_transition_state_changed");
+      return publicOrderRepairState(await loadManualTransitionState(finding.local_entity_ref, db));
+    },
+  });
+}
+
+function goodwillGrantAction(commerceReader: AuthoritativeCommerceReader): TripPassRepairAction {
+  return authoritativeRepairAction(commerceReader, {
+    proof: { allowedPaymentStates: ["paid"], requiresPaymentIntent: true },
+    supports: (finding) =>
+      finding.kind === "provider_application_failed" &&
+      finding.local_entity_type === "trip_pass_order",
+    async preview({ db, finding }) {
+      const state = await loadManualTransitionState(finding.local_entity_ref, db);
+      assertGoodwillGrantAllowed(state);
+      return {
+        before: publicOrderRepairState(state),
+        after: { ...publicOrderRepairState(state), grantCount: 1, passStatus: "active" },
+      };
+    },
+    async apply({ db, finding }) {
+      const state = await lockOrderAccount(finding.local_entity_ref, db);
+      assertGoodwillGrantAllowed(state);
+      const result = await grantTripPass(
+        {
+          now: await databaseClock(db),
+          orderId: finding.local_entity_ref,
+          sourceEventId: `goodwill:${finding.id}`,
+          sourceType: "manual_operator",
+          userId: state.accountId,
+        },
+        db,
+      );
+      return {
+        ...publicOrderRepairState(await loadManualTransitionState(finding.local_entity_ref, db)),
+        passStatus: result.pass.status,
+        result: result.status,
+      };
+    },
+  });
+}
+
+function accountRecoveryAction(): TripPassRepairAction {
+  return localRepairAction({
+    supports: (finding) =>
+      finding.kind === "privacy_cleanup_failed" &&
+      finding.local_entity_type === "closure_operation",
+    async lock({ db, finding }) {
+      await lockEntity("account_closure_operations", finding.local_entity_ref, db);
+    },
+    async preview({ db, finding }) {
+      const state = await loadClosureOperationState(finding.local_entity_ref, db);
+      if (state.status !== "failed") throw new Error("account_recovery_not_retryable");
+      return { before: state, after: { ...state, lastErrorCode: null, status: "pending" } };
+    },
+    async apply({ db, finding }) {
+      const state = await loadClosureOperationState(finding.local_entity_ref, db);
+      if (state.status !== "failed") throw new Error("account_recovery_not_retryable");
+      const tombstone = await db.query<{ subject_hash: string }>(
+        `select t.subject_hash from account_closure_operations o
+         join account_closure_tombstones t on t.id = o.tombstone_id
+         where o.id = $1 for update of o`,
+        [finding.local_entity_ref],
+      );
+      if (!tombstone.rows[0]) throw new Error("account_recovery_operation_unavailable");
+      const updated = await db.query<{ id: string }>(
+        `update account_closure_operations set status = 'pending', next_attempt_at = clock_timestamp(),
+           last_error_code = null, completed_at = null, updated_at = clock_timestamp()
+         where id = $1 and status = 'failed' returning id`,
+        [finding.local_entity_ref],
+      );
+      if (!updated.rows[0]) throw new Error("account_recovery_state_changed");
+      return loadClosureOperationState(finding.local_entity_ref, db);
+    },
+  });
+}
+
+function authoritativeRepairAction(
+  commerceReader: AuthoritativeCommerceReader,
+  implementation: RepairActionImplementation & {
+    proof: {
+      allowedPaymentStates: readonly AuthoritativePaymentFact["paymentState"][];
+      requiresPaymentIntent: boolean;
+    };
+  },
+): TripPassRepairAction {
+  return {
+    async preview(input) {
+      assertSupportedRepair(implementation, input.finding);
+      return implementation.preview(input);
+    },
+    async prepareExecution(input) {
+      assertSupportedRepair(implementation, input.finding);
+      const proof = await prepareAuthoritativeProof(input, commerceReader);
+      return {
+        async lock({ db, finding }) {
+          assertSupportedRepair(implementation, finding);
+          await lockOrderAccount(finding.local_entity_ref, db);
+        },
+        async preview(context) {
+          assertSupportedRepair(implementation, context.finding);
+          await assertAuthoritativeProof(implementation.proof, context.finding, proof, context.db);
+          return implementation.preview(context);
+        },
+        async apply(context) {
+          assertSupportedRepair(implementation, context.finding);
+          await assertAuthoritativeProof(implementation.proof, context.finding, proof, context.db);
+          return implementation.apply(context);
+        },
+      };
+    },
+  };
+}
+
+function localRepairAction(
+  implementation: RepairActionImplementation & {
+    lock(input: RepairActionContext): Promise<void>;
+  },
+): TripPassRepairAction {
+  return {
+    async preview(input) {
+      assertSupportedRepair(implementation, input.finding);
+      return implementation.preview(input);
+    },
+    async prepareExecution(input) {
+      assertSupportedRepair(implementation, input.finding);
+      return {
+        async lock(context) {
+          assertSupportedRepair(implementation, context.finding);
+          await implementation.lock(context);
+        },
+        async preview(context) {
+          assertSupportedRepair(implementation, context.finding);
+          return implementation.preview(context);
+        },
+        async apply(context) {
+          assertSupportedRepair(implementation, context.finding);
+          return implementation.apply(context);
+        },
+      };
+    },
+  };
+}
+
+function assertSupportedRepair(implementation: RepairActionImplementation, finding: RepairFinding) {
+  if (!implementation.supports(finding)) {
+    throw new Error("unsupported_repair_action_for_finding");
+  }
+}
+
+async function prepareAuthoritativeProof(
+  { db, finding }: RepairActionContext,
+  commerceReader: AuthoritativeCommerceReader,
+): Promise<PreparedAuthoritativeRepairProof> {
+  if (finding.local_entity_type !== "trip_pass_order") {
+    throw new Error("repair_authoritative_proof_unavailable");
+  }
+  const order = await loadAuthoritativeOrderState(finding.local_entity_ref, db);
+  const fact = await commerceReader.readPaymentFact({
+    checkoutSessionId: order.checkoutSessionId,
+    paymentIntentId: order.paymentIntentId,
+  });
+  return {
+    checkoutSessionId: order.checkoutSessionId,
+    fact,
+    findingId: finding.id,
+    orderId: finding.local_entity_ref,
+    paymentIntentId: order.paymentIntentId,
+    version: "stripe-payment-proof-v1",
+  };
+}
+
+async function lockEntity(
+  table: "account_closure_operations" | "trip_passes" | "trip_usage_events",
+  entityId: string,
+  db: DatabaseQueryClient,
+) {
+  const locked = await db.query<{ id: string }>(
+    `select id from ${table} where id = $1 for update`,
+    [entityId],
+  );
+  if (!locked.rows[0]) throw new Error("repair_lock_scope_changed");
+}
 
 type PreparedAuthoritativeRepairProof = {
   checkoutSessionId: string | null;
@@ -270,7 +383,7 @@ type ManualOrderRepairState = {
 
 async function loadManualTransitionState(
   orderId: string,
-  db: Parameters<LocalRepairExecutor["preview"]>[0]["db"],
+  db: DatabaseQueryClient,
 ): Promise<ManualOrderRepairState> {
   const result = await db.query<{
     grant_count: string | number;
@@ -304,10 +417,7 @@ async function loadManualTransitionState(
   };
 }
 
-async function lockOrderAccount(
-  orderId: string,
-  db: Parameters<LocalRepairExecutor["preview"]>[0]["db"],
-) {
+async function lockOrderAccount(orderId: string, db: DatabaseQueryClient) {
   const candidate = await loadManualTransitionState(orderId, db);
   await lockTripPassAccountFamily(candidate.accountId, candidate.productFamily, db);
   await lockTripPassAccountWrites(candidate.accountId, db);
@@ -338,10 +448,7 @@ function publicOrderRepairState(state: ManualOrderRepairState) {
   return { grantCount: state.grantCount, status: state.status };
 }
 
-async function loadClosureOperationState(
-  operationId: string,
-  db: Parameters<LocalRepairExecutor["preview"]>[0]["db"],
-) {
+async function loadClosureOperationState(operationId: string, db: DatabaseQueryClient) {
   const result = await db.query<{ last_error_code: string | null; status: string }>(
     "select status, last_error_code from account_closure_operations where id = $1",
     [operationId],
@@ -353,10 +460,7 @@ async function loadClosureOperationState(
   };
 }
 
-async function loadOrderGrantState(
-  orderId: string,
-  db: Parameters<LocalRepairExecutor["preview"]>[0]["db"],
-) {
+async function loadOrderGrantState(orderId: string, db: DatabaseQueryClient) {
   const result = await db.query<{ grant_count: string | number; status: string }>(
     `select o.status, count(g.id)::text as grant_count from trip_pass_orders o
      left join trip_pass_grants g on g.order_id = o.id
@@ -367,10 +471,7 @@ async function loadOrderGrantState(
   return { grantCount: Number(result.rows[0].grant_count), orderStatus: result.rows[0].status };
 }
 
-async function loadPassMeterState(
-  passId: string,
-  db: Parameters<LocalRepairExecutor["preview"]>[0]["db"],
-) {
+async function loadPassMeterState(passId: string, db: DatabaseQueryClient) {
   const result = await db.query<{ meter_count: string | number; status: string }>(
     `select p.status, count(m.id)::text as meter_count from trip_passes p
      left join trip_usage_meters m on m.trip_pass_id = p.id
@@ -381,10 +482,7 @@ async function loadPassMeterState(
   return { meterCount: Number(result.rows[0].meter_count), passStatus: result.rows[0].status };
 }
 
-async function loadUsageEventState(
-  eventId: string,
-  db: Parameters<LocalRepairExecutor["preview"]>[0]["db"],
-) {
+async function loadUsageEventState(eventId: string, db: DatabaseQueryClient) {
   const result = await db.query<{ event_type: string }>(
     "select event_type from trip_usage_events where id = $1",
     [eventId],
@@ -393,28 +491,20 @@ async function loadUsageEventState(
   return { eventType: result.rows[0].event_type };
 }
 
-async function databaseClock(db: Parameters<LocalRepairExecutor["preview"]>[0]["db"]) {
+async function databaseClock(db: DatabaseQueryClient) {
   const result = await db.query<{ now: Date | string }>("select clock_timestamp() as now");
   return new Date(result.rows[0]?.now ?? Date.now());
 }
 
-function requiresAuthoritativeProof(actionType: RepairActionType) {
-  return new Set<RepairActionType>([
-    "grant_missing_trip_pass",
-    "manual_commerce_transition",
-    "goodwill_grant",
-  ]).has(actionType);
-}
-
 async function assertAuthoritativeProof(
-  actionType: RepairActionType,
+  policy: {
+    allowedPaymentStates: readonly AuthoritativePaymentFact["paymentState"][];
+    requiresPaymentIntent: boolean;
+  },
   finding: RepairFinding,
-  value: unknown,
-  db: Parameters<LocalRepairExecutor["preview"]>[0]["db"],
+  value: PreparedAuthoritativeRepairProof,
+  db: DatabaseQueryClient,
 ) {
-  if (!isPreparedAuthoritativeRepairProof(value)) {
-    throw new Error("repair_authoritative_proof_unavailable");
-  }
   const local = await loadAuthoritativeOrderState(finding.local_entity_ref, db);
   if (
     value.findingId !== finding.id ||
@@ -424,10 +514,7 @@ async function assertAuthoritativeProof(
   ) {
     throw new Error("repair_authoritative_identity_changed");
   }
-  if (
-    (actionType === "grant_missing_trip_pass" || actionType === "goodwill_grant") &&
-    value.paymentIntentId === null
-  ) {
+  if (policy.requiresPaymentIntent && value.paymentIntentId === null) {
     throw new Error("repair_authoritative_proof_unavailable");
   }
   if (
@@ -436,28 +523,12 @@ async function assertAuthoritativeProof(
   ) {
     throw new Error("repair_authoritative_terms_changed");
   }
-  if (value.fact.paymentState === "refunded" || value.fact.paymentState === "disputed") {
-    throw new Error("repair_authoritative_state_changed");
-  }
-  if (
-    (actionType === "grant_missing_trip_pass" || actionType === "goodwill_grant") &&
-    value.fact.paymentState !== "paid"
-  ) {
-    throw new Error("repair_authoritative_state_changed");
-  }
-  if (
-    actionType === "manual_commerce_transition" &&
-    value.fact.paymentState !== "pending" &&
-    value.fact.paymentState !== "unpaid"
-  ) {
+  if (!policy.allowedPaymentStates.includes(value.fact.paymentState)) {
     throw new Error("repair_authoritative_state_changed");
   }
 }
 
-async function loadAuthoritativeOrderState(
-  orderId: string,
-  db: Parameters<LocalRepairExecutor["preview"]>[0]["db"],
-) {
+async function loadAuthoritativeOrderState(orderId: string, db: DatabaseQueryClient) {
   const result = await db.query<{
     amount_total_minor: number;
     currency: string;
@@ -476,22 +547,6 @@ async function loadAuthoritativeOrderState(
     currency: row.currency,
     paymentIntentId: row.stripe_payment_intent_id,
   };
-}
-
-function isPreparedAuthoritativeRepairProof(
-  value: unknown,
-): value is PreparedAuthoritativeRepairProof {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "fact" in value &&
-    "findingId" in value &&
-    "orderId" in value &&
-    "checkoutSessionId" in value &&
-    "paymentIntentId" in value &&
-    "version" in value &&
-    value.version === "stripe-payment-proof-v1"
-  );
 }
 
 function createProductionCommerceReader(): AuthoritativeCommerceReader {

@@ -6,7 +6,7 @@ import {
   operatorMutationVerificationConfig,
   readOperatorAccountAllowlist,
 } from "@/server/operations/operator-auth";
-import { tripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
+import { tripPassRepairActionDispatcher } from "@/server/operations/trip-pass-repair-executor";
 
 export async function POST(request: Request) {
   return postRepairResponse(request, {
@@ -19,6 +19,6 @@ export async function POST(request: Request) {
       };
     },
     db: getDefaultDatabaseQueryClient(),
-    executor: tripPassLocalRepairExecutor,
+    executor: tripPassRepairActionDispatcher,
   });
 }

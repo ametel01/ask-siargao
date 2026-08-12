@@ -88,13 +88,24 @@ function dependencies(auth: {
       },
     } satisfies DatabaseQueryClient,
     executor: {
-      async apply() {
-        return { state: "after" };
-      },
       async preview() {
         return {
           after: { state: "after" },
           before: { email: "private@example.com", state: "before" },
+        };
+      },
+      async prepareExecution() {
+        return {
+          async lock() {},
+          async preview() {
+            return {
+              after: { state: "after" },
+              before: { email: "private@example.com", state: "before" },
+            };
+          },
+          async apply() {
+            return { state: "after" };
+          },
         };
       },
     },

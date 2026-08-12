@@ -25,8 +25,8 @@ import {
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   executeRepairAction,
-  type LocalRepairExecutor,
   previewRepairAction,
+  type RepairActionDispatcher,
 } from "@/server/operations/repair-actions";
 import { parseOperationalTaskProducerArguments } from "@/server/operations/run-operational-task-producer";
 import {
@@ -39,7 +39,7 @@ import {
   deliverOperationalAlertOnce,
   deliverPendingPageWorthyAlerts,
 } from "@/server/operations/sentry-alerts";
-import { createTripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
+import { createTripPassRepairActionDispatcher } from "@/server/operations/trip-pass-repair-executor";
 import {
   enqueueOperationalTask,
   opaqueTaskKey,
@@ -319,18 +319,36 @@ describe("audited Repair Actions", () => {
       await seedFinding(db, "finding_repair");
       await db.query("create table repair_probe (id text primary key, state text not null)");
       await db.query("insert into repair_probe (id, state) values ('probe', 'before')");
-      const executor: LocalRepairExecutor = {
+      const actionEvents: string[] = [];
+      const executor = {
         async preview({ db: client }) {
+          actionEvents.push("preview");
           const current = await client.query<{ state: string }>(
             "select state from repair_probe where id = 'probe'",
           );
           return { after: { state: "after" }, before: { state: current.rows[0]?.state } };
         },
-        async apply({ db: client }) {
-          await client.query("update repair_probe set state = 'after' where id = 'probe'");
-          return { state: "after" };
+        async prepareExecution() {
+          actionEvents.push("prepare");
+          return {
+            async lock() {
+              actionEvents.push("lock");
+            },
+            async preview({ db: client }) {
+              actionEvents.push("preview");
+              const current = await client.query<{ state: string }>(
+                "select state from repair_probe where id = 'probe'",
+              );
+              return { after: { state: "after" }, before: { state: current.rows[0]?.state } };
+            },
+            async apply({ db: client }) {
+              actionEvents.push("apply");
+              await client.query("update repair_probe set state = 'after' where id = 'probe'");
+              return { state: "after" };
+            },
+          };
         },
-      };
+      } satisfies RepairActionDispatcher;
       const preview = await previewRepairAction(
         { actionType: "manual_commerce_transition", findingId: "finding_repair" },
         { db, executor },
@@ -390,12 +408,13 @@ describe("audited Repair Actions", () => {
         "select count(*)::text as count from operator_repair_actions",
       );
       expect(auditCount.rows[0]?.count).toBe("1");
+      expect(actionEvents).toEqual(["preview", "prepare", "lock", "preview", "apply"]);
     });
   });
 
   test("uses strict production executors for sensitive commerce and recovery classes", async () => {
     await withTestDb(async (db, state) => {
-      const executor = createTripPassLocalRepairExecutor({
+      const executor = createTripPassRepairActionDispatcher({
         commerceReader: {
           async readPaymentFact({ checkoutSessionId }) {
             expect(state.inTransaction).toBe(false);
@@ -517,7 +536,7 @@ describe("audited Repair Actions", () => {
         "provider_application_failed",
       );
       const ordering: string[] = [];
-      const executor = createTripPassLocalRepairExecutor({
+      const executor = createTripPassRepairActionDispatcher({
         commerceReader: {
           async readPaymentFact() {
             expect(state.inTransaction).toBe(false);

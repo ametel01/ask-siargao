@@ -12,12 +12,12 @@ import {
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   executeRepairAction,
-  type LocalRepairExecutor,
   previewRepairAction,
+  type RepairActionDispatcher,
 } from "@/server/operations/repair-actions";
 import { workerFailureAlertKey } from "@/server/operations/run-operational-worker";
 import { deliverOperationalAlertOnce } from "@/server/operations/sentry-alerts";
-import { createTripPassLocalRepairExecutor } from "@/server/operations/trip-pass-repair-executor";
+import { createTripPassRepairActionDispatcher } from "@/server/operations/trip-pass-repair-executor";
 import {
   enqueueOperationalTask,
   opaqueTaskKey,
@@ -754,7 +754,7 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
   const highImpactFindingId = highImpactFinding.rows[0]?.id;
   assert(highImpactFindingId, "native high-impact reconciliation finding unavailable");
   let repairProviderOutsideTransaction = false;
-  const authoritativeExecutor = createTripPassLocalRepairExecutor({
+  const authoritativeExecutor = createTripPassRepairActionDispatcher({
     commerceReader: {
       async readPaymentFact() {
         repairProviderOutsideTransaction = db.inTransaction !== true;
@@ -804,16 +804,27 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
   await db.query("create table native_repair_probe (id text primary key, state text not null)");
   await db.query("insert into native_repair_probe (id, state) values ('race', 'before')");
   await seedNativeFinding(db, "native_finding_race", "native_order_race");
-  const executor: LocalRepairExecutor = {
+  const executor: RepairActionDispatcher = {
     async preview({ db: client }) {
       const state = await client.query<{ state: string }>(
         "select state from native_repair_probe where id = 'race'",
       );
       return { before: state.rows[0] ?? {}, after: { state: "after" } };
     },
-    async apply({ db: client }) {
-      await client.query("update native_repair_probe set state = 'after' where id = 'race'");
-      return { state: "after" };
+    async prepareExecution() {
+      return {
+        async lock() {},
+        async preview({ db: client }) {
+          const state = await client.query<{ state: string }>(
+            "select state from native_repair_probe where id = 'race'",
+          );
+          return { before: state.rows[0] ?? {}, after: { state: "after" } };
+        },
+        async apply({ db: client }) {
+          await client.query("update native_repair_probe set state = 'after' where id = 'race'");
+          return { state: "after" };
+        },
+      };
     },
   };
   const preview = await previewRepairAction(
@@ -875,13 +886,23 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
 
   await db.query("insert into native_repair_probe (id, state) values ('rollback', 'before')");
   await seedNativeFinding(db, "native_finding_rollback", "native_order_rollback");
-  const rollbackExecutor: LocalRepairExecutor = {
+  const rollbackExecutor: RepairActionDispatcher = {
     async preview() {
       return { before: { state: "before" }, after: { state: "after" } };
     },
-    async apply({ db: client }) {
-      await client.query("update native_repair_probe set state = 'after' where id = 'rollback'");
-      throw new Error("synthetic_repair_crash");
+    async prepareExecution() {
+      return {
+        async lock() {},
+        async preview() {
+          return { before: { state: "before" }, after: { state: "after" } };
+        },
+        async apply({ db: client }) {
+          await client.query(
+            "update native_repair_probe set state = 'after' where id = 'rollback'",
+          );
+          throw new Error("synthetic_repair_crash");
+        },
+      };
     },
   };
   const rollbackPreview = await previewRepairAction(
@@ -927,7 +948,7 @@ async function runReconciliationRepairLockOrderingRegressions(
     const initial = await reconcileNativeRaceOrder(db, ordering, "paid");
     const finding = initial.findings[0];
     assert(finding, `native ${ordering} fixture did not create a finding`);
-    const executor = createTripPassLocalRepairExecutor({
+    const executor = createTripPassRepairActionDispatcher({
       commerceReader: nativePaymentReader("paid"),
     });
     const preview = await previewRepairAction(

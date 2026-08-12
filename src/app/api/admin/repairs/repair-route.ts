@@ -5,19 +5,13 @@ import type { OperatorAuthSnapshot } from "@/server/operations/operator-auth";
 import { authorizeOperator } from "@/server/operations/operator-auth";
 import {
   executeRepairAction,
-  type LocalRepairExecutor,
   previewRepairAction,
+  type RepairActionDispatcher,
   type RepairActionType,
+  repairActionTypes,
 } from "@/server/operations/repair-actions";
 
-const actionType = z.enum([
-  "grant_missing_trip_pass",
-  "initialize_missing_meters",
-  "release_stale_reservation",
-  "manual_commerce_transition",
-  "goodwill_grant",
-  "account_recovery",
-]);
+const actionType = z.enum(repairActionTypes);
 const requestSchema = z.discriminatedUnion("mode", [
   z.strictObject({ actionType, findingId: z.string().min(1).max(200), mode: z.literal("preview") }),
   z.strictObject({
@@ -35,7 +29,7 @@ export type RepairRouteDependencies = {
   allowlist: ReadonlySet<string>;
   auth: () => Promise<OperatorAuthSnapshot>;
   db: DatabaseQueryClient;
-  executor: LocalRepairExecutor;
+  executor: RepairActionDispatcher;
 };
 
 export async function postRepairResponse(request: Request, dependencies: RepairRouteDependencies) {
