@@ -7,6 +7,7 @@ Scripts are defined in `package.json`.
 | `bun run dev` | `next dev` | Run the local Next.js dev server. |
 | `bun run dev:up` | `docker compose up -d db && db:migrate && db:seed && next dev` | Start local Postgres in Docker, migrate/seed it, then run the host Next.js dev server. This is the preferred local chatbot workflow. |
 | `bun run dev:container` | `next dev -H 0.0.0.0` | Run the Next.js dev server inside the Compose app container. |
+| `bun run deploy:staging` | `bun run src/server/deployment/staging-deployment.ts` | Deploy the clean, pushed `main` candidate to the linked Vercel `staging` Custom Environment, wait up to ten minutes for a `READY` staging result, then move `staging.asksiargao.com` to that exact deployment. It refuses dirty, non-`main`, and unpushed candidates and never targets production. |
 | `bun run stack:up` | `docker compose up -d db` | Start only the local Postgres service. Use this before host `bun run dev` when database-backed chat behavior is needed. |
 | `bun run stack:app:up` | `docker compose --profile app up -d` | Start the opt-in full Compose app container as well as Postgres. Do not run this at the same time as host `bun run dev` on port `3000`. |
 | `bun run stack:down` | `docker compose down` | Stop and remove the local Compose app and database containers while keeping volumes. |
@@ -77,6 +78,25 @@ PostgreSQL, and Redis kept as independently visible jobs. Only the downstream tr
 can attest that those CI gates passed. A complete `bun run verify:foundation` pass for one exact
 Prospective Candidate establishes local Foundation Gate Status evidence but does not provide
 provider QA, Production Readiness, or human Launch Authorization.
+
+## Protected Staging Deployment
+
+After the candidate is committed and pushed to `upstream/main`, deploy and promote it with:
+
+```sh
+bun run deploy:staging
+```
+
+The command checks that the worktree is clean and the current branch is `main`, refreshes
+`upstream/main`, and requires local `HEAD` to match it. It deploys only to the `staging` Vercel
+Custom Environment, waits for the returned deployment to report both `target: staging` and
+`readyState: READY`, and only then moves the stable `staging.asksiargao.com` alias. A failed build,
+mismatched target, unexpected deployment URL, or Vercel CLI failure leaves the stable alias
+unchanged. The linked Vercel CLI session must be authenticated for `ametel01s-projects`.
+
+This command deploys application code only. If the candidate adds files under `drizzle/`, apply
+them first with `bun run db:migrate` using the restricted staging migration credential described
+under Migration Ledger Behavior; do not give the deployed runtime credential schema ownership.
 
 The provider commands are not normal local or pull-request gates. Dispatch the protected workflow
 from the default branch after its requested full SHA is present in `main`; GitHub environment
