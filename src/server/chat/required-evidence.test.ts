@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AgentToolCallAudit, AgentToolResult } from "@/server/chat/agent-runtime";
+import {
+  type AgentToolCallAudit,
+  type AgentToolResult,
+  createAgentTurnResult,
+} from "@/server/chat/agent-runtime";
 import {
   buildEvidenceLifecycle,
   buildRequiredEvidencePlan,
@@ -805,7 +809,8 @@ describe("required evidence planning", () => {
     });
     expect(conditionRepair).toMatchObject({
       type: "tool",
-      stage: "condition-judgment",
+      payloadKey: "validationRepairConditionJudgment",
+      payloadMode: "single",
       functionCalls: [{ name: "get_condition_judgment" }],
     });
 
@@ -832,7 +837,8 @@ describe("required evidence planning", () => {
 
     expect(requiredEvidenceRepair).toMatchObject({
       type: "tool",
-      stage: "required-evidence",
+      payloadKey: "automaticRequiredEvidence",
+      payloadMode: "all",
       functionCalls: [{ name: "research_web" }],
     });
   });
@@ -847,40 +853,7 @@ describe("required evidence planning", () => {
         },
       ],
     });
-    const toolResults = [
-      {
-        name: "search_places",
-        toolCallId: "call_places",
-        status: "success" as const,
-        text: "Google Places returned the named stay and an unrelated result.",
-        sources: [
-          {
-            label: "live_checked" as const,
-            sourceName: "Google Places",
-            checked: ["place identity"],
-            notChecked: ["room condition"],
-          },
-        ],
-        cards: [
-          {
-            id: "place_bravo",
-            kind: "place" as const,
-            title: "Bravo Beach Resort",
-            fitReasons: [],
-            caveats: [],
-            sourceLabel: "Google Places - live checked",
-          },
-          {
-            id: "place_unrelated",
-            kind: "place" as const,
-            title: "Unrelated Resort",
-            fitReasons: [],
-            caveats: [],
-            sourceLabel: "Google Places - live checked",
-          },
-        ],
-      },
-    ];
+    const toolResults = accommodationMixedPlaceResults();
 
     const finalized = lifecycle.finalize({
       finalPayload: finalPayload({
@@ -894,6 +867,36 @@ describe("required evidence planning", () => {
 
     expect(finalized.finalPayload?.displayCardIds).toEqual(["place_bravo"]);
     expect(finalized.admissibleEvidence.allowedCardIds).toEqual(["place_bravo"]);
+  });
+
+  test("gates automatic card selection when the final payload omits card ids", () => {
+    const lifecycle = buildEvidenceLifecycle({
+      requestId: "request_evidence_lifecycle_automatic_cards",
+      messages: [
+        {
+          role: "user",
+          content: "Reality-check Bravo Beach Resort in General Luna before I book.",
+        },
+      ],
+    });
+    const toolResults = accommodationMixedPlaceResults();
+    const finalized = lifecycle.finalize({
+      finalPayload: undefined,
+      toolCalls: [],
+      toolResults,
+    });
+
+    const turn = createAgentTurnResult({
+      message: "Bravo Beach Resort is the checked match; ignore the unrelated result.",
+      requestId: "request_evidence_lifecycle_automatic_cards",
+      model: "gpt-test",
+      toolResults,
+      allowedCardKinds: finalized.allowedCardKinds,
+      allowedCardIds: finalized.allowedCardIds,
+      artifactSelectionMode: "compatibility",
+    });
+
+    expect(turn.cards?.map((card) => card.id)).toEqual(["place_bravo"]);
   });
 
   test("requests one final retry when completed evidence is absent from the answer", () => {
@@ -969,10 +972,47 @@ describe("required evidence planning", () => {
       }),
     ).toMatchObject({
       type: "retry",
-      stage: "required-evidence-final-payload",
+      payloadKey: "validationRepairRequiredEvidence",
     });
   });
 });
+
+function accommodationMixedPlaceResults(): AgentToolResult[] {
+  return [
+    {
+      name: "search_places",
+      toolCallId: "call_places",
+      status: "success",
+      text: "Google Places returned the named stay and an unrelated result.",
+      sources: [
+        {
+          label: "live_checked",
+          sourceName: "Google Places",
+          checked: ["place identity"],
+          notChecked: ["room condition"],
+        },
+      ],
+      cards: [
+        {
+          id: "place_bravo",
+          kind: "place",
+          title: "Bravo Beach Resort",
+          fitReasons: [],
+          caveats: [],
+          sourceLabel: "Google Places - live checked",
+        },
+        {
+          id: "place_unrelated",
+          kind: "place",
+          title: "Unrelated Resort",
+          fitReasons: [],
+          caveats: [],
+          sourceLabel: "Google Places - live checked",
+        },
+      ],
+    },
+  ];
+}
 
 function toolCall({
   name,

@@ -3,6 +3,7 @@ import type {
   AgentRuntimeRequest,
   AgentToolCallAudit,
   AgentToolResult,
+  DecisionSummary,
   RecommendationCard,
   RecommendationCardKind,
 } from "@/server/chat/agent-runtime";
@@ -13,7 +14,10 @@ import {
 import {
   inspectRealityCheckRequest,
   type RealityCheckAccommodationContext,
+  type RealityCheckLifecycleArtifacts,
   realityCheckDecisionToolNames,
+  resolveRealityCheckLifecycle,
+  type ValidatedRealityCheck,
 } from "@/server/chat/reality-check";
 
 export type RequiredEvidencePlan = {
@@ -102,21 +106,37 @@ export type EvidenceLifecycle = {
 
 export type EvidenceLifecycleToolRepair = {
   type: "tool";
-  stage: "condition-judgment" | "required-evidence";
   functionCalls: readonly RequiredEvidenceRepairFunctionCall[];
   instruction: string;
+  payloadKey: "automaticRequiredEvidence" | "validationRepairConditionJudgment";
+  payloadMode: "all" | "single";
 };
 
 export type EvidenceLifecycleRetryRepair = {
   type: "retry";
-  stage: "required-evidence-final-payload";
   instruction: string;
+  payload: unknown;
+  payloadKey: "validationRepairRealityCheck" | "validationRepairRequiredEvidence";
 };
 
 export type EvidenceLifecycleFinalization = {
   admissibleEvidence: RequiredEvidenceAdmissibleEvidence;
+  allowedCardIds: readonly string[] | undefined;
+  allowedCardKinds: readonly RecommendationCardKind[] | undefined;
+  allowedItineraryIds: readonly string[] | undefined;
+  answer: string | undefined;
+  decisionSummaries: readonly DecisionSummary[];
   finalPayload: AgentFinalPayload | undefined;
+  realityCheck: ValidatedRealityCheck | undefined;
   satisfiesRequiredEvidence: boolean;
+};
+
+type EvidenceLifecycleRealityCheckOutcome = {
+  explicit: boolean;
+  answer?: string;
+  artifacts?: RealityCheckLifecycleArtifacts;
+  summary?: DecisionSummary;
+  validated?: ValidatedRealityCheck;
 };
 
 type RequiredEvidenceToolCallBase = {
@@ -188,9 +208,19 @@ export function buildRequiredEvidencePolicy(request: AgentRuntimeRequest): Requi
   };
 }
 
-export function buildEvidenceLifecycle(request: AgentRuntimeRequest): EvidenceLifecycle {
+export function buildEvidenceLifecycle(
+  request: AgentRuntimeRequest,
+  options: { enableRealityCheck?: boolean } = {},
+): EvidenceLifecycle {
   const requiredEvidence = buildRequiredEvidencePolicy(request);
-  const realityCheck = inspectRealityCheckRequest(request);
+  const inspectedRealityCheck = inspectRealityCheckRequest(request);
+  const realityCheck =
+    (options.enableRealityCheck ?? true)
+      ? inspectedRealityCheck
+      : {
+          recognition: { explicit: false as const, missingContext: [] },
+          requiresClarification: false,
+        };
   const finalize = ({
     finalPayload,
     toolCalls,
@@ -215,11 +245,42 @@ export function buildEvidenceLifecycle(request: AgentRuntimeRequest): EvidenceLi
             ),
           }
         : appliedFinalPayload;
+    const realityCheckOutcome = resolveEvidenceLifecycleRealityCheck({
+      finalPayload: admittedFinalPayload,
+      recognition: realityCheck.recognition,
+      requestId: request.requestId ?? "reality_check",
+      requiredEvidenceAllowedCardIds: admissibleEvidence.allowedCardIds,
+      toolCalls,
+      toolResults,
+    });
+    const realityCheckFinalPayload = admittedFinalPayload
+      ? {
+          ...admittedFinalPayload,
+          displayDecisionSummaryIds: realityCheckOutcome.explicit
+            ? realityCheckOutcome.summary
+              ? [realityCheckOutcome.summary.id]
+              : []
+            : admittedFinalPayload.displayDecisionSummaryIds,
+          ...(realityCheckOutcome.artifacts
+            ? {
+                displayCardIds: realityCheckOutcome.artifacts.displayCardIds,
+                displayItineraryIds: realityCheckOutcome.artifacts.displayItineraryIds,
+              }
+            : {}),
+        }
+      : admittedFinalPayload;
     return {
       admissibleEvidence,
-      finalPayload: admittedFinalPayload,
+      allowedCardIds:
+        realityCheckOutcome.artifacts?.allowedCardIds ?? admissibleEvidence.allowedCardIds,
+      allowedCardKinds: admissibleEvidence.allowedCardKinds,
+      allowedItineraryIds: realityCheckOutcome.artifacts?.allowedItineraryIds,
+      answer: realityCheckOutcome.answer ?? realityCheckFinalPayload?.answer,
+      decisionSummaries: realityCheckOutcome.summary ? [realityCheckOutcome.summary] : [],
+      finalPayload: realityCheckFinalPayload,
+      realityCheck: realityCheckOutcome.validated,
       satisfiesRequiredEvidence: requiredEvidence.finalPayloadSatisfies(
-        admittedFinalPayload,
+        realityCheckFinalPayload,
         toolCalls,
         toolResults,
       ),
@@ -239,9 +300,10 @@ export function buildEvidenceLifecycle(request: AgentRuntimeRequest): EvidenceLi
         if (conditionCall) {
           return {
             type: "tool",
-            stage: "condition-judgment",
             functionCalls: [conditionCall],
             instruction: conditionJudgmentRepairInstruction(conditionCall.arguments),
+            payloadKey: "validationRepairConditionJudgment",
+            payloadMode: "single",
           };
         }
       }
@@ -250,26 +312,100 @@ export function buildEvidenceLifecycle(request: AgentRuntimeRequest): EvidenceLi
       if (repair) {
         return {
           type: "tool",
-          stage: "required-evidence",
           functionCalls: repair.functionCalls,
           instruction: repair.instruction,
+          payloadKey: "automaticRequiredEvidence",
+          payloadMode: "all",
         };
       }
       return undefined;
     },
     repairFinalPayload: ({ finalPayload, toolCalls, toolResults }) => {
-      if (!finalize({ finalPayload, toolCalls, toolResults }).satisfiesRequiredEvidence) {
+      const finalization = finalize({ finalPayload, toolCalls, toolResults });
+      if (!finalization.satisfiesRequiredEvidence) {
         return {
           type: "retry",
-          stage: "required-evidence-final-payload",
+          payloadKey: "validationRepairRequiredEvidence",
+          payload: { issue: "required_evidence_contract_unsatisfied" },
           instruction:
             "Validation repair: your final payload did not satisfy the required evidence contract. If the required provider check succeeded, use the successful checked tool evidence and select only matching public artifacts. If the required provider check was unavailable, revise to a caveated final JSON answer with no checked/live claims and no place cards or checked source claims from the failed provider output.",
+        };
+      }
+
+      const realityCheckLifecycle = resolveRealityCheckLifecycle({
+        requestId: request.requestId ?? "reality_check_repair",
+        recognition: realityCheck.recognition,
+        finalPayload: finalization.finalPayload,
+        toolCalls,
+        toolResults,
+      });
+      if (realityCheckLifecycle.repair) {
+        return {
+          type: "retry",
+          payloadKey: "validationRepairRealityCheck",
+          payload: realityCheckLifecycle.repair,
+          instruction:
+            "Validation repair: this is an explicit on-demand reality check, but the final payload omitted or could not support its realityCheck proposal. Return final JSON with a realityCheck object matching the response contract. Reference only completed toolCallIds that also appear in usedToolCallIds. A keep, change, or avoid verdict needs successful source-backed evidence; current plan and surf verdicts need successful current-condition evidence. If the required provider check failed, use needs_confirmation and a concrete safe next action. Do not invent source objects or artifact IDs.",
         };
       }
       return undefined;
     },
     finalize,
   };
+}
+
+function resolveEvidenceLifecycleRealityCheck(input: {
+  finalPayload: AgentFinalPayload | undefined;
+  recognition: ReturnType<typeof inspectRealityCheckRequest>["recognition"];
+  requestId: string;
+  requiredEvidenceAllowedCardIds: readonly string[] | undefined;
+  toolCalls: readonly AgentToolCallAudit[];
+  toolResults: readonly AgentToolResult[];
+}): EvidenceLifecycleRealityCheckOutcome {
+  const lifecycle = resolveRealityCheckLifecycle({
+    requestId: input.requestId,
+    recognition: input.recognition,
+    finalPayload: input.finalPayload,
+    toolCalls: input.toolCalls,
+    toolResults: input.toolResults,
+    requiredEvidenceAllowedCardIds: input.requiredEvidenceAllowedCardIds,
+  });
+
+  if (lifecycle.state === "not_requested") {
+    return { explicit: false };
+  }
+  if (lifecycle.state === "needs_context") {
+    return { explicit: true };
+  }
+  if (lifecycle.state === "unresolved" || !lifecycle.validated || !lifecycle.summary) {
+    return {
+      explicit: true,
+      ...(lifecycle.artifacts ? { artifacts: lifecycle.artifacts } : {}),
+    };
+  }
+
+  return {
+    explicit: true,
+    ...(lifecycle.repair
+      ? { answer: renderRealityCheckFallbackAnswer(lifecycle.validated.proposal) }
+      : {}),
+    artifacts: lifecycle.artifacts,
+    summary: lifecycle.summary,
+    validated: lifecycle.validated,
+  };
+}
+
+function renderRealityCheckFallbackAnswer(proposal: ValidatedRealityCheck["proposal"]) {
+  const verdictLabel = proposal.verdict.replaceAll("_", " ");
+  return [
+    `**${verdictLabel}: ${proposal.subject}**`,
+    proposal.bestAction,
+    proposal.basis,
+    ...(proposal.fallback ? [`Fallback: ${proposal.fallback}`] : []),
+    ...(proposal.avoid ? [`Avoid: ${proposal.avoid}`] : []),
+    ...(proposal.timing ? [`Timing: ${proposal.timing}`] : []),
+    ...(proposal.area ? [`Area: ${proposal.area}`] : []),
+  ].join("\n\n");
 }
 
 async function executeEvidenceLifecycle<TOutput>({

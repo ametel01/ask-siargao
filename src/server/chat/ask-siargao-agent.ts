@@ -27,7 +27,6 @@ import {
   type ChatClientGeolocationContext,
   createAgentToolCallAudit,
   createAgentTurnResult,
-  type DecisionSummary,
   resolveAgentRuntimeRequest,
 } from "@/server/chat/agent-runtime";
 import { buildAgentTerminalFallback } from "@/server/chat/agent-terminal-fallback";
@@ -53,14 +52,7 @@ import type {
   ItineraryRequiredToolChecks,
   LocalItineraryRequest,
 } from "@/server/chat/itinerary-tools";
-import {
-  inspectRealityCheckRequest,
-  parseRealityCheckProposal,
-  type RealityCheckLifecycleArtifacts,
-  type RealityCheckRecognition,
-  resolveRealityCheckLifecycle,
-  type ValidatedRealityCheck,
-} from "@/server/chat/reality-check";
+import { inspectRealityCheckRequest, parseRealityCheckProposal } from "@/server/chat/reality-check";
 import { buildEvidenceLifecycle, type EvidenceLifecycle } from "@/server/chat/required-evidence";
 import { createConfiguredChatResponsesClient } from "@/server/llm/chat-model-provider";
 import {
@@ -184,11 +176,10 @@ export async function runAskSiargaoAgentTurn(
   const instructions = buildAskSiargaoAgentInstructions(memorySnapshot, {
     requireStructuredFinalOutput,
   });
-  const evidenceLifecycle = buildEvidenceLifecycle(resolved);
+  const evidenceLifecycle = buildEvidenceLifecycle(resolved, {
+    enableRealityCheck: requireStructuredFinalOutput,
+  });
   const inspectedRealityCheck = inspectRealityCheckRequest(resolved);
-  const realityCheckRecognition = requireStructuredFinalOutput
-    ? inspectedRealityCheck.recognition
-    : { explicit: false, missingContext: [] };
   const realityCheckNeedsContext =
     requireStructuredFinalOutput && inspectedRealityCheck.requiresClarification;
   const tools = selectAgentResponseTools(
@@ -243,10 +234,14 @@ export async function runAskSiargaoAgentTurn(
       upstreamRequestIds,
       toolCalls,
       toolResults,
-      decisionSummaries: fallback.decisionSummaries,
+      decisionSummaries:
+        finalizedEvidence.decisionSummaries.length > 0
+          ? finalizedEvidence.decisionSummaries
+          : fallback.decisionSummaries,
       finalPayload: finalizedEvidence.finalPayload ?? fallback.finalPayload,
-      allowedCardKinds: finalizedEvidence.admissibleEvidence.allowedCardKinds,
-      allowedCardIds: finalizedEvidence.admissibleEvidence.allowedCardIds,
+      allowedCardKinds: finalizedEvidence.allowedCardKinds,
+      allowedCardIds: finalizedEvidence.allowedCardIds,
+      allowedItineraryIds: finalizedEvidence.allowedItineraryIds,
       artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
       repairCount,
       completionStatus: fallback.completionStatus,
@@ -349,7 +344,6 @@ export async function runAskSiargaoAgentTurn(
         hostedMemoryFileNames,
         logger,
         realityCheckNeedsContext,
-        realityCheckRecognition,
         request: resolved,
         requireStructuredFinalOutput,
       });
@@ -488,16 +482,6 @@ export async function runAskSiargaoAgentTurn(
         toolResults,
       });
       const finalPayload = finalizedEvidence.finalPayload;
-      const admissibleEvidence = finalizedEvidence.admissibleEvidence;
-      const requiredEvidenceCardIds = admissibleEvidence.allowedCardIds;
-      const realityCheckOutcome = resolveRuntimeRealityCheck({
-        finalPayload,
-        recognition: realityCheckRecognition,
-        requestId: resolved.requestId,
-        requiredEvidenceAllowedCardIds: requiredEvidenceCardIds,
-        toolCalls,
-        toolResults,
-      });
       logger.info(
         {
           durationMs: sumDurations(toolCalls),
@@ -509,7 +493,7 @@ export async function runAskSiargaoAgentTurn(
         "Ask Siargao agent turn completed.",
       );
       const sanitizedAnswer = sanitizeFinalAnswer(
-        realityCheckOutcome.answer ?? finalPayload?.answer ?? finalText,
+        finalizedEvidence.answer ?? finalText,
         resolved,
         toolCalls,
       );
@@ -517,21 +501,8 @@ export async function runAskSiargaoAgentTurn(
         ? {
             ...finalPayload,
             answer: sanitizedAnswer,
-            displayDecisionSummaryIds: realityCheckOutcome.explicit
-              ? realityCheckOutcome.summary
-                ? [realityCheckOutcome.summary.id]
-                : []
-              : finalPayload.displayDecisionSummaryIds,
           }
         : finalPayload;
-      const artifactFilteredFinalPayload =
-        sanitizedFinalPayload && realityCheckOutcome.artifacts
-          ? {
-              ...sanitizedFinalPayload,
-              displayCardIds: realityCheckOutcome.artifacts.displayCardIds,
-              displayItineraryIds: realityCheckOutcome.artifacts.displayItineraryIds,
-            }
-          : sanitizedFinalPayload;
       const modelCost = costAccumulator.summary();
       if (modelCost.callCount > 0) {
         trackServerEvent({
@@ -549,25 +520,25 @@ export async function runAskSiargaoAgentTurn(
         upstreamRequestIds,
         toolCalls,
         toolResults,
-        ...(realityCheckOutcome.summary
-          ? { decisionSummaries: [realityCheckOutcome.summary] }
+        ...(finalizedEvidence.decisionSummaries.length > 0
+          ? { decisionSummaries: finalizedEvidence.decisionSummaries }
           : {}),
-        ...(artifactFilteredFinalPayload ? { finalPayload: artifactFilteredFinalPayload } : {}),
-        allowedCardKinds: admissibleEvidence.allowedCardKinds,
-        allowedCardIds: realityCheckOutcome.artifacts?.allowedCardIds ?? requiredEvidenceCardIds,
-        allowedItineraryIds: realityCheckOutcome.artifacts?.allowedItineraryIds,
+        ...(sanitizedFinalPayload ? { finalPayload: sanitizedFinalPayload } : {}),
+        allowedCardKinds: finalizedEvidence.allowedCardKinds,
+        allowedCardIds: finalizedEvidence.allowedCardIds,
+        allowedItineraryIds: finalizedEvidence.allowedItineraryIds,
         artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
         repairCount,
       });
-      if (realityCheckOutcome.validated && realityCheckOutcome.summary) {
+      if (finalizedEvidence.realityCheck && finalizedEvidence.decisionSummaries.length > 0) {
         trackServerEvent({
           name: "reality_check_completed",
           payload: {
             status: "completed",
-            kind: realityCheckOutcome.validated.proposal.kind,
-            verdict: realityCheckOutcome.validated.proposal.verdict,
-            sourceState: realityCheckOutcome.validated.sourceState,
-            sourceCount: realityCheckOutcome.validated.sources.length,
+            kind: finalizedEvidence.realityCheck.proposal.kind,
+            verdict: finalizedEvidence.realityCheck.proposal.verdict,
+            sourceState: finalizedEvidence.realityCheck.sourceState,
+            sourceCount: finalizedEvidence.realityCheck.sources.length,
             toolCallCount: toolCalls.length,
             durationMs: sumDurations(toolCalls),
             cardCount: result.cards?.length ?? 0,
@@ -1265,68 +1236,6 @@ function parseAgentFinalPayload(finalText: string): AgentFinalPayload | undefine
   };
 }
 
-type RuntimeRealityCheckOutcome = {
-  explicit: boolean;
-  answer?: string;
-  artifacts?: RealityCheckLifecycleArtifacts;
-  summary?: DecisionSummary;
-  validated?: ValidatedRealityCheck;
-};
-
-function resolveRuntimeRealityCheck(input: {
-  finalPayload: AgentFinalPayload | undefined;
-  recognition: RealityCheckRecognition;
-  requestId: string;
-  requiredEvidenceAllowedCardIds: readonly string[] | undefined;
-  toolCalls: readonly AgentToolCallAudit[];
-  toolResults: readonly AgentToolResult[];
-}): RuntimeRealityCheckOutcome {
-  const lifecycle = resolveRealityCheckLifecycle({
-    requestId: input.requestId,
-    recognition: input.recognition,
-    finalPayload: input.finalPayload,
-    toolCalls: input.toolCalls,
-    toolResults: input.toolResults,
-    requiredEvidenceAllowedCardIds: input.requiredEvidenceAllowedCardIds,
-  });
-
-  if (lifecycle.state === "not_requested") {
-    return { explicit: false };
-  }
-  if (lifecycle.state === "needs_context") {
-    return { explicit: true };
-  }
-  if (lifecycle.state === "unresolved" || !lifecycle.validated || !lifecycle.summary) {
-    return {
-      explicit: true,
-      ...(lifecycle.artifacts ? { artifacts: lifecycle.artifacts } : {}),
-    };
-  }
-
-  return {
-    explicit: true,
-    ...(lifecycle.repair
-      ? { answer: renderRealityCheckFallbackAnswer(lifecycle.validated.proposal) }
-      : {}),
-    artifacts: lifecycle.artifacts,
-    summary: lifecycle.summary,
-    validated: lifecycle.validated,
-  };
-}
-
-function renderRealityCheckFallbackAnswer(proposal: ValidatedRealityCheck["proposal"]) {
-  const verdictLabel = proposal.verdict.replaceAll("_", " ");
-  return [
-    `**${verdictLabel}: ${proposal.subject}**`,
-    proposal.bestAction,
-    proposal.basis,
-    ...(proposal.fallback ? [`Fallback: ${proposal.fallback}`] : []),
-    ...(proposal.avoid ? [`Avoid: ${proposal.avoid}`] : []),
-    ...(proposal.timing ? [`Timing: ${proposal.timing}`] : []),
-    ...(proposal.area ? [`Area: ${proposal.area}`] : []),
-  ].join("\n\n");
-}
-
 function shouldRepairMalformedFinalAnswer(finalText: string) {
   const trimmed = finalText.trim();
   if (!trimmed) {
@@ -1555,7 +1464,6 @@ function buildAgentRepairAdapters({
   hostedMemoryFileNames,
   logger,
   realityCheckNeedsContext,
-  realityCheckRecognition,
   request,
   requireStructuredFinalOutput,
 }: {
@@ -1563,7 +1471,6 @@ function buildAgentRepairAdapters({
   hostedMemoryFileNames: ReadonlySet<string>;
   logger: ReturnType<typeof createComponentLogger>;
   realityCheckNeedsContext: boolean;
-  realityCheckRecognition: RealityCheckRecognition;
   request: AgentRuntimeRequest;
   requireStructuredFinalOutput: boolean;
 }): AgentRepairAdapter[] {
@@ -1594,11 +1501,8 @@ function buildAgentRepairAdapters({
         return {
           type: "tool",
           functionCalls: repair.functionCalls,
-          payloadKey:
-            repair.stage === "condition-judgment"
-              ? "validationRepairConditionJudgment"
-              : "automaticRequiredEvidence",
-          ...(repair.stage === "condition-judgment"
+          payloadKey: repair.payloadKey,
+          ...(repair.payloadMode === "single"
             ? {
                 payload: ([output]: readonly AgentRepairToolOutput[]) =>
                   output ? repairToolOutputPayload(output) : undefined,
@@ -1836,48 +1740,21 @@ function buildAgentRepairAdapters({
     },
     {
       name: "evidence-lifecycle-final-payload",
-      createRepair: ({ finalText, toolCalls, toolResults }) => {
+      createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
         const repair = evidenceLifecycle.repairFinalPayload({
           finalPayload: parsePolicyFinalPayload(finalText, toolCalls, toolResults),
           toolCalls,
           toolResults,
         });
-        if (!repair) {
-          return undefined;
-        }
-
-        return { type: "retry", instruction: repair.instruction };
-      },
-    },
-    {
-      name: "reality-check-final-payload",
-      createRepair: ({ finalText, responseInput, toolCalls, toolResults }) => {
-        if (
-          !realityCheckRecognition.explicit ||
-          !realityCheckRecognition.kind ||
-          realityCheckRecognition.missingContext.length > 0 ||
-          hasValidationRepairInput(responseInput, "validationRepairRealityCheck")
-        ) {
-          return undefined;
-        }
-        const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
-        const lifecycle = resolveRealityCheckLifecycle({
-          requestId: request.requestId ?? "reality_check_repair",
-          recognition: realityCheckRecognition,
-          finalPayload,
-          toolCalls,
-          toolResults,
-        });
-        if (!lifecycle.repair) {
+        if (!repair || hasValidationRepairInput(responseInput, repair.payloadKey)) {
           return undefined;
         }
 
         return {
           type: "retry",
-          payloadKey: "validationRepairRealityCheck",
-          payload: lifecycle.repair,
-          instruction:
-            "Validation repair: this is an explicit on-demand reality check, but the final payload omitted or could not support its realityCheck proposal. Return final JSON with a realityCheck object matching the response contract. Reference only completed toolCallIds that also appear in usedToolCallIds. A keep, change, or avoid verdict needs successful source-backed evidence; current plan and surf verdicts need successful current-condition evidence. If the required provider check failed, use needs_confirmation and a concrete safe next action. Do not invent source objects or artifact IDs.",
+          payloadKey: repair.payloadKey,
+          payload: repair.payload,
+          instruction: repair.instruction,
         };
       },
     },
@@ -2455,6 +2332,7 @@ function hasValidationRepairInput(
     | "validationRepairNightlifeMemoryBaseline"
     | "validationRepairFinalPayloadReferences"
     | "validationRepairRealityCheck"
+    | "validationRepairRequiredEvidence"
     | "validationRepairStructuredAnswerQuality"
     | "validationRepairStructuredFinalOutput"
     | "validationRepairSurfSpotFinalPayload",
