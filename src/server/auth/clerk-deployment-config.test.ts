@@ -261,15 +261,27 @@ describe("Clerk deployment configuration", () => {
     expect(errorCodes(result)).toContain("vercel_project_id_mismatch");
   });
 
-  test("rejects production deployments with the wrong stable Vercel production URL", () => {
+  test("accepts Vercel's shortest project domain when the canonical origin uses www", () => {
     const result = readClerkDeploymentConfig({
       ...completeProductionEnv,
-      VERCEL_PROJECT_PRODUCTION_URL: "wrong.example.com",
+      CLERK_AUTHORIZED_PARTIES: "https://www.asksiargao.com,https://staging.asksiargao.com",
+      CLERK_PRODUCTION_ORIGIN: "https://www.asksiargao.com",
+      NEXT_PUBLIC_APP_URL: "https://www.asksiargao.com",
+      VERCEL_PROJECT_PRODUCTION_URL: "asksiargao.com",
       VERCEL_URL: "ask-siargao-production-x9y8z7.vercel.app",
     });
 
+    expect(result.ok).toBe(true);
+  });
+
+  test("rejects a malformed Vercel project production URL", () => {
+    const result = readClerkDeploymentConfig({
+      ...completeProductionEnv,
+      VERCEL_PROJECT_PRODUCTION_URL: "asksiargao.com/path",
+    });
+
     expect(result.ok).toBe(false);
-    expect(errorCodes(result)).toContain("vercel_project_production_url_mismatch");
+    expect(errorCodes(result)).toContain("non_host_vercel_url_rejected");
   });
 
   test("rejects ordinary previews that claim protected staging with live secrets", () => {
