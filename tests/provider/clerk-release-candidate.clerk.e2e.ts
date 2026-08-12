@@ -193,29 +193,50 @@ test("Google OAuth is offered and the linked identity remains verified", async (
   await recordScenarios(["google_sign_in"]);
 });
 
-test("single-session policy invalidates the older browser session", async ({ browser }) => {
+test("single-session policy rejects adding a second account to one browser", async ({
+  browser,
+}) => {
   await assertScenarioBoundary(browser);
-  const firstContext = await newProtectedContext(browser);
-  const first = await firstContext.newPage();
-  await setupClerkTestingToken({ page: first });
-  await first.goto("/sign-in");
-  await safeProviderStep("First Clerk session sign-in", () =>
-    clerk.signIn({ page: first, emailAddress: emailCodeUser }),
-  );
-  expect((await first.request.get("/api/me/profile")).status()).toBe(200);
+  const context = await newProtectedContext(browser);
+  try {
+    const page = await context.newPage();
+    await setupClerkTestingToken({ page });
+    await page.goto("/sign-in");
+    await safeProviderStep("First Clerk account sign-in", () =>
+      clerk.signIn({ page, emailAddress: emailCodeUser }),
+    );
+    expect((await page.request.get("/api/me/profile")).status()).toBe(200);
+    const originalSession = await page.evaluate(() => ({
+      sessionCount: window.Clerk.client?.sessions.length,
+      sessionId: window.Clerk.session?.id,
+      userId: window.Clerk.user?.id,
+    }));
+    expect(originalSession.sessionCount).toBe(1);
+    safeAssert(
+      Boolean(originalSession.sessionId && originalSession.userId),
+      "The first Clerk account did not establish a complete browser session.",
+    );
 
-  const secondContext = await newProtectedContext(browser);
-  const second = await secondContext.newPage();
-  await setupClerkTestingToken({ page: second });
-  await second.goto("/sign-in");
-  await safeProviderStep("Second Clerk session sign-in", () =>
-    clerk.signIn({ page: second, emailAddress: emailCodeUser }),
-  );
-  expect((await second.request.get("/api/me/profile")).status()).toBe(200);
-  await expect.poll(async () => (await first.request.get("/api/me/profile")).status()).toBe(404);
-
-  await secondContext.close();
-  await firstContext.close();
+    await safeProviderStep("Second Clerk account rejection", async () => {
+      await expect(
+        clerk.signIn({
+          page,
+          emailAddress: requiredTestEmail("PROVIDER_RC_BOUNDARY_USER"),
+        }),
+      ).rejects.toThrow(/already signed in/i);
+    });
+    const retainedSession = await page.evaluate(() => ({
+      sessionCount: window.Clerk.client?.sessions.length,
+      sessionId: window.Clerk.session?.id,
+      userId: window.Clerk.user?.id,
+    }));
+    expect(retainedSession).toEqual(originalSession);
+    expect((await page.request.get("/api/me/profile")).status()).toBe(200);
+    await safeProviderStep("Single-session Clerk sign-out", () => clerk.signOut({ page }));
+    expect((await page.request.get("/api/me/profile")).status()).toBe(404);
+  } finally {
+    await context.close().catch(() => undefined);
+  }
   await recordScenarios(["single_session"]);
 });
 
