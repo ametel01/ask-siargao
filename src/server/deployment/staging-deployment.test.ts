@@ -72,6 +72,25 @@ describe("staging deployment command", () => {
     expect(messages.at(-1)).toBe("Staging deployed: https://staging.asksiargao.com");
   });
 
+  test("accepts the deployment URL when Vercel writes it to stderr", async () => {
+    const commands: string[][] = [];
+    const result = await runStagingDeployment({
+      log: () => undefined,
+      run: commandRunner(commands, [
+        "",
+        "main\n",
+        "",
+        `${sha}\n`,
+        `${sha}\n`,
+        { stdout: "", stderr: `Preview https://${deploymentHost}\n` },
+        JSON.stringify({ readyState: "READY", target: "staging", url: deploymentHost }),
+        "Success!\n",
+      ]),
+    });
+
+    expect(result.deploymentUrl).toBe(`https://${deploymentHost}`);
+  });
+
   test("denies dirty, non-main, and unpushed candidates before Vercel runs", async () => {
     const cases = [
       {
@@ -123,11 +142,16 @@ describe("staging deployment command", () => {
   });
 });
 
-function commandRunner(commands: string[][], outputs: string[]): DeploymentCommandRunner {
+function commandRunner(
+  commands: string[][],
+  outputs: Array<string | { stdout: string; stderr: string }>,
+): DeploymentCommandRunner {
   return async (command) => {
     commands.push([...command]);
-    const stdout = outputs.shift();
-    if (stdout === undefined) throw new Error(`Unexpected command: ${command.join(" ")}`);
-    return { exitCode: 0, stdout };
+    const output = outputs.shift();
+    if (output === undefined) throw new Error(`Unexpected command: ${command.join(" ")}`);
+    return typeof output === "string"
+      ? { exitCode: 0, stdout: output }
+      : { exitCode: 0, ...output };
   };
 }

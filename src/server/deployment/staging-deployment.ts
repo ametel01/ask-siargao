@@ -1,5 +1,6 @@
 export type DeploymentCommandResult = {
   exitCode: number;
+  stderr?: string;
   stdout: string;
 };
 
@@ -37,7 +38,7 @@ export async function runStagingDeployment(input: StagingDeploymentDependencies 
   }
 
   log(`Deploying trusted main candidate ${headSha.trim().slice(0, 7)} to staging...`);
-  const deployOutput = await runChecked(run, [
+  const deployResult = await runCheckedResult(run, [
     "vercel",
     "deploy",
     "--target",
@@ -49,7 +50,9 @@ export async function runStagingDeployment(input: StagingDeploymentDependencies 
     "--yes",
     "--no-wait",
   ]);
-  const deploymentHost = readDeploymentHost(deployOutput);
+  const deploymentHost = readDeploymentHost(
+    [deployResult.stdout, deployResult.stderr].filter(Boolean).join("\n"),
+  );
   const inspectionOutput = await runChecked(run, [
     "vercel",
     "inspect",
@@ -81,11 +84,15 @@ export async function runStagingDeployment(input: StagingDeploymentDependencies 
 }
 
 async function runChecked(run: DeploymentCommandRunner, command: readonly string[]) {
+  return (await runCheckedResult(run, command)).stdout;
+}
+
+async function runCheckedResult(run: DeploymentCommandRunner, command: readonly string[]) {
   const result = await run(command);
   if (result.exitCode !== 0) {
     throw new Error(`Staging deployment command failed: ${command[0]} ${command[1] ?? ""}`.trim());
   }
-  return result.stdout;
+  return result;
 }
 
 function readDeploymentHost(output: string) {
@@ -124,15 +131,17 @@ function readInspection(output: string) {
 
 async function runCommand(command: readonly string[]): Promise<DeploymentCommandResult> {
   const subprocess = Bun.spawn([...command], {
-    stderr: "inherit",
+    stderr: "pipe",
     stdin: "inherit",
     stdout: "pipe",
   });
-  const [stdout, exitCode] = await Promise.all([
+  const [stdout, stderr, exitCode] = await Promise.all([
     new Response(subprocess.stdout).text(),
+    new Response(subprocess.stderr).text(),
     subprocess.exited,
   ]);
-  return { exitCode, stdout };
+  if (stderr) process.stderr.write(stderr);
+  return { exitCode, stderr, stdout };
 }
 
 if (import.meta.main) {
