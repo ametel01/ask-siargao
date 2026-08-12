@@ -24,7 +24,7 @@ test("provider credentials are reachable only from manually approved protected j
   expect(workflow).not.toContain("TRIP_PASS_CHECKOUT_MODE: canary");
   expect(workflow).not.toContain("PROVIDER_RC_CLERK_GOOGLE_USER");
   expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_EMAIL/g)).toHaveLength(1);
-  expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_PASSWORD/g)).toHaveLength(1);
+  expect(workflow).not.toContain("PROVIDER_RC_CLERK_GOOGLE_PASSWORD");
 });
 
 test("protected provider database probes require verified PostgreSQL TLS", async () => {

@@ -17,8 +17,11 @@ non-production target. A production Clerk context is rejected on that target.
 ## User flows
 
 - Email-code and configured Google OAuth sign-in create a Clerk session and converge a local account.
-- Google acceptance requires a completed provider redirect/callback and a verified Google external
-  account. An email helper is not equivalent evidence.
+- Google acceptance requires a human-completed provider callback that created one verified Google
+  external account. The protected lane separately proves the current provider redirect, queries
+  Clerk for that exact verified link, and establishes a session for the same Clerk subject with the
+  official testing helper. A testing-helper session without the redirect and linked-account checks
+  is not equivalent evidence.
 - Protected routes and APIs require an authenticated Clerk account. Cross-account saved-item access
   is denied by ownership checks.
 - Users can view and update verified email/profile data, inspect their sessions, revoke other

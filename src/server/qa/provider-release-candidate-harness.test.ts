@@ -206,7 +206,6 @@ function protectedEnvironment(lane: "clerk" | "stripe"): ProviderReleaseCandidat
     PROVIDER_RC_APP_ORIGIN: "https://provider-rc.asksiargao.test",
     PROVIDER_RC_BOUNDARY_USER: "boundary+clerk_test@example.test",
     PROVIDER_RC_CLERK_GOOGLE_EMAIL: lane === "clerk" ? "oauth@example.test" : undefined,
-    PROVIDER_RC_CLERK_GOOGLE_PASSWORD: lane === "clerk" ? "redacted-password" : undefined,
     PROVIDER_RC_DATABASE_ENVIRONMENT: "protected-test",
     PROVIDER_RC_DATABASE_EXPECTED_HOST: "provider-rc-db.test",
     PROVIDER_RC_DATABASE_EXPECTED_NAME: "ask_siargao_provider_rc_test",

@@ -111,7 +111,6 @@ export type ProviderReleaseCandidateEnv = Partial<
     | "PROVIDER_RC_APP_ORIGIN"
     | "PROVIDER_RC_BOUNDARY_USER"
     | "PROVIDER_RC_CLERK_GOOGLE_EMAIL"
-    | "PROVIDER_RC_CLERK_GOOGLE_PASSWORD"
     | "PROVIDER_RC_EXPECTED_SHA"
     | "PROVIDER_RC_DATABASE_ENVIRONMENT"
     | "PROVIDER_RC_DATABASE_EXPECTED_HOST"
@@ -423,9 +422,7 @@ export function validateProviderReleaseCandidateContext(input: {
     if (!env.CLERK_WEBHOOK_SIGNING_SECRET?.startsWith("whsec_")) {
       errors.push("clerk_test_webhook_secret_required");
     }
-    if (!env.PROVIDER_RC_CLERK_GOOGLE_EMAIL || !env.PROVIDER_RC_CLERK_GOOGLE_PASSWORD) {
-      errors.push("clerk_google_oauth_credentials_required");
-    }
+    if (!env.PROVIDER_RC_CLERK_GOOGLE_EMAIL) errors.push("clerk_google_oauth_identity_required");
   } else {
     if (!env.STRIPE_TRIP_PASS_PRICE_ID?.startsWith("price_")) {
       errors.push("stripe_test_price_required");
