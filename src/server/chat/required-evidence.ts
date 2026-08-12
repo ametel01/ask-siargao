@@ -7,8 +7,13 @@ import type {
   RecommendationCardKind,
 } from "@/server/chat/agent-runtime";
 import {
+  conditionJudgmentRepairCall,
+  conditionJudgmentRepairInstruction,
+} from "@/server/chat/condition-tools";
+import {
   inspectRealityCheckRequest,
   type RealityCheckAccommodationContext,
+  realityCheckDecisionToolNames,
 } from "@/server/chat/reality-check";
 
 export type RequiredEvidencePlan = {
@@ -72,6 +77,46 @@ export type RequiredEvidencePolicy = {
     toolResults: readonly AgentToolResult[],
   ): boolean;
   admit(toolResults: readonly AgentToolResult[]): RequiredEvidenceAdmissibleEvidence;
+};
+
+export type EvidenceLifecycle = {
+  requiredToolNames: readonly RequiredEvidenceToolCall["name"][];
+  execute<TOutput>(
+    options: Omit<RequiredEvidenceExecutionOptions<TOutput>, "plan">,
+  ): Promise<RequiredEvidenceExecutionResult<TOutput>>;
+  repairTools(input: {
+    toolCalls: readonly AgentToolCallAudit[];
+    toolResults: readonly AgentToolResult[];
+  }): EvidenceLifecycleToolRepair | undefined;
+  repairFinalPayload(input: {
+    finalPayload: AgentFinalPayload | undefined;
+    toolCalls: readonly AgentToolCallAudit[];
+    toolResults: readonly AgentToolResult[];
+  }): EvidenceLifecycleRetryRepair | undefined;
+  finalize(input: {
+    finalPayload: AgentFinalPayload | undefined;
+    toolCalls: readonly AgentToolCallAudit[];
+    toolResults: readonly AgentToolResult[];
+  }): EvidenceLifecycleFinalization;
+};
+
+export type EvidenceLifecycleToolRepair = {
+  type: "tool";
+  stage: "condition-judgment" | "required-evidence";
+  functionCalls: readonly RequiredEvidenceRepairFunctionCall[];
+  instruction: string;
+};
+
+export type EvidenceLifecycleRetryRepair = {
+  type: "retry";
+  stage: "required-evidence-final-payload";
+  instruction: string;
+};
+
+export type EvidenceLifecycleFinalization = {
+  admissibleEvidence: RequiredEvidenceAdmissibleEvidence;
+  finalPayload: AgentFinalPayload | undefined;
+  satisfiesRequiredEvidence: boolean;
 };
 
 type RequiredEvidenceToolCallBase = {
@@ -140,6 +185,210 @@ export function buildRequiredEvidencePolicy(request: AgentRuntimeRequest): Requi
     finalPayloadSatisfies: (finalPayload, toolCalls, toolResults) =>
       finalPayloadSatisfiesRequiredEvidence(plan, finalPayload, toolCalls, toolResults),
     admit: (toolResults) => admissibleRequiredEvidence(plan, toolResults),
+  };
+}
+
+export function buildEvidenceLifecycle(request: AgentRuntimeRequest): EvidenceLifecycle {
+  const requiredEvidence = buildRequiredEvidencePolicy(request);
+  const realityCheck = inspectRealityCheckRequest(request);
+  const finalize = ({
+    finalPayload,
+    toolCalls,
+    toolResults,
+  }: {
+    finalPayload: AgentFinalPayload | undefined;
+    toolCalls: readonly AgentToolCallAudit[];
+    toolResults: readonly AgentToolResult[];
+  }): EvidenceLifecycleFinalization => {
+    const admissibleEvidence = requiredEvidence.admit(toolResults);
+    const appliedFinalPayload = requiredEvidence.applyFinalPayload(
+      finalPayload,
+      toolCalls,
+      toolResults,
+    );
+    const admittedFinalPayload =
+      appliedFinalPayload && admissibleEvidence.allowedCardIds
+        ? {
+            ...appliedFinalPayload,
+            displayCardIds: appliedFinalPayload.displayCardIds.filter((cardId) =>
+              admissibleEvidence.allowedCardIds?.includes(cardId),
+            ),
+          }
+        : appliedFinalPayload;
+    return {
+      admissibleEvidence,
+      finalPayload: admittedFinalPayload,
+      satisfiesRequiredEvidence: requiredEvidence.finalPayloadSatisfies(
+        admittedFinalPayload,
+        toolCalls,
+        toolResults,
+      ),
+    };
+  };
+  return {
+    requiredToolNames: requiredEvidence.requiredToolNames,
+    execute: (options) =>
+      executeEvidenceLifecycle({
+        request,
+        requiredEvidence,
+        ...options,
+      }),
+    repairTools: ({ toolCalls, toolResults }) => {
+      if (!realityCheck.requiresClarification) {
+        const conditionCall = conditionJudgmentRepairCall(request, toolCalls);
+        if (conditionCall) {
+          return {
+            type: "tool",
+            stage: "condition-judgment",
+            functionCalls: [conditionCall],
+            instruction: conditionJudgmentRepairInstruction(conditionCall.arguments),
+          };
+        }
+      }
+
+      const repair = requiredEvidence.repair(toolCalls, toolResults);
+      if (repair) {
+        return {
+          type: "tool",
+          stage: "required-evidence",
+          functionCalls: repair.functionCalls,
+          instruction: repair.instruction,
+        };
+      }
+      return undefined;
+    },
+    repairFinalPayload: ({ finalPayload, toolCalls, toolResults }) => {
+      if (!finalize({ finalPayload, toolCalls, toolResults }).satisfiesRequiredEvidence) {
+        return {
+          type: "retry",
+          stage: "required-evidence-final-payload",
+          instruction:
+            "Validation repair: your final payload did not satisfy the required evidence contract. If the required provider check succeeded, use the successful checked tool evidence and select only matching public artifacts. If the required provider check was unavailable, revise to a caveated final JSON answer with no checked/live claims and no place cards or checked source claims from the failed provider output.",
+        };
+      }
+      return undefined;
+    },
+    finalize,
+  };
+}
+
+async function executeEvidenceLifecycle<TOutput>({
+  request,
+  requiredEvidence,
+  functionCalls,
+  toolResults,
+  execute,
+  resultOf,
+  skip,
+  now,
+}: Omit<RequiredEvidenceExecutionOptions<TOutput>, "plan"> & {
+  request: AgentRuntimeRequest;
+  requiredEvidence: RequiredEvidencePolicy;
+}): Promise<RequiredEvidenceExecutionResult<TOutput>> {
+  const dependencyPlan = currentConditionDependencyPlan({
+    functionCalls,
+    request,
+    toolResults,
+  });
+  if (!dependencyPlan) {
+    return requiredEvidence.execute({
+      functionCalls,
+      toolResults,
+      execute,
+      resultOf,
+      skip,
+      now,
+    });
+  }
+
+  const upstreamOutputs = await Promise.all(dependencyPlan.upstreamCalls.map(execute));
+  const downstream = await executeEvidenceLifecycle({
+    request,
+    requiredEvidence,
+    functionCalls: dependencyPlan.downstreamCalls,
+    toolResults: [...toolResults, ...upstreamOutputs.map(resultOf)],
+    execute,
+    resultOf,
+    skip,
+    now,
+  });
+  return {
+    outputs: [...upstreamOutputs, ...downstream.outputs],
+    admissibleEvidence: downstream.admissibleEvidence,
+  };
+}
+
+const currentConditionUpstreamToolNames = new Set([
+  "get_condition_judgment",
+  "get_weather_forecast",
+  "get_marine_conditions",
+  "get_tide_forecast",
+]);
+
+const disruptionUpstreamToolNames = new Set([
+  ...currentConditionUpstreamToolNames,
+  "query_local_facts",
+]);
+
+function currentConditionDependencyPlan(input: {
+  functionCalls: readonly RequiredEvidenceRepairFunctionCall[];
+  request: AgentRuntimeRequest;
+  toolResults: readonly AgentToolResult[];
+}) {
+  const recognition = inspectRealityCheckRequest(input.request).recognition;
+  if (recognition.kind === "disruption_recovery" && recognition.missingContext.length === 0) {
+    const upstreamCalls = input.functionCalls.filter((functionCall) =>
+      disruptionUpstreamToolNames.has(functionCall.name),
+    );
+    const hasDependentCall = input.functionCalls.some(
+      (functionCall) =>
+        realityCheckDecisionToolNames("disruption_recovery").has(functionCall.name) &&
+        !disruptionUpstreamToolNames.has(functionCall.name),
+    );
+    if (upstreamCalls.length > 0 && hasDependentCall) {
+      return {
+        upstreamCalls,
+        downstreamCalls: input.functionCalls.filter(
+          (functionCall) => !disruptionUpstreamToolNames.has(functionCall.name),
+        ),
+      };
+    }
+  }
+
+  const currentConditionKind =
+    recognition.kind === "immediate_plan" || recognition.kind === "surf_session"
+      ? recognition.kind
+      : undefined;
+  if (
+    !currentConditionKind ||
+    recognition.missingContext.length > 0 ||
+    input.toolResults.some((result) => {
+      if (result.status !== "success") {
+        return false;
+      }
+      return currentConditionKind === "surf_session"
+        ? result.name === "get_condition_judgment"
+        : currentConditionUpstreamToolNames.has(result.name);
+    })
+  ) {
+    return undefined;
+  }
+
+  const upstreamCalls = input.functionCalls.filter((functionCall) =>
+    currentConditionUpstreamToolNames.has(functionCall.name),
+  );
+  const hasDependentCall = input.functionCalls.some((functionCall) =>
+    realityCheckDecisionToolNames(currentConditionKind).has(functionCall.name),
+  );
+  if (upstreamCalls.length === 0 || !hasDependentCall) {
+    return undefined;
+  }
+
+  return {
+    upstreamCalls,
+    downstreamCalls: input.functionCalls.filter(
+      (functionCall) => !currentConditionUpstreamToolNames.has(functionCall.name),
+    ),
   };
 }
 

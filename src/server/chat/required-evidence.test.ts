@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { AgentToolCallAudit, AgentToolResult } from "@/server/chat/agent-runtime";
 import {
+  buildEvidenceLifecycle,
   buildRequiredEvidencePlan,
   buildRequiredEvidencePolicy,
   buildRequiredEvidenceRepair,
@@ -712,6 +713,264 @@ describe("required evidence planning", () => {
         toolResults,
       ),
     ).toBe(true);
+  });
+
+  test("completes current surf evidence before dependent ranking through one lifecycle", async () => {
+    const lifecycle = buildEvidenceLifecycle({
+      requestId: "request_evidence_lifecycle_surf_order",
+      messages: [
+        {
+          role: "user",
+          content:
+            "Beginner surf in Pacifico tomorrow morning: does the tide make it worth booking?",
+        },
+      ],
+    });
+    const events: string[] = [];
+    let completeCondition: (() => void) | undefined;
+    const pendingCondition = new Promise<void>((resolve) => {
+      completeCondition = resolve;
+    });
+
+    const execution = lifecycle.execute({
+      functionCalls: [
+        {
+          callId: "call_ranking",
+          name: "rank_surf_spots_nearby",
+          arguments: { skill_level: "beginner" },
+        },
+        {
+          callId: "call_condition",
+          name: "get_condition_judgment",
+          arguments: { activity: "surfing" },
+        },
+      ],
+      toolResults: [],
+      execute: async (functionCall) => {
+        events.push(`${functionCall.name}:start`);
+        if (functionCall.name === "get_condition_judgment") {
+          await pendingCondition;
+        }
+        events.push(`${functionCall.name}:end`);
+        const result: AgentToolResult = {
+          name: functionCall.name,
+          toolCallId: functionCall.callId,
+          status: "success",
+          text: `${functionCall.name} completed.`,
+          sources: [],
+        };
+        return { functionCall, result };
+      },
+      resultOf: (output) => output.result,
+      skip: (
+        functionCall,
+        result,
+      ): { functionCall: typeof functionCall; result: AgentToolResult } => ({
+        functionCall,
+        result,
+      }),
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(["get_condition_judgment:start"]);
+    completeCondition?.();
+    const { outputs } = await execution;
+
+    expect(events).toEqual([
+      "get_condition_judgment:start",
+      "get_condition_judgment:end",
+      "rank_surf_spots_nearby:start",
+      "rank_surf_spots_nearby:end",
+    ]);
+    expect(outputs.map((output) => output.functionCall.name)).toEqual([
+      "get_condition_judgment",
+      "rank_surf_spots_nearby",
+    ]);
+  });
+
+  test("plans condition and required evidence repairs in lifecycle order", () => {
+    const lifecycle = buildEvidenceLifecycle({
+      requestId: "request_evidence_lifecycle_repairs",
+      messages: [
+        {
+          role: "user",
+          content: "Given the current rain, should we still get dinner at the General Luna pop-up?",
+        },
+      ],
+    });
+
+    const conditionRepair = lifecycle.repairTools({
+      toolCalls: [],
+      toolResults: [],
+    });
+    expect(conditionRepair).toMatchObject({
+      type: "tool",
+      stage: "condition-judgment",
+      functionCalls: [{ name: "get_condition_judgment" }],
+    });
+
+    const conditionCall =
+      conditionRepair?.type === "tool" ? conditionRepair.functionCalls[0] : null;
+    expect(conditionCall).toBeDefined();
+    const requiredEvidenceRepair = lifecycle.repairTools({
+      toolCalls: [
+        {
+          id: "audit_condition",
+          toolCallId: conditionCall?.callId,
+          name: conditionCall?.name ?? "get_condition_judgment",
+          arguments: conditionCall?.arguments ?? {},
+          status: "success",
+          durationMs: 1,
+          startedAt: "2026-08-12T01:00:00.000Z",
+          completedAt: "2026-08-12T01:00:00.001Z",
+          sourceProfileIds: [],
+          sources: [],
+        },
+      ],
+      toolResults: [],
+    });
+
+    expect(requiredEvidenceRepair).toMatchObject({
+      type: "tool",
+      stage: "required-evidence",
+      functionCalls: [{ name: "research_web" }],
+    });
+  });
+
+  test("admits only matching cards from an adversarial mixed final selection", () => {
+    const lifecycle = buildEvidenceLifecycle({
+      requestId: "request_evidence_lifecycle_mixed_cards",
+      messages: [
+        {
+          role: "user",
+          content: "Reality-check Bravo Beach Resort in General Luna before I book.",
+        },
+      ],
+    });
+    const toolResults = [
+      {
+        name: "search_places",
+        toolCallId: "call_places",
+        status: "success" as const,
+        text: "Google Places returned the named stay and an unrelated result.",
+        sources: [
+          {
+            label: "live_checked" as const,
+            sourceName: "Google Places",
+            checked: ["place identity"],
+            notChecked: ["room condition"],
+          },
+        ],
+        cards: [
+          {
+            id: "place_bravo",
+            kind: "place" as const,
+            title: "Bravo Beach Resort",
+            fitReasons: [],
+            caveats: [],
+            sourceLabel: "Google Places - live checked",
+          },
+          {
+            id: "place_unrelated",
+            kind: "place" as const,
+            title: "Unrelated Resort",
+            fitReasons: [],
+            caveats: [],
+            sourceLabel: "Google Places - live checked",
+          },
+        ],
+      },
+    ];
+
+    const finalized = lifecycle.finalize({
+      finalPayload: finalPayload({
+        answer: "Bravo Beach Resort matches the checked place identity.",
+        usedToolCallIds: ["call_places"],
+        displayCardIds: ["place_bravo", "place_unrelated"],
+      }),
+      toolCalls: [],
+      toolResults,
+    });
+
+    expect(finalized.finalPayload?.displayCardIds).toEqual(["place_bravo"]);
+    expect(finalized.admissibleEvidence.allowedCardIds).toEqual(["place_bravo"]);
+  });
+
+  test("requests one final retry when completed evidence is absent from the answer", () => {
+    const lifecycle = buildEvidenceLifecycle({
+      requestId: "request_evidence_lifecycle_final_retry",
+      messages: [
+        {
+          role: "user",
+          content: "What is the current dinner pop-up in General Luna tonight?",
+        },
+      ],
+    });
+    const unavailableSource = {
+      label: "provider_unavailable" as const,
+      sourceName: "Public web research",
+      checked: [],
+      notChecked: ["current dinner evidence"],
+    };
+    const toolCalls = [
+      {
+        ...toolCall({
+          name: "research_web",
+          status: "error",
+          arguments: {
+            query: "what is the current dinner pop-up in General Luna tonight",
+            intent: "recommendation",
+            location: "General Luna",
+            dateContext: "tonight",
+            sourceTypes: ["maps", "official", "local_directory", "guide", "social"],
+            requiredFreshness: "same_day",
+            maxSources: 6,
+          },
+          sources: [unavailableSource],
+        }),
+        toolCallId: "call_research",
+      },
+    ];
+    const toolResults = [
+      {
+        name: "research_web",
+        toolCallId: "call_research",
+        status: "error" as const,
+        errorCode: "provider_unavailable",
+        text: "Public web research was unavailable.",
+        data: { status: "provider_unavailable" },
+        sources: [unavailableSource],
+      },
+      {
+        name: "search_places",
+        toolCallId: "call_places",
+        status: "error" as const,
+        errorCode: "provider_unavailable",
+        text: "Places enrichment was skipped after terminal research evidence.",
+        sources: [
+          {
+            label: "provider_unavailable" as const,
+            sourceName: "Google Places research-selected entity enrichment",
+            checked: [],
+            notChecked: ["research-selected place details"],
+          },
+        ],
+      },
+    ];
+
+    expect(
+      lifecycle.repairFinalPayload({
+        finalPayload: finalPayload({
+          answer: "Use the highest-rated open place from Google Maps.",
+          usedToolCallIds: ["call_research"],
+        }),
+        toolCalls,
+        toolResults,
+      }),
+    ).toMatchObject({
+      type: "retry",
+      stage: "required-evidence-final-payload",
+    });
   });
 });
 

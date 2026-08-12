@@ -38,10 +38,6 @@ import {
   executeAgentTool,
 } from "@/server/chat/agent-tools";
 import {
-  conditionJudgmentRepairCall,
-  conditionJudgmentRepairInstruction,
-} from "@/server/chat/condition-tools";
-import {
   assertModelCostCircuit,
   ModelCostCircuitError,
   reserveModelCost,
@@ -62,14 +58,10 @@ import {
   parseRealityCheckProposal,
   type RealityCheckLifecycleArtifacts,
   type RealityCheckRecognition,
-  realityCheckDecisionToolNames,
   resolveRealityCheckLifecycle,
   type ValidatedRealityCheck,
 } from "@/server/chat/reality-check";
-import {
-  buildRequiredEvidencePolicy,
-  type RequiredEvidencePolicy,
-} from "@/server/chat/required-evidence";
+import { buildEvidenceLifecycle, type EvidenceLifecycle } from "@/server/chat/required-evidence";
 import { createConfiguredChatResponsesClient } from "@/server/llm/chat-model-provider";
 import {
   createModelCostAccumulator,
@@ -192,7 +184,7 @@ export async function runAskSiargaoAgentTurn(
   const instructions = buildAskSiargaoAgentInstructions(memorySnapshot, {
     requireStructuredFinalOutput,
   });
-  const requiredEvidencePolicy = buildRequiredEvidencePolicy(resolved);
+  const evidenceLifecycle = buildEvidenceLifecycle(resolved);
   const inspectedRealityCheck = inspectRealityCheckRequest(resolved);
   const realityCheckRecognition = requireStructuredFinalOutput
     ? inspectedRealityCheck.recognition
@@ -206,7 +198,7 @@ export async function runAskSiargaoAgentTurn(
       includeMemoryFallbackWithFileSearch: dependencies.includeAgentMemoryFallbackWithFileSearch,
     }),
     resolved,
-    requiredEvidencePolicy.requiredToolNames,
+    evidenceLifecycle.requiredToolNames,
   );
   const responseInclude = agentMemoryVectorStoreId ? ["file_search_call.results"] : undefined;
   const terminalFallbackResult = (
@@ -218,6 +210,11 @@ export async function runAskSiargaoAgentTurn(
       toolCalls,
       toolResults,
       terminationReason,
+    });
+    const finalizedEvidence = evidenceLifecycle.finalize({
+      finalPayload: fallback.finalPayload,
+      toolCalls,
+      toolResults,
     });
     const modelCost = costAccumulator.summary();
     if (modelCost.callCount > 0) {
@@ -247,9 +244,9 @@ export async function runAskSiargaoAgentTurn(
       toolCalls,
       toolResults,
       decisionSummaries: fallback.decisionSummaries,
-      finalPayload: fallback.finalPayload,
-      allowedCardKinds: requiredEvidencePolicy.admit(toolResults).allowedCardKinds,
-      allowedCardIds: requiredEvidencePolicy.admit(toolResults).allowedCardIds,
+      finalPayload: finalizedEvidence.finalPayload ?? fallback.finalPayload,
+      allowedCardKinds: finalizedEvidence.admissibleEvidence.allowedCardKinds,
+      allowedCardIds: finalizedEvidence.admissibleEvidence.allowedCardIds,
       artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
       repairCount,
       completionStatus: fallback.completionStatus,
@@ -348,7 +345,7 @@ export async function runAskSiargaoAgentTurn(
     const finalText = response.output_text?.trim();
     if (finalText) {
       const repairAdapters = buildAgentRepairAdapters({
-        requiredEvidencePolicy,
+        evidenceLifecycle,
         hostedMemoryFileNames,
         logger,
         realityCheckNeedsContext,
@@ -381,7 +378,7 @@ export async function runAskSiargaoAgentTurn(
                   functionCalls,
                   logger,
                   now: dependencies.now ?? (() => new Date()),
-                  requiredEvidencePolicy,
+                  evidenceLifecycle,
                   runtimeRequest: resolved,
                   requestId: resolved.requestId,
                   toolResults,
@@ -485,12 +482,13 @@ export async function runAskSiargaoAgentTurn(
         );
         continue;
       }
-      const finalPayload = requiredEvidencePolicy.applyFinalPayload(
-        parsedFinalPayload,
+      const finalizedEvidence = evidenceLifecycle.finalize({
+        finalPayload: parsedFinalPayload,
         toolCalls,
         toolResults,
-      );
-      const admissibleEvidence = requiredEvidencePolicy.admit(toolResults);
+      });
+      const finalPayload = finalizedEvidence.finalPayload;
+      const admissibleEvidence = finalizedEvidence.admissibleEvidence;
       const requiredEvidenceCardIds = admissibleEvidence.allowedCardIds;
       const realityCheckOutcome = resolveRuntimeRealityCheck({
         finalPayload,
@@ -711,7 +709,7 @@ export async function runAskSiargaoAgentTurn(
       functionCalls,
       logger,
       now: dependencies.now ?? (() => new Date()),
-      requiredEvidencePolicy,
+      evidenceLifecycle,
       runtimeRequest: resolved,
       requestId: resolved.requestId,
       toolResults,
@@ -1553,7 +1551,7 @@ function currentTurnMemoryFileNames(toolResults: readonly AgentToolResult[]) {
 }
 
 function buildAgentRepairAdapters({
-  requiredEvidencePolicy,
+  evidenceLifecycle,
   hostedMemoryFileNames,
   logger,
   realityCheckNeedsContext,
@@ -1561,7 +1559,7 @@ function buildAgentRepairAdapters({
   request,
   requireStructuredFinalOutput,
 }: {
-  requiredEvidencePolicy: RequiredEvidencePolicy;
+  evidenceLifecycle: EvidenceLifecycle;
   hostedMemoryFileNames: ReadonlySet<string>;
   logger: ReturnType<typeof createComponentLogger>;
   realityCheckNeedsContext: boolean;
@@ -1581,27 +1579,32 @@ function buildAgentRepairAdapters({
       toolCalls,
       toolResults,
     });
-    return requiredEvidencePolicy.applyFinalPayload(finalPayload, toolCalls, toolResults);
+    return evidenceLifecycle.finalize({ finalPayload, toolCalls, toolResults }).finalPayload;
   };
 
   return [
     {
-      name: "condition-judgment",
-      createRepair: ({ toolCalls }) => {
-        if (realityCheckNeedsContext) {
-          return undefined;
-        }
-        const repairCall = conditionJudgmentRepairCall(request, toolCalls);
-        if (!repairCall) {
+      name: "evidence-lifecycle",
+      createRepair: ({ toolCalls, toolResults }) => {
+        const repair = evidenceLifecycle.repairTools({ toolCalls, toolResults });
+        if (!repair) {
           return undefined;
         }
 
         return {
           type: "tool",
-          functionCalls: [repairCall],
-          payloadKey: "validationRepairConditionJudgment",
-          payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
-          instruction: conditionJudgmentRepairInstruction(repairCall.arguments),
+          functionCalls: repair.functionCalls,
+          payloadKey:
+            repair.stage === "condition-judgment"
+              ? "validationRepairConditionJudgment"
+              : "automaticRequiredEvidence",
+          ...(repair.stage === "condition-judgment"
+            ? {
+                payload: ([output]: readonly AgentRepairToolOutput[]) =>
+                  output ? repairToolOutputPayload(output) : undefined,
+              }
+            : {}),
+          instruction: repair.instruction,
         };
       },
     },
@@ -1620,22 +1623,6 @@ function buildAgentRepairAdapters({
           payload: ([output]) => (output ? repairToolOutputPayload(output) : undefined),
           instruction:
             "Validation repair: you attempted a final itinerary answer before choosing plan_local_itinerary as required. Use this runtime-repaired itinerary artifact as planning evidence, preserve its caveats, and continue with any required follow-up checks before the final traveler-facing answer.",
-        };
-      },
-    },
-    {
-      name: "required-evidence-tools",
-      createRepair: ({ toolCalls, toolResults }) => {
-        const repair = requiredEvidencePolicy.repair(toolCalls, toolResults);
-        if (!repair) {
-          return undefined;
-        }
-
-        return {
-          type: "tool",
-          functionCalls: repair.functionCalls,
-          payloadKey: "automaticRequiredEvidence",
-          instruction: repair.instruction,
         };
       },
     },
@@ -1848,18 +1835,18 @@ function buildAgentRepairAdapters({
       },
     },
     {
-      name: "required-evidence-final-payload",
+      name: "evidence-lifecycle-final-payload",
       createRepair: ({ finalText, toolCalls, toolResults }) => {
-        const finalPayload = parsePolicyFinalPayload(finalText, toolCalls, toolResults);
-        if (requiredEvidencePolicy.finalPayloadSatisfies(finalPayload, toolCalls, toolResults)) {
+        const repair = evidenceLifecycle.repairFinalPayload({
+          finalPayload: parsePolicyFinalPayload(finalText, toolCalls, toolResults),
+          toolCalls,
+          toolResults,
+        });
+        if (!repair) {
           return undefined;
         }
 
-        return {
-          type: "retry",
-          instruction:
-            "Validation repair: your final payload did not satisfy the required evidence contract. If the required provider check succeeded, use the successful checked tool evidence and select only matching public artifacts. If the required provider check was unavailable, revise to a caveated final JSON answer with no checked/live claims and no place cards or checked source claims from the failed provider output.",
-        };
+        return { type: "retry", instruction: repair.instruction };
       },
     },
     {
@@ -3062,7 +3049,7 @@ function normalizeRequiredToolArguments(value: unknown): string {
 }
 
 async function executeAndAuditToolBatch({
-  requiredEvidencePolicy,
+  evidenceLifecycle,
   executeTool,
   functionCalls,
   logger,
@@ -3071,7 +3058,7 @@ async function executeAndAuditToolBatch({
   requestId,
   toolResults,
 }: {
-  requiredEvidencePolicy: RequiredEvidencePolicy;
+  evidenceLifecycle: EvidenceLifecycle;
   executeTool: (request: AgentToolExecutionRequest) => Promise<AgentToolResult>;
   functionCalls: readonly ParsedFunctionCall[];
   logger: ReturnType<typeof createComponentLogger>;
@@ -3080,38 +3067,7 @@ async function executeAndAuditToolBatch({
   requestId: string;
   toolResults: readonly AgentToolResult[];
 }): Promise<ExecutedAgentToolOutput[]> {
-  const conditionDependencyPlan = currentConditionDependencyPlan({
-    functionCalls,
-    runtimeRequest,
-    toolResults,
-  });
-  if (conditionDependencyPlan) {
-    const conditionOutputs = await Promise.all(
-      conditionDependencyPlan.upstreamCalls.map((functionCall) =>
-        executeAndAuditTool({
-          executeTool,
-          functionCall,
-          logger,
-          now,
-          runtimeRequest,
-          requestId,
-        }),
-      ),
-    );
-    const remainingOutputs = await executeAndAuditToolBatch({
-      requiredEvidencePolicy,
-      executeTool,
-      functionCalls: conditionDependencyPlan.downstreamCalls,
-      logger,
-      now,
-      runtimeRequest,
-      requestId,
-      toolResults: [...toolResults, ...conditionOutputs.map((output) => output.result)],
-    });
-    return [...conditionOutputs, ...remainingOutputs];
-  }
-
-  const { outputs } = await requiredEvidencePolicy.execute({
+  const { outputs } = await evidenceLifecycle.execute({
     functionCalls,
     toolResults,
     now,
@@ -3134,79 +3090,6 @@ async function executeAndAuditToolBatch({
       }),
   });
   return [...outputs];
-}
-
-const currentConditionUpstreamToolNames = new Set([
-  "get_condition_judgment",
-  "get_weather_forecast",
-  "get_marine_conditions",
-  "get_tide_forecast",
-]);
-
-const disruptionUpstreamToolNames = new Set([
-  ...currentConditionUpstreamToolNames,
-  "query_local_facts",
-]);
-
-function currentConditionDependencyPlan(input: {
-  functionCalls: readonly ParsedFunctionCall[];
-  runtimeRequest: AgentRuntimeRequest;
-  toolResults: readonly AgentToolResult[];
-}) {
-  const recognition = inspectRealityCheckRequest(input.runtimeRequest).recognition;
-  if (recognition.kind === "disruption_recovery" && recognition.missingContext.length === 0) {
-    const upstreamCalls = input.functionCalls.filter((functionCall) =>
-      disruptionUpstreamToolNames.has(functionCall.name),
-    );
-    const hasDependentCall = input.functionCalls.some(
-      (functionCall) =>
-        realityCheckDecisionToolNames("disruption_recovery").has(functionCall.name) &&
-        !disruptionUpstreamToolNames.has(functionCall.name),
-    );
-    if (upstreamCalls.length > 0 && hasDependentCall) {
-      return {
-        upstreamCalls,
-        downstreamCalls: input.functionCalls.filter(
-          (functionCall) => !disruptionUpstreamToolNames.has(functionCall.name),
-        ),
-      };
-    }
-  }
-  const currentConditionKind =
-    recognition.kind === "immediate_plan" || recognition.kind === "surf_session"
-      ? recognition.kind
-      : undefined;
-  if (
-    !currentConditionKind ||
-    recognition.missingContext.length > 0 ||
-    input.toolResults.some((result) => {
-      if (result.status !== "success") {
-        return false;
-      }
-      return currentConditionKind === "surf_session"
-        ? result.name === "get_condition_judgment"
-        : currentConditionUpstreamToolNames.has(result.name);
-    })
-  ) {
-    return undefined;
-  }
-
-  const upstreamCalls = input.functionCalls.filter((functionCall) =>
-    currentConditionUpstreamToolNames.has(functionCall.name),
-  );
-  const hasDependentCall = input.functionCalls.some((functionCall) =>
-    realityCheckDecisionToolNames(currentConditionKind).has(functionCall.name),
-  );
-  if (upstreamCalls.length === 0 || !hasDependentCall) {
-    return undefined;
-  }
-
-  return {
-    upstreamCalls,
-    downstreamCalls: input.functionCalls.filter(
-      (functionCall) => !currentConditionUpstreamToolNames.has(functionCall.name),
-    ),
-  };
 }
 
 type ExecutedAgentToolOutput = {
