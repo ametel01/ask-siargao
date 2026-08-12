@@ -7,9 +7,11 @@ import {
   executeRepairAction,
   previewRepairAction,
   type RepairActionDispatcher,
+} from "@/server/operations/repair-actions";
+import {
   type RepairActionType,
   repairActionTypes,
-} from "@/server/operations/repair-actions";
+} from "@/server/operations/trip-pass-repair-executor";
 
 const actionType = z.enum(repairActionTypes);
 const requestSchema = z.discriminatedUnion("mode", [
@@ -29,7 +31,7 @@ export type RepairRouteDependencies = {
   allowlist: ReadonlySet<string>;
   auth: () => Promise<OperatorAuthSnapshot>;
   db: DatabaseQueryClient;
-  executor: RepairActionDispatcher;
+  executor: RepairActionDispatcher<RepairActionType>;
 };
 
 export async function postRepairResponse(request: Request, dependencies: RepairRouteDependencies) {
@@ -50,7 +52,7 @@ export async function postRepairResponse(request: Request, dependencies: RepairR
     if (parsed.data.mode === "preview") {
       const preview = await previewRepairAction(
         {
-          actionType: parsed.data.actionType as RepairActionType,
+          actionType: parsed.data.actionType,
           findingId: parsed.data.findingId,
         },
         { db: dependencies.db, executor: dependencies.executor },

@@ -5,6 +5,7 @@ import {
   type RepairRouteDependencies,
 } from "@/app/api/admin/repairs/repair-route";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+import { repairActionTypes } from "@/server/operations/trip-pass-repair-executor";
 
 describe("Operator Repair Action route", () => {
   test("ignores shared tokens and requires an allowlisted Clerk Account", async () => {
@@ -88,6 +89,7 @@ function dependencies(auth: {
       },
     } satisfies DatabaseQueryClient,
     executor: {
+      actionTypes: repairActionTypes,
       async preview() {
         return {
           after: { state: "after" },
@@ -96,14 +98,14 @@ function dependencies(auth: {
       },
       async prepareExecution() {
         return {
-          async perform({ beforeApply, lockFinding }) {
-            const locked = await lockFinding();
+          async executeInTransaction({ lockFindingOrReplay, reserveRepairAction }) {
+            const locked = await lockFindingOrReplay();
             if (locked.status === "replayed") return locked;
             const stateChange = {
               after: { state: "after" },
               before: { email: "private@example.com", state: "before" },
             };
-            const decision = await beforeApply(locked.finding, stateChange);
+            const decision = await reserveRepairAction(locked.finding, stateChange);
             if (decision.status === "replayed") return decision;
             return { actionId: decision.actionId, after: { state: "after" }, status: "applied" };
           },

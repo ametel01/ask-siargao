@@ -805,6 +805,7 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
   await db.query("insert into native_repair_probe (id, state) values ('race', 'before')");
   await seedNativeFinding(db, "native_finding_race", "native_order_race");
   const executor: RepairActionDispatcher = {
+    actionTypes: ["manual_commerce_transition"],
     async preview({ db: client }) {
       const state = await client.query<{ state: string }>(
         "select state from native_repair_probe where id = 'race'",
@@ -813,14 +814,14 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
     },
     async prepareExecution() {
       return {
-        async perform({ beforeApply, db: client, lockFinding }) {
-          const locked = await lockFinding();
+        async executeInTransaction({ db: client, lockFindingOrReplay, reserveRepairAction }) {
+          const locked = await lockFindingOrReplay();
           if (locked.status === "replayed") return locked;
           const state = await client.query<{ state: string }>(
             "select state from native_repair_probe where id = 'race'",
           );
           const stateChange = { before: state.rows[0] ?? {}, after: { state: "after" } };
-          const decision = await beforeApply(locked.finding, stateChange);
+          const decision = await reserveRepairAction(locked.finding, stateChange);
           if (decision.status === "replayed") return decision;
           await client.query("update native_repair_probe set state = 'after' where id = 'race'");
           return { actionId: decision.actionId, after: { state: "after" }, status: "applied" };
@@ -888,16 +889,17 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
   await db.query("insert into native_repair_probe (id, state) values ('rollback', 'before')");
   await seedNativeFinding(db, "native_finding_rollback", "native_order_rollback");
   const rollbackExecutor: RepairActionDispatcher = {
+    actionTypes: ["manual_commerce_transition"],
     async preview() {
       return { before: { state: "before" }, after: { state: "after" } };
     },
     async prepareExecution() {
       return {
-        async perform({ beforeApply, db: client, lockFinding }) {
-          const locked = await lockFinding();
+        async executeInTransaction({ db: client, lockFindingOrReplay, reserveRepairAction }) {
+          const locked = await lockFindingOrReplay();
           if (locked.status === "replayed") return locked;
           const stateChange = { before: { state: "before" }, after: { state: "after" } };
-          const decision = await beforeApply(locked.finding, stateChange);
+          const decision = await reserveRepairAction(locked.finding, stateChange);
           if (decision.status === "replayed") return decision;
           await client.query(
             "update native_repair_probe set state = 'after' where id = 'rollback'",

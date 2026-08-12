@@ -4,19 +4,8 @@ import { redactDiagnosticValue } from "@/server/admin/redaction";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { authorizeOperator, type OperatorAuthSnapshot } from "@/server/operations/operator-auth";
 
-export const repairActionTypes = [
-  "grant_missing_trip_pass",
-  "initialize_missing_meters",
-  "release_stale_reservation",
-  "manual_commerce_transition",
-  "goodwill_grant",
-  "account_recovery",
-] as const;
-
-export type RepairActionType = (typeof repairActionTypes)[number];
-
-export type RepairPreview = {
-  actionType: RepairActionType;
+export type RepairPreview<ActionType extends string = string> = {
+  actionType: ActionType;
   after: Record<string, unknown>;
   before: Record<string, unknown>;
   digest: string;
@@ -29,14 +18,14 @@ export type RepairActionContext = {
 };
 
 export type PreparedRepairAction = {
-  perform(input: {
-    beforeApply: (
+  executeInTransaction(input: {
+    reserveRepairAction: (
       finding: RepairFinding,
       preview: RepairStateChange,
     ) => Promise<RepairActionExecutionDecision>;
     db: DatabaseQueryClient;
     finding: RepairFinding;
-    lockFinding: () => Promise<LockedRepairFinding>;
+    lockFindingOrReplay: () => Promise<LockedRepairFinding>;
   }): Promise<RepairActionExecutionResult>;
 };
 
@@ -52,13 +41,12 @@ export type LockedRepairFinding =
   | { finding: RepairFinding; status: "ready" }
   | Extract<RepairActionExecutionResult, { status: "replayed" }>;
 
-export type RepairActionDispatcher = {
+export type RepairActionDispatcher<ActionType extends string = string> = {
+  actionTypes: readonly [ActionType, ...ActionType[]];
   prepareExecution(
-    input: RepairActionContext & { actionType: RepairActionType },
+    input: RepairActionContext & { actionType: ActionType },
   ): Promise<PreparedRepairAction>;
-  preview(
-    input: RepairActionContext & { actionType: RepairActionType },
-  ): Promise<RepairStateChange>;
+  preview(input: RepairActionContext & { actionType: ActionType }): Promise<RepairStateChange>;
 };
 
 export type RepairStateChange = {
@@ -75,10 +63,10 @@ export type RepairFinding = {
   status: "open" | "resolved";
 };
 
-export async function previewRepairAction(
-  input: { actionType: RepairActionType; findingId: string },
-  dependencies: { db?: DatabaseQueryClient; executor: RepairActionDispatcher },
-): Promise<RepairPreview> {
+export async function previewRepairAction<ActionType extends string>(
+  input: { actionType: ActionType; findingId: string },
+  dependencies: { db?: DatabaseQueryClient; executor: RepairActionDispatcher<ActionType> },
+): Promise<RepairPreview<ActionType>> {
   const db = dependencies.db ?? getDefaultDatabaseQueryClient();
   const finding = await loadFinding(input.findingId, db);
   if (finding?.status !== "open") throw new Error("repair_finding_unavailable");
@@ -94,9 +82,9 @@ export async function previewRepairAction(
   };
 }
 
-export async function executeRepairAction(
+export async function executeRepairAction<ActionType extends string>(
   input: {
-    actionType: RepairActionType;
+    actionType: ActionType;
     auth: OperatorAuthSnapshot;
     confirmation: string;
     findingId: string;
@@ -108,7 +96,7 @@ export async function executeRepairAction(
     allowlist: ReadonlySet<string>;
     createId?: (prefix: string) => string;
     db?: DatabaseQueryClient;
-    executor: RepairActionDispatcher;
+    executor: RepairActionDispatcher<ActionType>;
   },
 ) {
   const authorization = authorizeOperator({
@@ -167,10 +155,10 @@ export async function executeRepairAction(
     );
     if (replay) return replay;
     let repairAt: Date | null = null;
-    const result = await preparedAction.perform({
+    const result = await preparedAction.executeInTransaction({
       db: transaction,
       finding: preparedFinding,
-      lockFinding: async () => {
+      lockFindingOrReplay: async () => {
         const findingResult = await transaction.query<RepairFinding>(
           `select id, kind, local_entity_type, local_entity_ref, summary_code, status
            from operational_findings where id = $1 for update`,
@@ -187,7 +175,7 @@ export async function executeRepairAction(
         if (finding?.status !== "open") throw new Error("repair_finding_unavailable");
         return { finding, status: "ready" as const };
       },
-      beforeApply: async (finding, stateChange) => {
+      reserveRepairAction: async (finding, stateChange) => {
         const preview = sanitizePreview(stateChange);
         if (previewDigest(finding.id, input.actionType, preview) !== input.previewDigest) {
           throw new Error("repair_preview_changed");
@@ -274,7 +262,7 @@ async function loadRepairReplay(
 }
 
 function repairCommandHash(input: {
-  actionType: RepairActionType;
+  actionType: string;
   findingId: string;
   previewDigest: string;
   reasonCode: string;
@@ -307,7 +295,7 @@ function sanitizeState(state: Record<string, unknown>): Record<string, unknown> 
 
 function previewDigest(
   findingId: string,
-  actionType: RepairActionType,
+  actionType: string,
   preview: { before: Record<string, unknown>; after: Record<string, unknown> },
 ) {
   return createHash("sha256")

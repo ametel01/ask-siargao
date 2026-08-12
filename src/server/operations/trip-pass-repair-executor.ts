@@ -8,7 +8,6 @@ import type {
   PreparedRepairAction,
   RepairActionContext,
   RepairActionDispatcher,
-  RepairActionType,
   RepairFinding,
   RepairStateChange,
 } from "@/server/operations/repair-actions";
@@ -22,17 +21,12 @@ import {
 
 export function createTripPassRepairActionDispatcher(dependencies: {
   commerceReader: AuthoritativeCommerceReader;
-}): RepairActionDispatcher {
-  const actions = {
-    account_recovery: closureOperationRetryAction(),
-    goodwill_grant: goodwillGrantAction(dependencies.commerceReader),
-    grant_missing_trip_pass: grantMissingTripPassAction(dependencies.commerceReader),
-    initialize_missing_meters: initializeMissingMetersAction(),
-    manual_commerce_transition: manualCommerceTransitionAction(dependencies.commerceReader),
-    release_stale_reservation: releaseStaleReservationAction(),
-  } satisfies Record<RepairActionType, TripPassRepairAction>;
+}): RepairActionDispatcher<RepairActionType> {
+  const actions = createTripPassRepairActions(dependencies);
+  const actionTypes = Object.keys(actions) as [RepairActionType, ...RepairActionType[]];
 
   return {
+    actionTypes,
     prepareExecution({ actionType, ...context }) {
       return actions[actionType].prepareExecution(context);
     },
@@ -42,9 +36,26 @@ export function createTripPassRepairActionDispatcher(dependencies: {
   };
 }
 
+export type RepairActionType = keyof ReturnType<typeof createTripPassRepairActions>;
+
 export const tripPassRepairActionDispatcher = createTripPassRepairActionDispatcher({
   commerceReader: createProductionCommerceReader(),
 });
+
+export const repairActionTypes = tripPassRepairActionDispatcher.actionTypes;
+
+function createTripPassRepairActions(dependencies: {
+  commerceReader: AuthoritativeCommerceReader;
+}) {
+  return {
+    account_recovery: closureOperationRetryAction(),
+    goodwill_grant: goodwillGrantAction(dependencies.commerceReader),
+    grant_missing_trip_pass: grantMissingTripPassAction(dependencies.commerceReader),
+    initialize_missing_meters: initializeMissingMetersAction(),
+    manual_commerce_transition: manualCommerceTransitionAction(dependencies.commerceReader),
+    release_stale_reservation: releaseStaleReservationAction(),
+  };
+}
 
 type TripPassRepairAction = {
   prepareExecution(input: RepairActionContext): Promise<PreparedRepairAction>;
@@ -232,26 +243,26 @@ function closureOperationRetryAction(): TripPassRepairAction {
     },
     async preview({ db, finding }) {
       const state = await loadClosureOperationState(finding.local_entity_ref, db);
-      if (state.status !== "failed") throw new Error("account_recovery_not_retryable");
+      if (state.status !== "failed") throw new Error("closure_operation_retry_not_allowed");
       return { before: state, after: { ...state, lastErrorCode: null, status: "pending" } };
     },
     async apply({ db, finding }) {
       const state = await loadClosureOperationState(finding.local_entity_ref, db);
-      if (state.status !== "failed") throw new Error("account_recovery_not_retryable");
+      if (state.status !== "failed") throw new Error("closure_operation_retry_not_allowed");
       const tombstone = await db.query<{ subject_hash: string }>(
         `select t.subject_hash from account_closure_operations o
          join account_closure_tombstones t on t.id = o.tombstone_id
          where o.id = $1 for update of o`,
         [finding.local_entity_ref],
       );
-      if (!tombstone.rows[0]) throw new Error("account_recovery_operation_unavailable");
+      if (!tombstone.rows[0]) throw new Error("closure_operation_retry_unavailable");
       const updated = await db.query<{ id: string }>(
         `update account_closure_operations set status = 'pending', next_attempt_at = clock_timestamp(),
            last_error_code = null, completed_at = null, updated_at = clock_timestamp()
          where id = $1 and status = 'failed' returning id`,
         [finding.local_entity_ref],
       );
-      if (!updated.rows[0]) throw new Error("account_recovery_state_changed");
+      if (!updated.rows[0]) throw new Error("closure_operation_retry_state_changed");
       return loadClosureOperationState(finding.local_entity_ref, db);
     },
   });
@@ -315,18 +326,18 @@ function preparedRepairAction(
   validate?: (input: RepairActionContext) => Promise<void>,
 ): PreparedRepairAction {
   return {
-    async perform({ beforeApply, db, finding, lockFinding }) {
+    async executeInTransaction({ db, finding, lockFindingOrReplay, reserveRepairAction }) {
       assertSameFinding(preparedContext.finding, finding);
       assertSupportedRepair(implementation, finding);
       await implementation.lock({ db, finding });
-      const locked = await lockFinding();
+      const locked = await lockFindingOrReplay();
       if (locked.status === "replayed") return locked;
       const context = { db, finding: locked.finding };
       assertSameFinding(finding, context.finding);
       assertSupportedRepair(implementation, context.finding);
       await validate?.(context);
       const preview = await implementation.preview(context);
-      const decision = await beforeApply(context.finding, preview);
+      const decision = await reserveRepairAction(context.finding, preview);
       if (decision.status === "replayed") return decision;
       await validate?.(context);
       const after = await implementation.apply(context);
@@ -470,7 +481,7 @@ async function loadClosureOperationState(operationId: string, db: DatabaseQueryC
     "select status, last_error_code from account_closure_operations where id = $1",
     [operationId],
   );
-  if (!result.rows[0]) throw new Error("account_recovery_operation_unavailable");
+  if (!result.rows[0]) throw new Error("closure_operation_retry_unavailable");
   return {
     lastErrorCode: result.rows[0].last_error_code,
     status: result.rows[0].status,

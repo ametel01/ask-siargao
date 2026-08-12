@@ -27,7 +27,6 @@ import {
   executeRepairAction,
   previewRepairAction,
   type RepairActionDispatcher,
-  type RepairActionType,
 } from "@/server/operations/repair-actions";
 import { parseOperationalTaskProducerArguments } from "@/server/operations/run-operational-task-producer";
 import {
@@ -40,7 +39,10 @@ import {
   deliverOperationalAlertOnce,
   deliverPendingPageWorthyAlerts,
 } from "@/server/operations/sentry-alerts";
-import { createTripPassRepairActionDispatcher } from "@/server/operations/trip-pass-repair-executor";
+import {
+  createTripPassRepairActionDispatcher,
+  type RepairActionType,
+} from "@/server/operations/trip-pass-repair-executor";
 import {
   enqueueOperationalTask,
   opaqueTaskKey,
@@ -322,6 +324,7 @@ describe("audited Repair Actions", () => {
       await db.query("insert into repair_probe (id, state) values ('probe', 'before')");
       const actionEvents: string[] = [];
       const executor = {
+        actionTypes: ["manual_commerce_transition"] as const,
         async preview({ db: client }) {
           actionEvents.push("preview");
           const current = await client.query<{ state: string }>(
@@ -332,9 +335,9 @@ describe("audited Repair Actions", () => {
         async prepareExecution() {
           actionEvents.push("prepare");
           return {
-            async perform({ beforeApply, db: client, lockFinding }) {
+            async executeInTransaction({ db: client, lockFindingOrReplay, reserveRepairAction }) {
               actionEvents.push("lock");
-              const locked = await lockFinding();
+              const locked = await lockFindingOrReplay();
               if (locked.status === "replayed") return locked;
               actionEvents.push("preview");
               const current = await client.query<{ state: string }>(
@@ -344,7 +347,7 @@ describe("audited Repair Actions", () => {
                 after: { state: "after" },
                 before: { state: current.rows[0]?.state },
               };
-              const decision = await beforeApply(locked.finding, stateChange);
+              const decision = await reserveRepairAction(locked.finding, stateChange);
               if (decision.status === "replayed") return decision;
               actionEvents.push("apply");
               await client.query("update repair_probe set state = 'after' where id = 'probe'");
@@ -352,7 +355,7 @@ describe("audited Repair Actions", () => {
             },
           };
         },
-      } satisfies RepairActionDispatcher;
+      } satisfies RepairActionDispatcher<"manual_commerce_transition">;
       const preview = await previewRepairAction(
         { actionType: "manual_commerce_transition", findingId: "finding_repair" },
         { db, executor },
@@ -416,7 +419,7 @@ describe("audited Repair Actions", () => {
     });
   });
 
-  test("uses strict production executors for sensitive commerce and recovery classes", async () => {
+  test("uses strict production actions for sensitive commerce and closure-operation classes", async () => {
     await withTestDb(async (db, state) => {
       const executor = createTripPassRepairActionDispatcher({
         commerceReader: {
