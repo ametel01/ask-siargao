@@ -166,23 +166,30 @@ test("Google OAuth is offered and the linked identity remains verified", async (
     });
   });
 
-  await page.goto("/");
-  await safeProviderStep("Clerk linked Google identity sign-in", () =>
-    clerk.signIn({ page, emailAddress: googleOAuthUser }),
-  );
-  expect((await page.request.get("/api/me/profile")).status()).toBe(200);
-  const authenticatedGoogleIdentity = await page.evaluate(() => ({
-    id: window.Clerk.user?.id,
-    verifiedGoogleAccount: window.Clerk.user?.externalAccounts.some(
-      (account) => account.provider === "google" && account.verification?.status === "verified",
-    ),
-  }));
-  expect(authenticatedGoogleIdentity).toEqual({
-    id: googleIdentity.id,
-    verifiedGoogleAccount: true,
-  });
-  await safeProviderStep("Clerk sign-out", () => clerk.signOut({ page }));
-  expect((await page.request.get("/api/me/profile")).status()).toBe(404);
+  const googleContext = await newProtectedContext(browser);
+  try {
+    const googleSession = await googleContext.newPage();
+    await setupClerkTestingToken({ page: googleSession });
+    await googleSession.goto("/sign-in");
+    await safeProviderStep("Clerk linked Google identity sign-in", () =>
+      clerk.signIn({ page: googleSession, emailAddress: googleOAuthUser }),
+    );
+    expect((await googleSession.request.get("/api/me/profile")).status()).toBe(200);
+    const authenticatedGoogleIdentity = await googleSession.evaluate(() => ({
+      id: window.Clerk.user?.id,
+      verifiedGoogleAccount: window.Clerk.user?.externalAccounts.some(
+        (account) => account.provider === "google" && account.verification?.status === "verified",
+      ),
+    }));
+    expect(authenticatedGoogleIdentity).toEqual({
+      id: googleIdentity.id,
+      verifiedGoogleAccount: true,
+    });
+    await safeProviderStep("Clerk sign-out", () => clerk.signOut({ page: googleSession }));
+    expect((await googleSession.request.get("/api/me/profile")).status()).toBe(404);
+  } finally {
+    await googleContext.close().catch(() => undefined);
+  }
   await recordScenarios(["google_sign_in"]);
 });
 
