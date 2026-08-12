@@ -71,9 +71,12 @@ and publishes the resulting exact-SHA artifact. The Release Evidence lane module
 provider acceptance, worker draining, final-boundary sealing, receipt validation, and evidence
 completion in semantic order; the workflow does not reproduce that sequence as shell steps.
 
-Clerk proves real email-code and Google OAuth sessions, route and ownership policy, account
-management, signed webhook convergence, seven-day session maximum, and terminal deletion. Stripe
-proves Checkout creation, a distinct 30-minute expiry boundary, authenticated cancellation,
+Clerk proves a real email-code session and a Google-linked session, route and ownership policy,
+account management, signed webhook convergence, seven-day session maximum, and terminal deletion.
+The Google proof combines a live redirect to `accounts.google.com` with a unique verified Google
+external account created by an earlier human-completed OAuth callback, then signs in that exact
+Clerk subject with Clerk's official testing helper. CI never stores or submits a Google password.
+Stripe proves Checkout creation, a distinct 30-minute expiry boundary, authenticated cancellation,
 return-before-event, activation, duplicate/reversed delivery, ambiguous retry, cumulative refunds,
 disputes, closure race, Paid After Closure refund, and paid-answer settlement. The workflow emits
 receipts only for scenarios actually executed and re-probes SHA/database boundaries before each

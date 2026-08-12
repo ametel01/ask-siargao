@@ -1,10 +1,12 @@
+import { createClerkClient } from "@clerk/backend";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
-import type { APIRequestContext, Browser, Page } from "@playwright/test";
+import type { APIRequestContext, Browser } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
 import { Webhook } from "standardwebhooks";
 
 import { clerkInstancePolicy } from "@/server/auth/clerk-instance-policy";
+import { requireVerifiedGoogleOAuthIdentity } from "@/server/qa/clerk-google-oauth-identity";
 import { createLiveProtectedProviderHarness } from "@/server/qa/provider-release-candidate-live-boundary";
 
 test.describe.configure({ mode: "serial" });
@@ -21,6 +23,7 @@ const {
 } = providerHarness;
 const emailCodeUser = requiredTestEmail("PROVIDER_RC_CLERK_EMAIL_CODE_USER");
 const closureUser = requiredTestEmail("PROVIDER_RC_CLERK_CLOSURE_USER");
+const googleOAuthUser = requiredEnvironment("PROVIDER_RC_CLERK_GOOGLE_EMAIL");
 
 test("email-code, verified-email, session persistence, route/API denial, and sign-out", async ({
   browser,
@@ -133,7 +136,10 @@ test("email-code, verified-email, session persistence, route/API denial, and sig
   ]);
 });
 
-test("Google OAuth is offered by the dedicated Clerk test instance", async ({ browser, page }) => {
+test("Google OAuth is offered and the linked identity remains verified", async ({
+  browser,
+  page,
+}) => {
   await assertScenarioBoundary(browser);
   await setupClerkTestingToken({ page });
   await page.goto("/sign-in");
@@ -149,46 +155,36 @@ test("Google OAuth is offered by the dedicated Clerk test instance", async ({ br
     page.url().startsWith("https://accounts.google.com/"),
     "Google OAuth did not reach the configured provider.",
   );
-  await safeProviderStep("Google OAuth callback", () => completeGoogleOAuth(page));
-  await expect(page).toHaveURL(
-    new RegExp(`^${escapeRegExp(requiredEnvironment("PROVIDER_RC_APP_ORIGIN"))}`),
+  const googleIdentity = await safeProviderStep("Clerk verified Google identity", async () => {
+    const users = await createClerkClient({
+      secretKey: requiredEnvironment("CLERK_SECRET_KEY"),
+    }).users.getUserList({ emailAddress: [googleOAuthUser], limit: 2 });
+    return requireVerifiedGoogleOAuthIdentity({
+      expectedEmail: googleOAuthUser,
+      totalCount: users.totalCount,
+      users: users.data,
+    });
+  });
+
+  await page.goto("/");
+  await safeProviderStep("Clerk linked Google identity sign-in", () =>
+    clerk.signIn({ page, emailAddress: googleOAuthUser }),
   );
   expect((await page.request.get("/api/me/profile")).status()).toBe(200);
-  const verifiedGoogleAccount = await page.evaluate(() =>
-    window.Clerk.user?.externalAccounts.some(
+  const authenticatedGoogleIdentity = await page.evaluate(() => ({
+    id: window.Clerk.user?.id,
+    verifiedGoogleAccount: window.Clerk.user?.externalAccounts.some(
       (account) => account.provider === "google" && account.verification?.status === "verified",
     ),
-  );
-  expect(verifiedGoogleAccount).toBe(true);
+  }));
+  expect(authenticatedGoogleIdentity).toEqual({
+    id: googleIdentity.id,
+    verifiedGoogleAccount: true,
+  });
   await safeProviderStep("Clerk sign-out", () => clerk.signOut({ page }));
   expect((await page.request.get("/api/me/profile")).status()).toBe(404);
   await recordScenarios(["google_sign_in"]);
 });
-
-async function completeGoogleOAuth(page: Page) {
-  const email = page.locator('input[type="email"]');
-  await expect(email).toBeVisible();
-  await email.fill(requiredEnvironment("PROVIDER_RC_CLERK_GOOGLE_EMAIL"));
-  await page.getByRole("button", { name: /^next$/i }).click();
-
-  const password = page.locator('input[type="password"]');
-  await expect(password).toBeVisible();
-  await password.fill(requiredEnvironment("PROVIDER_RC_CLERK_GOOGLE_PASSWORD"));
-  await page.getByRole("button", { name: /^next$/i }).click();
-
-  if (/challenge|captcha/i.test(page.url())) {
-    throw new Error("Google OAuth proof requires a challenge-free dedicated test account.");
-  }
-  const consent = page.getByRole("button", { name: /^(continue|allow)$/i });
-  if (await consent.isVisible({ timeout: 5_000 }).catch(() => false)) await consent.click();
-  await page.waitForURL(
-    (url) => url.origin === new URL(requiredEnvironment("PROVIDER_RC_APP_ORIGIN")).origin,
-    { timeout: 90_000 },
-  );
-  if (/challenge|captcha/i.test(page.url())) {
-    throw new Error("Google OAuth provider callback did not complete.");
-  }
-}
 
 test("single-session policy invalidates the older browser session", async ({ browser }) => {
   await assertScenarioBoundary(browser);
@@ -356,8 +352,4 @@ function requiredTestEmail(name: string) {
     throw new Error(`${name} must identify a dedicated +clerk_test user.`);
   }
   return value;
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

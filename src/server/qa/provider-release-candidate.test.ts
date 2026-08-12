@@ -40,7 +40,6 @@ describe("protected provider release-candidate policy", () => {
           CLERK_WEBHOOK_SIGNING_SECRET: "whsec_redacted",
           DATABASE_URL: `postgres://role:secret@${host}:5432/postgres`,
           PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
-          PROVIDER_RC_CLERK_GOOGLE_PASSWORD: "redacted-password",
           PROVIDER_RC_DATABASE_EXPECTED_HOST: host,
           PROVIDER_RC_DATABASE_EXPECTED_NAME: "postgres",
           PROVIDER_RC_DATABASE_RESOURCE_NAME: "ask-siargao-staging",
@@ -61,7 +60,6 @@ describe("protected provider release-candidate policy", () => {
           CLERK_WEBHOOK_SIGNING_SECRET: "whsec_redacted",
           DATABASE_URL: "postgres://provider-rc-db.test/ask_siargao_provider_rc_test",
           PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
-          PROVIDER_RC_CLERK_GOOGLE_PASSWORD: "redacted-password",
         },
         lane: "clerk",
       }),
@@ -80,7 +78,6 @@ describe("protected provider release-candidate policy", () => {
         CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
         CLERK_SECRET_KEY: "sk_test_redacted",
         PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
-        PROVIDER_RC_CLERK_GOOGLE_PASSWORD: "redacted-password",
         DATABASE_URL: "postgres://production-db.test/production",
         PROVIDER_RC_STRIPE_ACTIVE_USER: "active+clerk_test@example.test",
         PROVIDER_RC_STRIPE_CLOSURE_USER: "closure+clerk_test@example.test",
@@ -118,7 +115,7 @@ describe("protected provider release-candidate policy", () => {
     });
     expect(clerk.errors).toContain("dedicated_database_required");
     expect(clerk.errors).toContain("clerk_test_webhook_secret_required");
-    expect(clerk.errors).toContain("clerk_google_oauth_credentials_required");
+    expect(clerk.errors).toContain("clerk_google_oauth_identity_required");
 
     const stripe = validateProviderReleaseCandidateContext({
       checkedOutCommitSha: sha,
