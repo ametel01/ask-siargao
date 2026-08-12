@@ -25,6 +25,8 @@ is `UNASSIGNED`.
 Before preparing a Release Candidate, verify that:
 
 - destructive privacy mutations enforce the shared same-origin policy;
+- production DeepSeek chat requires the public `/legal/privacy` disclosure and exact current
+  model-provider acknowledgement cookie before the API consumes rate-limit or model capacity;
 - production PostgreSQL verifies server identity and production Redis uses encrypted transport;
 - raw Google Places queries do not enter durable logs;
 - production public pages never substitute synthetic fixtures for missing or failed governed data,

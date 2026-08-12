@@ -75,6 +75,15 @@ export function requireValidChatModelDeployment(env: ChatModelEnvironment = proc
   if (production && provider === "deepseek" && !env.DEEPSEEK_API_KEY?.trim()) {
     throw new Error("DEEPSEEK_API_KEY is required for the production DeepSeek chat provider.");
   }
+  if (
+    production &&
+    provider === "deepseek" &&
+    env.NEXT_PUBLIC_MODEL_PROVIDER_CONSENT_REQUIRED?.trim().toLowerCase() !== "true"
+  ) {
+    throw new Error(
+      "NEXT_PUBLIC_MODEL_PROVIDER_CONSENT_REQUIRED=true is required for the production DeepSeek chat provider.",
+    );
+  }
   if (production && provider === "openai" && !env.OPENAI_API_KEY?.trim()) {
     throw new Error("OPENAI_API_KEY is required for the production OpenAI chat provider.");
   }

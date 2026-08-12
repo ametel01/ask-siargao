@@ -547,7 +547,14 @@ function TripPassPricingSection() {
               className="inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
               href={tripPassPublicOffer.links.legal}
             >
-              Terms, privacy, and refunds
+              Trip Pass terms and refunds
+              <ArrowRight aria-hidden="true" size={18} />
+            </Link>
+            <Link
+              className="inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
+              href="/legal/privacy"
+            >
+              Privacy notice
               <ArrowRight aria-hidden="true" size={18} />
             </Link>
           </div>

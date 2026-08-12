@@ -55,6 +55,7 @@ export const clerkRoutePolicyEntries = [
     "non-production QA audit fixture",
     "available only in designated QA context",
   ),
+  page("src/app/legal/privacy/page.tsx", "/legal/privacy", "public", "public privacy notice"),
   page("src/app/legal/trip-pass/page.tsx", "/legal/trip-pass", "public", "public Trip Pass terms"),
   page(
     "src/app/trips/shared/[token]/page.tsx",
@@ -193,6 +194,12 @@ export const clerkRoutePolicyEntries = [
     "public",
     "client analytics event API",
     "public API rate limit remains required by handler",
+  ),
+  api(
+    "src/app/api/privacy/model-provider-consent/route.ts",
+    "/api/privacy/model-provider-consent",
+    "public",
+    "same-origin model-provider acknowledgement cookie",
   ),
   publicApi("accommodations", "/api/public/accommodations/example-stay"),
   publicApi("areas", "/api/public/areas/general-luna"),

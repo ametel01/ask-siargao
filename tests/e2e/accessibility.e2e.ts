@@ -1,6 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-for (const route of ["/", "/chat", "/legal/trip-pass", "/audits/demo/report", "/sign-in"]) {
+for (const route of [
+  "/",
+  "/chat",
+  "/legal/privacy",
+  "/legal/trip-pass",
+  "/audits/demo/report",
+  "/sign-in",
+]) {
   test(`skips repeated content on ${route}`, async ({ page }) => {
     await page.goto(route);
 

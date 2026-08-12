@@ -3,7 +3,7 @@
 ## Clerk Perimeter Inventory
 
 `src/server/auth/clerk-route-policy.ts` is the executable source of truth for the Clerk proxy
-perimeter. Its inventory is source-derived and currently covers all 53 live
+perimeter. Its inventory is source-derived and currently covers all 63 live
 `src/app/**/page.tsx` and `src/app/**/route.ts` runtime surfaces. Every entry has exactly one base
 classification:
 
@@ -23,6 +23,7 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | --- | --- | --- |
 | `/` | Ask Siargao chat-first landing page | Public |
 | `/chat` | Ask Siargao assistant workspace with anonymous chat, signed-in chat history, and on-demand accommodation, itinerary, immediate-plan, surf-session, and disruption Reality Checks | Public |
+| `/legal/privacy` | Public controlled-beta privacy notice covering model-provider, location, account, storage, and operational data flows | Public |
 | `/trips/shared/[token]` | Public shared saved-trip plan with selected cards/itineraries only | `noindex, nofollow` metadata |
 | `/settings` | Signed-in traveler trip brief with structured current-trip and durable-preference controls, private chat and saved-planning summaries, granular privacy actions, and terminal Account Closure with signed recent-factor reverification | Private authenticated surface |
 | `/profile` | Compatibility alias that renders the signed-in traveler trip brief | Private authenticated surface |
@@ -52,10 +53,11 @@ resource ownership remain handler-level authorities; they do not replace the bas
 
 | Route | Method | Purpose | Protection |
 | --- | --- | --- | --- |
-| `/api/chat` | `POST` | Validate an explicitly submitted chat turn, run the Ask Siargao agent, return selected public artifacts and optional server-validated Reality Check summaries, and persist owner-scoped thread/messages when a Clerk session is present. A usable terminal fallback returns `200` with `completionStatus: "completed_with_limits"` and a budget-exhausted, invalid-response, or provider-unavailable `terminationReason` instead of a generation error. | Public for anonymous stateless chat; Clerk-authenticated requests persist owned turns |
+| `/api/chat` | `POST` | Validate an explicitly submitted chat turn, run the Ask Siargao agent, return selected public artifacts and optional server-validated Reality Check summaries, and persist owner-scoped thread/messages when a Clerk session is present. A usable terminal fallback returns `200` with `completionStatus: "completed_with_limits"` and a budget-exhausted, invalid-response, or provider-unavailable `terminationReason` instead of a generation error. | Public for anonymous stateless chat; Clerk-authenticated requests persist owned turns. Production DeepSeek requests require the exact current model-provider acknowledgement cookie before rate limiting or model access; missing or stale consent returns `428`. |
 | `/api/chat/threads` | `GET`, `POST` | List the current user's non-deleted chat threads newest first or create an empty owned thread | Clerk-authenticated user only |
 | `/api/chat/threads/[threadId]` | `GET`, `PATCH`, `DELETE` | Hydrate an owned chat thread with messages, rename or archive it, or soft-delete it | Clerk-authenticated owner only; cross-user access returns `404` |
 | `/api/chat/ratings` | `PUT` | Create or update the current user's rating for an owned assistant message | Clerk-authenticated owner only; cross-user access returns `404` and user-message targets return `400` |
+| `/api/privacy/model-provider-consent` | `GET`, `POST` | Report the current model-provider acknowledgement status or record the exact current version in a bounded HttpOnly cookie | Public read; write requires the shared same-origin mutation policy and an exact versioned request body |
 
 Authenticated chat persistence stores user and assistant-visible message content, public sources,
 selected public artifacts, redacted tool-call summaries without raw arguments, and browser-location

@@ -84,6 +84,21 @@ describe("chat model provider", () => {
     expect(() => requireValidChatModelDeployment({ CHAT_MODEL_PROVIDER: "unknown" })).toThrow(
       "CHAT_MODEL_PROVIDER must be one of",
     );
+    expect(() =>
+      requireValidChatModelDeployment({
+        APP_ENV: "production",
+        CHAT_MODEL_PROVIDER: "deepseek",
+        DEEPSEEK_API_KEY: "test_api_key",
+      }),
+    ).toThrow("NEXT_PUBLIC_MODEL_PROVIDER_CONSENT_REQUIRED=true");
+    expect(
+      requireValidChatModelDeployment({
+        APP_ENV: "production",
+        CHAT_MODEL_PROVIDER: "deepseek",
+        DEEPSEEK_API_KEY: "test_api_key",
+        NEXT_PUBLIC_MODEL_PROVIDER_CONSENT_REQUIRED: "true",
+      }),
+    ).toBe("deepseek");
     expect(
       requireValidChatModelDeployment({
         CHAT_MODEL_PROVIDER: "openai",

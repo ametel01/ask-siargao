@@ -183,6 +183,10 @@ import {
   projectMobileTripPass,
   type TripPassAccountFetchState,
 } from "@/features/trip-pass/account-presentation";
+import {
+  modelProviderConsentVersion,
+  requiresBrowserModelProviderConsent,
+} from "@/lib/model-provider-consent";
 import { motionAwareScrollBehavior, prefersReducedMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import type { TripPassAccountPresentation } from "@/server/trip-pass/presentation";
@@ -479,6 +483,15 @@ type ChatWorkspaceController = {
   isSending: boolean;
   locationState: LocationSharingState;
   messages: InteractiveChatMessage[];
+  modelProviderConsent: {
+    acknowledgementChecked: boolean;
+    confirm: () => Promise<void>;
+    error: string | null;
+    open: boolean;
+    pending: boolean;
+    setAcknowledgementChecked: (checked: boolean) => void;
+    setOpen: (open: boolean) => void;
+  };
   openChatThread: (threadId: string) => void;
   archiveSelectedThread: () => Promise<void>;
   closeThreadActionDialog: () => void;
@@ -525,6 +538,11 @@ function useChatWorkspaceController({
   const [isSending, setIsSending] = useState(false);
   const [locationState, setLocationState] = useState<LocationSharingState>({ status: "off" });
   const [messages, setMessages] = useState<InteractiveChatMessage[]>([]);
+  const [modelProviderConsentOpen, setModelProviderConsentOpen] = useState(false);
+  const [modelProviderConsentChecked, setModelProviderConsentChecked] = useState(false);
+  const [modelProviderConsentPending, setModelProviderConsentPending] = useState(false);
+  const [modelProviderConsentError, setModelProviderConsentError] = useState<string | null>(null);
+  const [modelProviderConsentVerified, setModelProviderConsentVerified] = useState(false);
   const [chatThreads, setChatThreads] = useState<ChatThreadSummary[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedThreadTitle, setSelectedThreadTitle] = useState<string | null>(null);
@@ -652,6 +670,8 @@ function useChatWorkspaceController({
   } | null>(null);
   const locationCaptureRequestIdRef = useRef(0);
   const pendingChatSubmissionRef = useRef<PendingChatSubmission | null>(null);
+  const pendingConsentPromptRef = useRef<string | null>(null);
+  const modelProviderConsentCheckCompleteRef = useRef(!requiresBrowserModelProviderConsent());
   const chatSubmissionGenerationRef = useRef(0);
   const activeThreadLoadRef = useRef<ActiveThreadLoad | null>(null);
   const threadLoadGenerationRef = useRef(0);
@@ -670,6 +690,38 @@ function useChatWorkspaceController({
       activeResponseRequestRef.current,
     );
     setIsSending(false);
+  }, []);
+
+  useEffect(() => {
+    if (!requiresBrowserModelProviderConsent()) {
+      return;
+    }
+    const controller = new AbortController();
+    void (async () => {
+      let consented = false;
+      try {
+        const response = await fetch("/api/privacy/model-provider-consent", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.ok) {
+          const body = (await response.json()) as { consented?: boolean };
+          consented = body.consented === true;
+        }
+      } catch {
+        // The acknowledgement remains fail-closed when its status cannot be loaded.
+      }
+      if (controller.signal.aborted) {
+        return;
+      }
+      modelProviderConsentCheckCompleteRef.current = true;
+      if (consented) {
+        setModelProviderConsentVerified(true);
+      } else if (pendingConsentPromptRef.current) {
+        setModelProviderConsentOpen(true);
+      }
+    })();
+    return () => controller.abort();
   }, []);
 
   const invalidatePendingChatSubmission = useCallback(() => {
@@ -1656,7 +1708,78 @@ function useChatWorkspaceController({
     [savedPlanSharing],
   );
 
-  const handlePromptSubmit = submitPrompt;
+  const handlePromptSubmit = useCallback(
+    (prompt: string) => {
+      if (requiresBrowserModelProviderConsent() && !modelProviderConsentVerified) {
+        pendingConsentPromptRef.current = prompt;
+        setModelProviderConsentChecked(false);
+        setModelProviderConsentError(null);
+        if (modelProviderConsentCheckCompleteRef.current) {
+          setModelProviderConsentOpen(true);
+        }
+        return;
+      }
+      void submitPrompt(prompt);
+    },
+    [modelProviderConsentVerified, submitPrompt],
+  );
+
+  useEffect(() => {
+    if (!modelProviderConsentVerified) {
+      return;
+    }
+    const pendingPrompt = pendingConsentPromptRef.current;
+    if (!pendingPrompt) {
+      return;
+    }
+    pendingConsentPromptRef.current = null;
+    void submitPrompt(pendingPrompt);
+  }, [modelProviderConsentVerified, submitPrompt]);
+
+  const setModelProviderConsentDialogOpen = useCallback((open: boolean) => {
+    setModelProviderConsentOpen(open);
+    if (!open) {
+      pendingConsentPromptRef.current = null;
+      setModelProviderConsentChecked(false);
+      setModelProviderConsentError(null);
+    }
+  }, []);
+
+  const confirmModelProviderConsent = useCallback(async () => {
+    if (!modelProviderConsentChecked || modelProviderConsentPending) {
+      return;
+    }
+    const pendingPrompt = pendingConsentPromptRef.current;
+    setModelProviderConsentPending(true);
+    setModelProviderConsentError(null);
+    try {
+      const response = await fetch("/api/privacy/model-provider-consent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ consentVersion: modelProviderConsentVersion }),
+      });
+      if (!response.ok) {
+        setModelProviderConsentError(
+          "The privacy acknowledgement could not be saved. Check your connection and try again.",
+        );
+        return;
+      }
+    } catch {
+      setModelProviderConsentError(
+        "The privacy acknowledgement could not be saved. Check your connection and try again.",
+      );
+      return;
+    } finally {
+      setModelProviderConsentPending(false);
+    }
+    pendingConsentPromptRef.current = null;
+    setModelProviderConsentVerified(true);
+    setModelProviderConsentChecked(false);
+    setModelProviderConsentOpen(false);
+    if (pendingPrompt) {
+      void submitPrompt(pendingPrompt);
+    }
+  }, [modelProviderConsentChecked, modelProviderConsentPending, submitPrompt]);
 
   async function updateTripContext(context: TripContextDraft) {
     const nextContext = normalizeTripContextDraft(context);
@@ -1697,6 +1820,15 @@ function useChatWorkspaceController({
     isSending,
     locationState,
     messages,
+    modelProviderConsent: {
+      acknowledgementChecked: modelProviderConsentChecked,
+      confirm: confirmModelProviderConsent,
+      error: modelProviderConsentError,
+      open: modelProviderConsentOpen,
+      pending: modelProviderConsentPending,
+      setAcknowledgementChecked: setModelProviderConsentChecked,
+      setOpen: setModelProviderConsentDialogOpen,
+    },
     openChatThread,
     archiveSelectedThread,
     closeThreadActionDialog,
@@ -1739,6 +1871,7 @@ function ChatWorkspaceView({
   isSending,
   locationState,
   messages,
+  modelProviderConsent,
   openChatThread,
   archiveSelectedThread,
   closeThreadActionDialog,
@@ -2051,7 +2184,101 @@ function ChatWorkspaceView({
           onUpdateTripContext={updateTripContext}
         />
       </section>
+
+      <ModelProviderConsentDialog {...modelProviderConsent} />
     </main>
+  );
+}
+
+function ModelProviderConsentDialog({
+  acknowledgementChecked,
+  confirm,
+  error,
+  open,
+  pending,
+  setAcknowledgementChecked,
+  setOpen,
+}: ChatWorkspaceController["modelProviderConsent"]) {
+  return (
+    <Dialog.Root onOpenChange={setOpen} open={open}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-[70] bg-brand-navy-980/60" />
+        <Dialog.Content
+          aria-describedby="model-provider-consent-description"
+          className="fixed top-1/2 left-1/2 z-[71] grid max-h-[calc(100dvh-2rem)] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-5 overflow-y-auto rounded-xl border border-border-default bg-brand-paper-50 p-5 text-text-strong shadow-overlay outline-none sm:p-6"
+          data-testid="model-provider-consent-dialog"
+        >
+          <div className="grid gap-2">
+            <p className="m-0 text-xs font-extrabold tracking-[0.14em] text-brand-lagoon-700 uppercase">
+              Before model-backed chat
+            </p>
+            <Dialog.Title className="m-0 font-heading text-3xl leading-none font-semibold">
+              Know where your question goes
+            </Dialog.Title>
+            <Dialog.Description
+              className="m-0 text-sm leading-[1.55] font-semibold text-text-muted"
+              id="model-provider-consent-description"
+            >
+              Your question and limited recent chat context are sent to DeepSeek for processing in
+              China. DeepSeek may retain inputs, cache request prefixes, and use data to improve its
+              services. Do not include sensitive personal information.
+            </Dialog.Description>
+          </div>
+
+          <Link
+            className="inline-flex min-h-11 w-fit items-center text-sm font-extrabold text-brand-lagoon-700"
+            href="/legal/privacy"
+            rel="noreferrer"
+            target="_blank"
+          >
+            Read the full privacy notice
+            <ExternalLink aria-hidden="true" className="ml-2" size={16} />
+          </Link>
+
+          <label className="grid min-h-11 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-lg border border-border-default bg-white p-3 text-sm leading-[1.5] font-bold text-text-muted">
+            <input
+              checked={acknowledgementChecked}
+              className="mt-1 size-5 accent-brand-lagoon-600"
+              onChange={(event) => setAcknowledgementChecked(event.currentTarget.checked)}
+              type="checkbox"
+            />
+            <span>
+              I understand this processing and agree to send this chat question to DeepSeek.
+            </span>
+          </label>
+
+          {error ? (
+            <p
+              className="m-0 rounded-md border border-risk-high-foreground/30 bg-risk-high-foreground/5 p-3 text-sm font-bold text-risk-high-foreground"
+              role="alert"
+            >
+              {error}
+            </p>
+          ) : null}
+
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              className="min-h-11 rounded-md border-border-default bg-white px-4 text-sm font-extrabold text-text-strong"
+              onClick={() => setOpen(false)}
+              type="button"
+              variant="outline"
+            >
+              Not now
+            </Button>
+            <Button
+              className="min-h-11 rounded-md bg-brand-lagoon-600 px-4 text-sm font-extrabold hover:bg-brand-lagoon-700"
+              disabled={!acknowledgementChecked || pending}
+              onClick={() => {
+                void confirm();
+              }}
+              type="button"
+            >
+              {pending ? "Saving acknowledgement…" : "Agree and send"}
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
