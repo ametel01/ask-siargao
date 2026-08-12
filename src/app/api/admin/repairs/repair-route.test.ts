@@ -96,15 +96,16 @@ function dependencies(auth: {
       },
       async prepareExecution() {
         return {
-          async lock() {},
-          async preview() {
-            return {
+          async perform({ beforeApply, lockFinding }) {
+            const locked = await lockFinding();
+            if (locked.status === "replayed") return locked;
+            const stateChange = {
               after: { state: "after" },
               before: { email: "private@example.com", state: "before" },
             };
-          },
-          async apply() {
-            return { state: "after" };
+            const decision = await beforeApply(locked.finding, stateChange);
+            if (decision.status === "replayed") return decision;
+            return { actionId: decision.actionId, after: { state: "after" }, status: "applied" };
           },
         };
       },

@@ -29,10 +29,28 @@ export type RepairActionContext = {
 };
 
 export type PreparedRepairAction = {
-  apply(input: RepairActionContext): Promise<Record<string, unknown>>;
-  lock(input: RepairActionContext): Promise<void>;
-  preview(input: RepairActionContext): Promise<RepairStateChange>;
+  perform(input: {
+    beforeApply: (
+      finding: RepairFinding,
+      preview: RepairStateChange,
+    ) => Promise<RepairActionExecutionDecision>;
+    db: DatabaseQueryClient;
+    finding: RepairFinding;
+    lockFinding: () => Promise<LockedRepairFinding>;
+  }): Promise<RepairActionExecutionResult>;
 };
+
+export type RepairActionExecutionDecision =
+  | { actionId: string; status: "apply" }
+  | Extract<RepairActionExecutionResult, { status: "replayed" }>;
+
+export type RepairActionExecutionResult =
+  | { actionId: string; after: Record<string, unknown>; status: "applied" }
+  | { actionId: string; after: Record<string, unknown>; status: "replayed" };
+
+export type LockedRepairFinding =
+  | { finding: RepairFinding; status: "ready" }
+  | Extract<RepairActionExecutionResult, { status: "replayed" }>;
 
 export type RepairActionDispatcher = {
   prepareExecution(
@@ -141,115 +159,118 @@ export async function executeRepairAction(
     finding: preparedFinding,
   });
   return db.transaction(async (transaction) => {
-    const replay = await transaction.query<{
-      id: string;
-      after_state: Record<string, unknown>;
-      command_hash: string;
-    }>(
-      `select id, after_state, command_hash from operator_repair_actions
-       where operator_account_id = $1 and idempotency_key_hash = $2`,
-      [authorization.accountId, idempotencyHash],
+    const replay = await loadRepairReplay(
+      authorization.accountId,
+      idempotencyHash,
+      commandHash,
+      transaction,
     );
-    if (replay.rows[0]) {
-      if (replay.rows[0].command_hash !== commandHash) {
-        throw new Error("repair_idempotency_mismatch");
-      }
-      return {
-        actionId: replay.rows[0].id,
-        after: replay.rows[0].after_state,
-        status: "replayed" as const,
-      };
-    }
-    await preparedAction.lock({
+    if (replay) return replay;
+    let repairAt: Date | null = null;
+    const result = await preparedAction.perform({
       db: transaction,
       finding: preparedFinding,
-    });
-    const findingResult = await transaction.query<RepairFinding>(
-      `select id, kind, local_entity_type, local_entity_ref, summary_code, status
-       from operational_findings where id = $1 for update`,
-      [input.findingId],
-    );
-    const finding = findingResult.rows[0];
-    const replayAfterFindingLock = await transaction.query<{
-      id: string;
-      after_state: Record<string, unknown>;
-      command_hash: string;
-    }>(
-      `select id, after_state, command_hash from operator_repair_actions
-       where operator_account_id = $1 and idempotency_key_hash = $2`,
-      [authorization.accountId, idempotencyHash],
-    );
-    if (replayAfterFindingLock.rows[0]) {
-      if (replayAfterFindingLock.rows[0].command_hash !== commandHash) {
-        throw new Error("repair_idempotency_mismatch");
-      }
-      return {
-        actionId: replayAfterFindingLock.rows[0].id,
-        after: replayAfterFindingLock.rows[0].after_state,
-        status: "replayed" as const,
-      };
-    }
-    if (finding?.status !== "open") throw new Error("repair_finding_unavailable");
-    const preview = sanitizePreview(await preparedAction.preview({ db: transaction, finding }));
-    if (previewDigest(finding.id, input.actionType, preview) !== input.previewDigest) {
-      throw new Error("repair_preview_changed");
-    }
-    const actionId = createId("repair_action");
-    const clock = await transaction.query<{ now: Date | string }>(
-      "select clock_timestamp() as now",
-    );
-    const at = new Date(clock.rows[0]?.now ?? Date.now());
-    const reserved = await transaction.query<{ id: string }>(
-      `insert into operator_repair_actions (
+      lockFinding: async () => {
+        const findingResult = await transaction.query<RepairFinding>(
+          `select id, kind, local_entity_type, local_entity_ref, summary_code, status
+           from operational_findings where id = $1 for update`,
+          [input.findingId],
+        );
+        const replayAfterFindingLock = await loadRepairReplay(
+          authorization.accountId,
+          idempotencyHash,
+          commandHash,
+          transaction,
+        );
+        if (replayAfterFindingLock) return replayAfterFindingLock;
+        const finding = findingResult.rows[0];
+        if (finding?.status !== "open") throw new Error("repair_finding_unavailable");
+        return { finding, status: "ready" as const };
+      },
+      beforeApply: async (finding, stateChange) => {
+        const preview = sanitizePreview(stateChange);
+        if (previewDigest(finding.id, input.actionType, preview) !== input.previewDigest) {
+          throw new Error("repair_preview_changed");
+        }
+        const actionId = createId("repair_action");
+        const clock = await transaction.query<{ now: Date | string }>(
+          "select clock_timestamp() as now",
+        );
+        const at = new Date(clock.rows[0]?.now ?? Date.now());
+        repairAt = at;
+        const reserved = await transaction.query<{ id: string }>(
+          `insert into operator_repair_actions (
          id, finding_id, operator_account_id, idempotency_key_hash, command_hash,
          action_type, reason_code, before_state, after_state, created_at
        ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10)
        on conflict (operator_account_id, idempotency_key_hash) do nothing
        returning id`,
-      [
-        actionId,
-        finding.id,
-        authorization.accountId,
-        idempotencyHash,
-        commandHash,
-        input.actionType,
-        input.reasonCode,
-        JSON.stringify(preview.before),
-        JSON.stringify(preview.after),
-        at,
-      ],
-    );
-    if (!reserved.rows[0]) {
-      const conflict = await transaction.query<{
-        id: string;
-        after_state: Record<string, unknown>;
-        command_hash: string;
-      }>(
-        `select id, after_state, command_hash from operator_repair_actions
-         where operator_account_id = $1 and idempotency_key_hash = $2`,
-        [authorization.accountId, idempotencyHash],
-      );
-      if (!conflict.rows[0] || conflict.rows[0].command_hash !== commandHash) {
-        throw new Error("repair_idempotency_mismatch");
-      }
-      return {
-        actionId: conflict.rows[0].id,
-        after: conflict.rows[0].after_state,
-        status: "replayed" as const,
-      };
-    }
-    const after = sanitizeState(await preparedAction.apply({ db: transaction, finding }));
+          [
+            actionId,
+            finding.id,
+            authorization.accountId,
+            idempotencyHash,
+            commandHash,
+            input.actionType,
+            input.reasonCode,
+            JSON.stringify(preview.before),
+            JSON.stringify(preview.after),
+            at,
+          ],
+        );
+        if (!reserved.rows[0]) {
+          const conflict = await loadRepairReplay(
+            authorization.accountId,
+            idempotencyHash,
+            commandHash,
+            transaction,
+          );
+          if (!conflict) throw new Error("repair_idempotency_mismatch");
+          return conflict;
+        }
+        return { actionId, status: "apply" as const };
+      },
+    });
+    if (result.status === "replayed") return result;
+    if (!repairAt) throw new Error("repair_audit_reservation_missing");
+    const after = sanitizeState(result.after);
     await transaction.query(
       "update operator_repair_actions set after_state = $2::jsonb where id = $1",
-      [actionId, JSON.stringify(after)],
+      [result.actionId, JSON.stringify(after)],
     );
     await transaction.query(
       `update operational_findings set status = 'resolved', resolved_at = $2
-       where id = $1 and status = 'open'`,
-      [finding.id, at],
+         where id = $1 and status = 'open'`,
+      [input.findingId, repairAt],
     );
-    return { actionId, after, status: "applied" as const };
+    return { ...result, after };
   });
+}
+
+async function loadRepairReplay(
+  operatorAccountId: string,
+  idempotencyHash: string,
+  commandHash: string,
+  db: DatabaseQueryClient,
+): Promise<Extract<RepairActionExecutionResult, { status: "replayed" }> | null> {
+  const result = await db.query<{
+    id: string;
+    after_state: Record<string, unknown>;
+    command_hash: string;
+  }>(
+    `select id, after_state, command_hash from operator_repair_actions
+     where operator_account_id = $1 and idempotency_key_hash = $2`,
+    [operatorAccountId, idempotencyHash],
+  );
+  if (!result.rows[0]) return null;
+  if (result.rows[0].command_hash !== commandHash) {
+    throw new Error("repair_idempotency_mismatch");
+  }
+  return {
+    actionId: result.rows[0].id,
+    after: result.rows[0].after_state,
+    status: "replayed",
+  };
 }
 
 function repairCommandHash(input: {

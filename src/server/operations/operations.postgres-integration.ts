@@ -813,16 +813,17 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
     },
     async prepareExecution() {
       return {
-        async lock() {},
-        async preview({ db: client }) {
+        async perform({ beforeApply, db: client, lockFinding }) {
+          const locked = await lockFinding();
+          if (locked.status === "replayed") return locked;
           const state = await client.query<{ state: string }>(
             "select state from native_repair_probe where id = 'race'",
           );
-          return { before: state.rows[0] ?? {}, after: { state: "after" } };
-        },
-        async apply({ db: client }) {
+          const stateChange = { before: state.rows[0] ?? {}, after: { state: "after" } };
+          const decision = await beforeApply(locked.finding, stateChange);
+          if (decision.status === "replayed") return decision;
           await client.query("update native_repair_probe set state = 'after' where id = 'race'");
-          return { state: "after" };
+          return { actionId: decision.actionId, after: { state: "after" }, status: "applied" };
         },
       };
     },
@@ -892,11 +893,12 @@ async function runRepairActionRegressions(db: DatabaseQueryClient) {
     },
     async prepareExecution() {
       return {
-        async lock() {},
-        async preview() {
-          return { before: { state: "before" }, after: { state: "after" } };
-        },
-        async apply({ db: client }) {
+        async perform({ beforeApply, db: client, lockFinding }) {
+          const locked = await lockFinding();
+          if (locked.status === "replayed") return locked;
+          const stateChange = { before: { state: "before" }, after: { state: "after" } };
+          const decision = await beforeApply(locked.finding, stateChange);
+          if (decision.status === "replayed") return decision;
           await client.query(
             "update native_repair_probe set state = 'after' where id = 'rollback'",
           );

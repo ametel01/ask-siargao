@@ -24,7 +24,7 @@ export function createTripPassRepairActionDispatcher(dependencies: {
   commerceReader: AuthoritativeCommerceReader;
 }): RepairActionDispatcher {
   const actions = {
-    account_recovery: accountRecoveryAction(),
+    account_recovery: closureOperationRetryAction(),
     goodwill_grant: goodwillGrantAction(dependencies.commerceReader),
     grant_missing_trip_pass: grantMissingTripPassAction(dependencies.commerceReader),
     initialize_missing_meters: initializeMissingMetersAction(),
@@ -222,7 +222,7 @@ function goodwillGrantAction(commerceReader: AuthoritativeCommerceReader): TripP
   });
 }
 
-function accountRecoveryAction(): TripPassRepairAction {
+function closureOperationRetryAction(): TripPassRepairAction {
   return localRepairAction({
     supports: (finding) =>
       finding.kind === "privacy_cleanup_failed" &&
@@ -274,22 +274,18 @@ function authoritativeRepairAction(
     async prepareExecution(input) {
       assertSupportedRepair(implementation, input.finding);
       const proof = await prepareAuthoritativeProof(input, commerceReader);
-      return {
-        async lock({ db, finding }) {
-          assertSupportedRepair(implementation, finding);
-          await lockOrderAccount(finding.local_entity_ref, db);
+      return preparedRepairAction(
+        input,
+        {
+          ...implementation,
+          async lock({ db, finding }) {
+            await lockOrderAccount(finding.local_entity_ref, db);
+          },
         },
-        async preview(context) {
-          assertSupportedRepair(implementation, context.finding);
+        async (context) => {
           await assertAuthoritativeProof(implementation.proof, context.finding, proof, context.db);
-          return implementation.preview(context);
         },
-        async apply(context) {
-          assertSupportedRepair(implementation, context.finding);
-          await assertAuthoritativeProof(implementation.proof, context.finding, proof, context.db);
-          return implementation.apply(context);
-        },
-      };
+      );
     },
   };
 }
@@ -306,20 +302,35 @@ function localRepairAction(
     },
     async prepareExecution(input) {
       assertSupportedRepair(implementation, input.finding);
-      return {
-        async lock(context) {
-          assertSupportedRepair(implementation, context.finding);
-          await implementation.lock(context);
-        },
-        async preview(context) {
-          assertSupportedRepair(implementation, context.finding);
-          return implementation.preview(context);
-        },
-        async apply(context) {
-          assertSupportedRepair(implementation, context.finding);
-          return implementation.apply(context);
-        },
-      };
+      return preparedRepairAction(input, implementation);
+    },
+  };
+}
+
+function preparedRepairAction(
+  preparedContext: RepairActionContext,
+  implementation: RepairActionImplementation & {
+    lock(input: RepairActionContext): Promise<void>;
+  },
+  validate?: (input: RepairActionContext) => Promise<void>,
+): PreparedRepairAction {
+  return {
+    async perform({ beforeApply, db, finding, lockFinding }) {
+      assertSameFinding(preparedContext.finding, finding);
+      assertSupportedRepair(implementation, finding);
+      await implementation.lock({ db, finding });
+      const locked = await lockFinding();
+      if (locked.status === "replayed") return locked;
+      const context = { db, finding: locked.finding };
+      assertSameFinding(finding, context.finding);
+      assertSupportedRepair(implementation, context.finding);
+      await validate?.(context);
+      const preview = await implementation.preview(context);
+      const decision = await beforeApply(context.finding, preview);
+      if (decision.status === "replayed") return decision;
+      await validate?.(context);
+      const after = await implementation.apply(context);
+      return { actionId: decision.actionId, after, status: "applied" };
     },
   };
 }
@@ -327,6 +338,12 @@ function localRepairAction(
 function assertSupportedRepair(implementation: RepairActionImplementation, finding: RepairFinding) {
   if (!implementation.supports(finding)) {
     throw new Error("unsupported_repair_action_for_finding");
+  }
+}
+
+function assertSameFinding(expected: RepairFinding, actual: RepairFinding) {
+  if (expected.id !== actual.id || expected.local_entity_ref !== actual.local_entity_ref) {
+    throw new Error("repair_finding_changed");
   }
 }
 

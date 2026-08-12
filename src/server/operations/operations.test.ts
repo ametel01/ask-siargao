@@ -27,6 +27,7 @@ import {
   executeRepairAction,
   previewRepairAction,
   type RepairActionDispatcher,
+  type RepairActionType,
 } from "@/server/operations/repair-actions";
 import { parseOperationalTaskProducerArguments } from "@/server/operations/run-operational-task-producer";
 import {
@@ -331,20 +332,23 @@ describe("audited Repair Actions", () => {
         async prepareExecution() {
           actionEvents.push("prepare");
           return {
-            async lock() {
+            async perform({ beforeApply, db: client, lockFinding }) {
               actionEvents.push("lock");
-            },
-            async preview({ db: client }) {
+              const locked = await lockFinding();
+              if (locked.status === "replayed") return locked;
               actionEvents.push("preview");
               const current = await client.query<{ state: string }>(
                 "select state from repair_probe where id = 'probe'",
               );
-              return { after: { state: "after" }, before: { state: current.rows[0]?.state } };
-            },
-            async apply({ db: client }) {
+              const stateChange = {
+                after: { state: "after" },
+                before: { state: current.rows[0]?.state },
+              };
+              const decision = await beforeApply(locked.finding, stateChange);
+              if (decision.status === "replayed") return decision;
               actionEvents.push("apply");
               await client.query("update repair_probe set state = 'after' where id = 'probe'");
-              return { state: "after" };
+              return { actionId: decision.actionId, after: { state: "after" }, status: "applied" };
             },
           };
         },
@@ -570,6 +574,92 @@ describe("audited Repair Actions", () => {
             where id = 'finding_reversed_before_lock') as status`,
       );
       expect(unchanged.rows).toEqual([{ audits: "0", grants: "0", status: "open" }]);
+    });
+  });
+
+  test("initializes missing Usage Meters and releases one stale reservation", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_local_repairs', null)");
+      await db.query(
+        `insert into trip_passes (id, user_id, status, starts_at, expires_at)
+         values (
+           'pass_local_repairs', 'account_local_repairs', 'active',
+           clock_timestamp() - interval '1 hour', clock_timestamp() + interval '14 days'
+         )`,
+      );
+      await seedFindingFor(
+        db,
+        "finding_missing_meters",
+        "missing_usage_meters",
+        "trip_pass",
+        "pass_local_repairs",
+        "missing_usage_meters",
+      );
+      const executor = createTripPassRepairActionDispatcher({
+        commerceReader: {
+          async readPaymentFact() {
+            throw new Error("local_repair_requested_provider_proof");
+          },
+        },
+      });
+      const meterPreview = await previewRepairAction(
+        { actionType: "initialize_missing_meters", findingId: "finding_missing_meters" },
+        { db, executor },
+      );
+      await expect(
+        executeRepairAction(
+          commandFor("initialize_missing_meters", "finding_missing_meters", meterPreview.digest),
+          {
+            allowlist: new Set(["account_operator"]),
+            db,
+            executor,
+          },
+        ),
+      ).resolves.toMatchObject({ after: { meterCount: 1 }, status: "applied" });
+
+      const meter = await db.query<{ id: string }>(
+        `select id from trip_usage_meters
+         where trip_pass_id = 'pass_local_repairs' and meter_type = 'chat_message'`,
+      );
+      await db.query(
+        `insert into trip_usage_events (
+           id, trip_pass_id, usage_meter_id, user_id, event_type, meter_type, quantity,
+           idempotency_key, request_id
+         ) values (
+           'event_stale_reservation', 'pass_local_repairs', $1, 'account_local_repairs',
+           'reserved', 'chat_message', 1, 'stale-reservation-key', 'stale-reservation-request'
+         )`,
+        [meter.rows[0]?.id],
+      );
+      await seedFindingFor(
+        db,
+        "finding_stale_reservation",
+        "stale_usage_reservation",
+        "service",
+        "event_stale_reservation",
+        "stale_usage_reservation",
+      );
+      const reservationPreview = await previewRepairAction(
+        {
+          actionType: "release_stale_reservation",
+          findingId: "finding_stale_reservation",
+        },
+        { db, executor },
+      );
+      await expect(
+        executeRepairAction(
+          commandFor(
+            "release_stale_reservation",
+            "finding_stale_reservation",
+            reservationPreview.digest,
+          ),
+          {
+            allowlist: new Set(["account_operator"]),
+            db,
+            executor,
+          },
+        ),
+      ).resolves.toMatchObject({ after: { eventType: "released" }, status: "applied" });
     });
   });
 });
@@ -1332,11 +1422,7 @@ async function seedFindingFor(
   );
 }
 
-function commandFor(
-  actionType: "account_recovery" | "goodwill_grant" | "manual_commerce_transition",
-  findingId: string,
-  previewDigest: string,
-) {
+function commandFor(actionType: RepairActionType, findingId: string, previewDigest: string) {
   return {
     actionType,
     auth: { accountId: "account_operator", mfaFresh: true },
