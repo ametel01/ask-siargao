@@ -10,6 +10,7 @@ import {
 } from "@/server/db/test-database";
 import { operationalTaskTypes } from "@/server/operations/contracts";
 import {
+  liveCommerceFindingKinds,
   reconcileLiveCommerce,
   reconciliationAlertKey,
 } from "@/server/operations/live-reconciliation";
@@ -81,6 +82,15 @@ describe("Operator authorization", () => {
 });
 
 describe("live Stripe reconciliation", () => {
+  test("owns exactly the four provider-authoritative commerce Finding kinds", () => {
+    expect(liveCommerceFindingKinds).toEqual([
+      "paid_without_pass",
+      "access_without_payment",
+      "payment_state_mismatch",
+      "pending_payment_stale",
+    ]);
+  });
+
   test("finishes provider lookup before recording opaque findings and never mutates commerce", async () => {
     await withTestDb(async (db, state) => {
       await seedOrder(db, "order_live_reconciliation");

@@ -5,6 +5,7 @@ import {
   buildAuditDiagnostics,
   createDiagnosticLogEvent,
   createSampleDiagnosticsSnapshot,
+  loadLiveDiagnostics,
 } from "@/server/admin/diagnostics";
 import { redactDiagnosticValue } from "@/server/admin/redaction";
 
@@ -204,5 +205,18 @@ describe("admin diagnostics", () => {
 
     expect(snapshot.blockedAudits).toHaveLength(0);
     expect(snapshot.drilldowns.sourceProfiles).toHaveLength(0);
+  });
+
+  test("loads operational Findings and Trip Pass integrity diagnostics as distinct views", async () => {
+    const snapshot = await loadLiveDiagnostics({
+      async query<T>() {
+        return { rows: [] as T[] };
+      },
+    });
+
+    expect(snapshot.operationalFindings).toEqual([]);
+    expect(snapshot.tripPassDiagnostics).toEqual(
+      expect.objectContaining({ issues: [], thresholds: { staleReservationMinutes: 10 } }),
+    );
   });
 });

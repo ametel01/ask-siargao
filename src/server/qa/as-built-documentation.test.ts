@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { liveCommerceFindingKinds } from "@/server/operations/live-reconciliation";
 import { parseOperationalWorkerArguments } from "@/server/operations/run-operational-worker";
 import { foundationGateContract } from "@/server/qa/foundation-gates";
 
@@ -227,17 +228,11 @@ test("documented operational worker task and lease arguments are executable", ()
 });
 
 test("reconciliation docs match the exact finding scope and keep mutation at the repair API", async () => {
-  const [reference, implementation] = await Promise.all([
-    readFile("documentation/developer/reference/trip-pass-reconciliation.md", "utf8"),
-    readFile("src/server/operations/live-reconciliation.ts", "utf8"),
-  ]);
-  for (const finding of [
-    "paid_without_pass",
-    "access_without_payment",
-    "payment_state_mismatch",
-    "pending_payment_stale",
-  ]) {
-    expect(implementation).toContain(`kind: "${finding}"`);
+  const reference = await readFile(
+    "documentation/developer/reference/trip-pass-reconciliation.md",
+    "utf8",
+  );
+  for (const finding of liveCommerceFindingKinds) {
     expect(reference).toContain(`\`${finding}\``);
   }
   for (const overclaim of [
@@ -250,6 +245,10 @@ test("reconciliation docs match the exact finding scope and keep mutation at the
     expect(reference).not.toContain(overclaim);
   }
   expect(reference).toContain("read-only `operations:worker -- --task=commerce_reconciliation`");
+  expect(reference).toContain("`buildTripPassDiagnostics`");
+  expect(reference).toContain("no `mode`");
+  expect(await Bun.file("src/server/trip-pass/diagnostics.ts").exists()).toBe(true);
+  expect(await Bun.file("src/server/trip-pass/reconciliation.ts").exists()).toBe(false);
   expect(reference).toContain("`POST /api/admin/repairs`");
   for (const repairBoundary of [
     "`OPERATOR_ACCOUNT_IDS`",

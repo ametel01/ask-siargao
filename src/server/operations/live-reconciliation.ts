@@ -20,15 +20,20 @@ export type AuthoritativeCommerceReader = {
   }): Promise<AuthoritativePaymentFact>;
 };
 
+export const liveCommerceFindingKinds = [
+  "paid_without_pass",
+  "access_without_payment",
+  "payment_state_mismatch",
+  "pending_payment_stale",
+] as const;
+
+export type LiveCommerceFindingKind = (typeof liveCommerceFindingKinds)[number];
+
 export type OperationalFindingView = {
   findingId: string;
   impact: "warning" | "high";
   incidentKey: string;
-  kind:
-    | "paid_without_pass"
-    | "access_without_payment"
-    | "payment_state_mismatch"
-    | "pending_payment_stale";
+  kind: LiveCommerceFindingKind;
   lifecycle: number;
   observationSequence: string;
   status: "open";
@@ -228,12 +233,7 @@ export async function reconcileLiveCommerce(
            and not (incident_key = any($4::text[]))`,
         [
           observation.local.id,
-          [
-            "paid_without_pass",
-            "access_without_payment",
-            "payment_state_mismatch",
-            "pending_payment_stale",
-          ],
+          liveCommerceFindingKinds,
           at,
           observationFindings.map((finding) => finding.incidentKey),
         ],

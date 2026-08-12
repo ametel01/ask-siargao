@@ -10,118 +10,33 @@ import {
 } from "@/server/db/test-database";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
+import {
+  buildTripPassDiagnostics,
+  lookupTripPassSupportReference,
+} from "@/server/trip-pass/diagnostics";
 import { grantTripPass } from "@/server/trip-pass/entitlement";
 import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
-import {
-  buildTripPassReconciliationSnapshot,
-  lookupTripPassSupportReference,
-  reconcileTripPassState,
-} from "@/server/trip-pass/reconciliation";
 
 const now = new Date("2026-07-14T08:00:00.000Z");
-const env = {
-  DEEPSEEK_DAILY_USD_LIMIT: "10",
-  GLOBAL_MODEL_DAILY_USD_LIMIT: "15",
-  NEXT_PUBLIC_POSTHOG_KEY: "ph_project",
-  REDIS_URL: "redis://localhost:6379",
-  STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
-  TRIP_PASS_CHECKOUT_MODE: "on",
-};
-
-describe("Trip Pass reconciliation", () => {
-  test("plans paid-without-pass and stale-reservation repairs without mutating dry-runs", async () => {
+describe("Trip Pass diagnostics", () => {
+  test("keeps repairable commerce findings out of Trip Pass diagnostics", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_paid_without_pass", "user_paid_without_pass");
       await insertPassWithStaleReservation(db, "trip_pass_stale", "user_stale");
 
-      const snapshot = await buildTripPassReconciliationSnapshot({ db, env, now });
+      const snapshot = await buildTripPassDiagnostics({ db, now });
 
-      expect(snapshot.mode).toBe("dry_run");
-      expect(snapshot.issues.map((issue) => issue.code)).toContain("paid_without_pass");
+      expect(snapshot).not.toHaveProperty("mode");
+      expect(snapshot).not.toHaveProperty("actions");
+      expect(snapshot).not.toHaveProperty("infrastructure");
+      expect(snapshot.issues.map((issue) => issue.code)).not.toContain("paid_without_pass");
       expect(snapshot.issues.map((issue) => issue.code)).toContain("stale_usage_reservation");
-      expect(snapshot.actions).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            action: "grant_missing_trip_pass",
-            localRef: "order_paid_without_pass",
-            status: "planned",
-          }),
-          expect.objectContaining({
-            action: "release_stale_reservation",
-            localRef: "usage_event_stale",
-            status: "planned",
-          }),
-        ]),
-      );
       await expectCounts(db, { grants: "0", passes: "1" });
       await expectUsageEventType(db, "usage_event_stale", "reserved");
     });
   });
 
-  test("cannot mutate through historical repair flags", async () => {
-    await withTestDb(async (db) => {
-      await insertPaidOrder(db, "order_repair", "user_repair");
-      await insertPassWithStaleReservation(db, "trip_pass_repair_stale", "user_repair_stale");
-
-      const first = await reconcileTripPassState({
-        confirmMutation: true,
-        db,
-        env,
-        mode: "repair",
-        now,
-      });
-      const second = await reconcileTripPassState({
-        confirmMutation: true,
-        db,
-        env,
-        mode: "repair",
-        now,
-      });
-
-      for (const snapshot of [first, second]) {
-        expect(snapshot.mode).toBe("dry_run");
-        expect(snapshot.actions).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ localRef: "order_repair", status: "planned" }),
-            expect.objectContaining({ localRef: "usage_event_stale", status: "planned" }),
-          ]),
-        );
-      }
-      await expectCounts(db, { grants: "0", passes: "1" });
-      await expectUsageEventType(db, "usage_event_stale", "reserved");
-    });
-  });
-
-  test("does not persist legacy paid order email while detect-only", async () => {
-    await withTestDb(async (db) => {
-      await insertPaidOrder(db, "order_repair_email", "user_repair_email");
-
-      const repaired = await reconcileTripPassState({
-        confirmMutation: true,
-        db,
-        env,
-        mode: "repair",
-        now,
-      });
-
-      expect(repaired.actions).toContainEqual(
-        expect.objectContaining({ localRef: "order_repair_email", status: "planned" }),
-      );
-      const pass = await db.query<{ email: string | null }>(
-        `
-          select p.email
-          from trip_passes p
-          join trip_pass_grants g on g.trip_pass_id = p.id
-          where g.order_id = $1
-          limit 1
-        `,
-        ["order_repair_email"],
-      );
-      expect(pass.rows).toEqual([]);
-    });
-  });
-
-  test("reconciles legacy version 1 meters from the recorded grant contract", async () => {
+  test("diagnoses legacy version 1 meters from the recorded grant contract", async () => {
     await withTestDb(async (db) => {
       await insertPaidOrder(db, "order_legacy", "user_legacy", "legacy");
       await grantOrderForTest(db, "order_legacy", "user_legacy");
@@ -136,7 +51,7 @@ describe("Trip Pass reconciliation", () => {
         [passId],
       );
 
-      const snapshot = await buildTripPassReconciliationSnapshot({ db, env, now });
+      const snapshot = await buildTripPassDiagnostics({ db, now });
       expect(snapshot.issues).toContainEqual(
         expect.objectContaining({
           code: "missing_usage_meters",
@@ -145,20 +60,6 @@ describe("Trip Pass reconciliation", () => {
         }),
       );
 
-      const repaired = await reconcileTripPassState({
-        confirmMutation: true,
-        db,
-        env,
-        mode: "repair",
-        now,
-      });
-      expect(repaired.actions).toContainEqual(
-        expect.objectContaining({
-          action: "initialize_missing_meters",
-          localRef: passId,
-          status: "planned",
-        }),
-      );
       const meters = await db.query<{ count: string }>(
         "select count(*)::text as count from trip_usage_meters where trip_pass_id = $1",
         [passId],
@@ -216,7 +117,7 @@ describe("Trip Pass reconciliation", () => {
     });
   });
 
-  test("admin diagnostics redact Trip Pass reconciliation fields before rendering", () => {
+  test("admin diagnostics redact Trip Pass diagnostic fields before rendering", () => {
     const snapshot = buildAuditDiagnostics({
       accommodationMatches: [],
       audits: [],
@@ -229,41 +130,23 @@ describe("Trip Pass reconciliation", () => {
       reviewerResults: [],
       sourceProfiles: [],
       toolCalls: [],
-      tripPassReconciliation: {
-        actions: [],
+      tripPassDiagnostics: {
         generatedAt: now.toISOString(),
-        infrastructure: {
-          analyticsSink: "available",
-          costCircuits: {
-            deepseek: "configured",
-            global: "configured",
-            openai: "unconfigured",
-          },
-          priceCatalog: {
-            productCode: tripPassProductCode,
-            productVersion: tripPassProductVersion,
-            stripePriceConfigured: true,
-          },
-          sharedQuotaStore: "available",
-        },
         issues: [
           {
-            code: "paid_without_pass",
+            code: "stale_usage_reservation",
             localRef: "cs_test_should_not_render",
             reason: "sent to traveler@example.com with pi_test_should_not_render",
-            repairable: true,
             severity: "repairable",
           },
         ],
-        mode: "dry_run",
         scope: {},
         thresholds: {
-          staleOrderMinutes: 30,
           staleReservationMinutes: 10,
         },
       },
     });
-    const serialized = JSON.stringify(snapshot.tripPassReconciliation);
+    const serialized = JSON.stringify(snapshot.tripPassDiagnostics);
 
     expect(serialized).not.toContain("traveler@example.com");
     expect(serialized).not.toContain("cs_test");
@@ -275,9 +158,8 @@ describe("Trip Pass reconciliation", () => {
     await withTestDb(async (db) => {
       await insertSettledPaidAnswerWithoutProviderIds(db, "purged_clean");
 
-      const before = await buildTripPassReconciliationSnapshot({
+      const before = await buildTripPassDiagnostics({
         db,
-        env,
         now,
         scope: { passId: "trip_pass_purged_clean" },
       });
@@ -286,23 +168,12 @@ describe("Trip Pass reconciliation", () => {
       await expirePaidAnswerDetails(db, "reservation_purged_clean");
       await expect(purgeExpiredPaidAnswerDetails(db)).resolves.toBe(1);
 
-      const dryRun = await buildTripPassReconciliationSnapshot({
+      const afterPurge = await buildTripPassDiagnostics({
         db,
-        env,
         now,
         scope: { passId: "trip_pass_purged_clean" },
       });
-      const repair = await reconcileTripPassState({
-        confirmMutation: true,
-        db,
-        env,
-        mode: "repair",
-        now,
-        scope: { passId: "trip_pass_purged_clean" },
-      });
-      expect(missingProviderIssues(dryRun)).toEqual([]);
-      expect(missingProviderIssues(repair)).toEqual([]);
-      expect(repair.actions).toEqual([]);
+      expect(missingProviderIssues(afterPurge)).toEqual([]);
       await expectMeterAggregate(db, "trip_pass_purged_clean", 1, 1);
     });
   });
@@ -312,21 +183,20 @@ describe("Trip Pass reconciliation", () => {
       await insertSettledPaidAnswerWithoutProviderIds(db, "purged_adversarial");
       await expirePaidAnswerDetails(db, "reservation_purged_adversarial");
       await db.query(`
-        create function fail_reconciliation_event_purge() returns trigger language plpgsql as $$
-        begin raise exception 'forced reconciliation purge failure'; end $$
+        create function fail_diagnostic_event_purge() returns trigger language plpgsql as $$
+        begin raise exception 'forced diagnostic purge failure'; end $$
       `);
       await db.query(`
-        create trigger fail_reconciliation_event_purge
+        create trigger fail_diagnostic_event_purge
           before update of request_id on trip_usage_events
-          for each row execute function fail_reconciliation_event_purge()
+          for each row execute function fail_diagnostic_event_purge()
       `);
 
       await expect(purgeExpiredPaidAnswerDetails(db)).rejects.toThrow(
-        "forced reconciliation purge failure",
+        "forced diagnostic purge failure",
       );
-      const rolledBack = await buildTripPassReconciliationSnapshot({
+      const rolledBack = await buildTripPassDiagnostics({
         db,
-        env,
         now,
         scope: { passId: "trip_pass_purged_adversarial" },
       });
@@ -334,8 +204,8 @@ describe("Trip Pass reconciliation", () => {
         "trip_usage_event_reservation_purged_adversarial",
       ]);
 
-      await db.query("drop trigger fail_reconciliation_event_purge on trip_usage_events");
-      await db.query("drop function fail_reconciliation_event_purge()");
+      await db.query("drop trigger fail_diagnostic_event_purge on trip_usage_events");
+      await db.query("drop function fail_diagnostic_event_purge()");
       await db.query(
         `update paid_answer_reservations set purge_retry_at = clock_timestamp() - interval '1 second'`,
       );
@@ -345,33 +215,18 @@ describe("Trip Pass reconciliation", () => {
         "paid-answer:unrelated_reservation",
       ]);
 
-      const mismatchedDryRun = await buildTripPassReconciliationSnapshot({
+      const mismatched = await buildTripPassDiagnostics({
         db,
-        env,
         now,
         scope: { passId: "trip_pass_purged_adversarial" },
       });
-      const mismatchedRepair = await reconcileTripPassState({
-        confirmMutation: true,
-        db,
-        env,
-        mode: "repair",
-        now,
-        scope: { passId: "trip_pass_purged_adversarial" },
-      });
-      expect(missingProviderIssues(mismatchedDryRun)).toEqual([]);
-      expect(paidAnswerIntegrityIssues(mismatchedDryRun)).toEqual([
-        "reservation_purged_adversarial",
-      ]);
-      expect(missingProviderIssues(mismatchedRepair)).toEqual([]);
-      expect(paidAnswerIntegrityIssues(mismatchedRepair)).toEqual([
-        "reservation_purged_adversarial",
-      ]);
+      expect(missingProviderIssues(mismatched)).toEqual([]);
+      expect(paidAnswerIntegrityIssues(mismatched)).toEqual(["reservation_purged_adversarial"]);
       await expectMeterAggregate(db, "trip_pass_purged_adversarial", 1, 1);
     });
   });
 
-  test("audits every settled paid answer without an exact usage event in dry-run and repair", async () => {
+  test("audits every settled paid answer without an exact usage event", async () => {
     await withTestDb(async (db) => {
       for (const suffix of [
         "integrity_valid",
@@ -414,31 +269,18 @@ describe("Trip Pass reconciliation", () => {
         ],
       );
 
-      for (const mode of ["dry_run", "repair"] as const) {
-        const snapshot = await reconcileTripPassState({
-          confirmMutation: mode === "repair",
-          db,
-          env,
-          mode,
-          now,
-        });
-        expect(paidAnswerIntegrityIssues(snapshot)).toEqual([
-          "reservation_integrity_conflict",
-          "reservation_integrity_mismatch",
-          "reservation_integrity_missing",
-        ]);
-        expect(missingProviderIssues(snapshot)).not.toContain(
-          "trip_usage_event_reservation_integrity_mismatch",
-        );
-        expect(missingProviderIssues(snapshot)).not.toContain(
-          "unrelated_usage_event_integrity_conflict",
-        );
-        expect(snapshot.actions).not.toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({ localRef: "reservation_integrity_missing" }),
-          ]),
-        );
-      }
+      const snapshot = await buildTripPassDiagnostics({ db, now });
+      expect(paidAnswerIntegrityIssues(snapshot)).toEqual([
+        "reservation_integrity_conflict",
+        "reservation_integrity_mismatch",
+        "reservation_integrity_missing",
+      ]);
+      expect(missingProviderIssues(snapshot)).not.toContain(
+        "trip_usage_event_reservation_integrity_mismatch",
+      );
+      expect(missingProviderIssues(snapshot)).not.toContain(
+        "unrelated_usage_event_integrity_conflict",
+      );
 
       await db.query(
         `insert into trip_usage_events (
@@ -455,7 +297,7 @@ describe("Trip Pass reconciliation", () => {
           "reservation_integrity_missing",
         ],
       );
-      const afterAuditedRepair = await buildTripPassReconciliationSnapshot({ db, env, now });
+      const afterAuditedRepair = await buildTripPassDiagnostics({ db, now });
       expect(paidAnswerIntegrityIssues(afterAuditedRepair)).toEqual([
         "reservation_integrity_conflict",
         "reservation_integrity_mismatch",
@@ -511,32 +353,27 @@ describe("Trip Pass reconciliation", () => {
          where id = 'trip_usage_event_reservation_page_0501'`,
       );
 
-      for (const mode of ["dry_run", "repair"] as const) {
-        const snapshot = await reconcileTripPassState({
-          confirmMutation: mode === "repair",
-          db,
-          env,
-          mode,
-          now,
-          scope: { passId: "trip_pass_pagination_seed" },
-        });
-        expect(paidAnswerIntegrityIssues(snapshot)).toEqual([
-          "reservation_page_0000",
-          "reservation_page_0499",
-        ]);
-        expect(missingProviderIssues(snapshot)).toEqual([]);
-      }
+      const snapshot = await buildTripPassDiagnostics({
+        db,
+        now,
+        scope: { passId: "trip_pass_pagination_seed" },
+      });
+      expect(paidAnswerIntegrityIssues(snapshot)).toEqual([
+        "reservation_page_0000",
+        "reservation_page_0499",
+      ]);
+      expect(missingProviderIssues(snapshot)).toEqual([]);
     });
   });
 });
 
-function missingProviderIssues(snapshot: Awaited<ReturnType<typeof reconcileTripPassState>>) {
+function missingProviderIssues(snapshot: Awaited<ReturnType<typeof buildTripPassDiagnostics>>) {
   return snapshot.issues
     .filter((issue) => issue.code === "provider_usage_missing_request_id")
     .map((issue) => issue.localRef);
 }
 
-function paidAnswerIntegrityIssues(snapshot: Awaited<ReturnType<typeof reconcileTripPassState>>) {
+function paidAnswerIntegrityIssues(snapshot: Awaited<ReturnType<typeof buildTripPassDiagnostics>>) {
   return snapshot.issues
     .filter((issue) => issue.code === "paid_answer_usage_event_missing")
     .map((issue) => issue.localRef)

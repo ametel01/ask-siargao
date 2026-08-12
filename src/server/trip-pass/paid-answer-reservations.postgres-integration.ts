@@ -1,5 +1,6 @@
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { type AccountClosurePolicy, beginAccountClosure } from "@/server/privacy/account-closure";
+import { buildTripPassDiagnostics } from "@/server/trip-pass/diagnostics";
 import {
   finalizePaidAnswer,
   PaidAnswerPurgeBatchError,
@@ -10,7 +11,6 @@ import {
   applyAuthoritativeDisputeFact,
   applyAuthoritativeRefundFact,
 } from "@/server/trip-pass/payment-lifecycle";
-import { reconcileTripPassState } from "@/server/trip-pass/reconciliation";
 
 type PostgresHarness = {
   createQueryClient(): DatabaseQueryClient & { end(): Promise<void> };
@@ -18,7 +18,7 @@ type PostgresHarness = {
 
 export async function runPaidAnswerReservationPostgresIntegration(harness: PostgresHarness) {
   await runFinalUnitRegression(harness);
-  await runReconciliationPagination(harness);
+  await runDiagnosticPagination(harness);
   await runCorruptPurgeCandidateProgress(harness);
   await runConcurrentCorruptPurgeRetryScheduling(harness);
   await runPurgeReplayAndFinalizeRaces(harness);
@@ -31,8 +31,8 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
       proofs: [
         "final-unit-capacity",
         "durable-result-replay",
-        "purged-aggregate-reconciliation",
-        "exhaustive-paid-answer-reconciliation-pagination",
+        "purged-aggregate-diagnostics",
+        "exhaustive-paid-answer-diagnostic-pagination",
         "corrupt-purge-candidate-forward-progress",
         "concurrent-corrupt-purge-retry-scheduling",
         "purge-before-replay-and-finalize",
@@ -49,9 +49,9 @@ export async function runPaidAnswerReservationPostgresIntegration(harness: Postg
   );
 }
 
-async function runReconciliationPagination(harness: PostgresHarness) {
+async function runDiagnosticPagination(harness: PostgresHarness) {
   const db = harness.createQueryClient();
-  const target = raceTarget("reconciliation_pagination");
+  const target = raceTarget("diagnostic_pagination");
   try {
     await seedRaceTarget(db, target);
     const seed = await createExpiredSettledAnswer(db, target, "seed");
@@ -99,22 +99,18 @@ async function runReconciliationPagination(harness: PostgresHarness) {
          and id not in ('native_page_reservation_0000', 'native_page_reservation_0499')`,
     );
 
-    for (const mode of ["dry_run", "repair"] as const) {
-      const snapshot = await reconcileTripPassState({
-        confirmMutation: mode === "repair",
-        db,
-        mode,
-        scope: { passId: target.passId },
-      });
-      assertJsonEqual(
-        snapshot.issues
-          .filter((issue) => issue.code === "paid_answer_usage_event_missing")
-          .map((issue) => issue.localRef)
-          .sort(),
-        ["native_page_reservation_0000", "native_page_reservation_0499"],
-        `${mode} reconciliation must keyset-page every paid-answer reservation exactly once`,
-      );
-    }
+    const snapshot = await buildTripPassDiagnostics({
+      db,
+      scope: { passId: target.passId },
+    });
+    assertJsonEqual(
+      snapshot.issues
+        .filter((issue) => issue.code === "paid_answer_usage_event_missing")
+        .map((issue) => issue.localRef)
+        .sort(),
+      ["native_page_reservation_0000", "native_page_reservation_0499"],
+      "diagnostics must keyset-page every paid-answer reservation exactly once",
+    );
   } finally {
     await db.end();
   }
@@ -267,35 +263,31 @@ async function assertPaidAnswerIntegrityMatrix(
   db: DatabaseQueryClient,
   cases: Array<{ reservationId: string; target: RaceTarget; warning: boolean }>,
 ) {
-  for (const mode of ["dry_run", "repair"] as const) {
-    for (const entry of cases) {
-      const snapshot = await reconcileTripPassState({
-        confirmMutation: mode === "repair",
-        db,
-        mode,
-        scope: { passId: entry.target.passId },
-      });
+  for (const entry of cases) {
+    const snapshot = await buildTripPassDiagnostics({
+      db,
+      scope: { passId: entry.target.passId },
+    });
+    assertEqual(
+      snapshot.issues.some(
+        (issue) =>
+          issue.code === "paid_answer_usage_event_missing" &&
+          issue.localRef === entry.reservationId,
+      ),
+      entry.warning,
+      `diagnostic paid-answer integrity warning for ${entry.reservationId}`,
+    );
+    if (entry.warning) {
       assertEqual(
         snapshot.issues.some(
           (issue) =>
-            issue.code === "paid_answer_usage_event_missing" &&
-            issue.localRef === entry.reservationId,
+            issue.code === "provider_usage_missing_request_id" &&
+            (issue.localRef === `trip_usage_event_${entry.reservationId}` ||
+              issue.localRef === `unrelated_usage_event_${entry.target.suffix}_only`),
         ),
-        entry.warning,
-        `${mode} reconciliation paid-answer integrity warning for ${entry.reservationId}`,
+        false,
+        "diagnostics must not duplicate the paid-answer integrity warning",
       );
-      if (entry.warning) {
-        assertEqual(
-          snapshot.issues.some(
-            (issue) =>
-              issue.code === "provider_usage_missing_request_id" &&
-              (issue.localRef === `trip_usage_event_${entry.reservationId}` ||
-                issue.localRef === `unrelated_usage_event_${entry.target.suffix}_only`),
-          ),
-          false,
-          `${mode} reconciliation must not duplicate the paid-answer integrity warning`,
-        );
-      }
     }
   }
 }
@@ -813,32 +805,28 @@ async function runFinalUnitRegression(harness: PostgresHarness) {
     assertEqual(purged.rows[0]?.quantity, 1, "usage event aggregate quantity must remain");
     assertEqual(purged.rows[0]?.used, 150, "aggregate meter usage must remain");
     if (!purged.rows[0]?.reservation_purged_at) throw new Error("reservation purge marker missing");
-    for (const mode of ["dry_run", "repair"] as const) {
-      const snapshot = await reconcileTripPassState({
-        confirmMutation: mode === "repair",
-        db: setup,
-        mode,
-        scope: { passId: "paid_answer_pg_pass" },
-      });
-      assertEqual(
-        snapshot.issues.some(
-          (issue) =>
-            issue.code === "provider_usage_missing_request_id" &&
-            issue.localRef === `trip_usage_event_${winner.reservationId}`,
-        ),
-        false,
-        `${mode} reconciliation must accept the exactly linked purged paid-answer aggregate`,
-      );
-      assertEqual(
-        snapshot.issues.some(
-          (issue) =>
-            issue.code === "usage_meter_aggregate_mismatch" &&
-            issue.localRef === "paid_answer_pg_pass:chat_message",
-        ),
-        false,
-        `${mode} reconciliation must preserve the paid-answer aggregate`,
-      );
-    }
+    const snapshot = await buildTripPassDiagnostics({
+      db: setup,
+      scope: { passId: "paid_answer_pg_pass" },
+    });
+    assertEqual(
+      snapshot.issues.some(
+        (issue) =>
+          issue.code === "provider_usage_missing_request_id" &&
+          issue.localRef === `trip_usage_event_${winner.reservationId}`,
+      ),
+      false,
+      "diagnostics must accept the exactly linked purged paid-answer aggregate",
+    );
+    assertEqual(
+      snapshot.issues.some(
+        (issue) =>
+          issue.code === "usage_meter_aggregate_mismatch" &&
+          issue.localRef === "paid_answer_pg_pass:chat_message",
+      ),
+      false,
+      "diagnostics must preserve the paid-answer aggregate",
+    );
   } finally {
     await Promise.all([setup.end(), first.end(), second.end()]);
   }

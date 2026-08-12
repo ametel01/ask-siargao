@@ -14,7 +14,7 @@ await run("bun", [
   "src/server/trip-pass/commerce.test.ts",
   "src/server/trip-pass/webhook-application.test.ts",
   "src/server/trip-pass/payment-lifecycle.test.ts",
-  "src/server/trip-pass/reconciliation.test.ts",
+  "src/server/trip-pass/diagnostics.test.ts",
   "src/server/trip-pass/paid-after-closure-refund.test.ts",
   "src/server/trip-pass/usage.test.ts",
   "src/server/qa/provider-release-candidate.test.ts",

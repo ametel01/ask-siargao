@@ -61,7 +61,7 @@ export function AdminDiagnosticsPage({
   }
 
   const providerAndJobFailuresCount = snapshot.providerErrors.length + snapshot.jobFailures.length;
-  const tripPassIssueCount = snapshot.tripPassReconciliation?.issues.length ?? 0;
+  const tripPassIssueCount = snapshot.tripPassDiagnostics?.issues.length ?? 0;
 
   return (
     <AppBackdrop>
@@ -70,7 +70,7 @@ export function AdminDiagnosticsPage({
           description={
             <>
               Inspect blocked audits, stale facts, reviewer rejections, provider failures, job
-              errors, Trip Pass reconciliation, and LLM cost drivers without exposing raw provider
+              errors, Trip Pass diagnostics, and LLM cost drivers without exposing raw provider
               payloads or secrets.
             </>
           }
@@ -223,41 +223,23 @@ export function AdminDiagnosticsPage({
         </section>
 
         <section className={appPanelClass}>
-          <SectionHeading icon={Wrench} title="Trip Pass reconciliation" />
-          {snapshot.tripPassReconciliation ? (
+          <SectionHeading icon={Wrench} title="Trip Pass diagnostics" />
+          {snapshot.tripPassDiagnostics && snapshot.tripPassDiagnostics.issues.length > 0 ? (
             <div className={gridClass}>
-              <DiagnosticCard
-                body={[
-                  `analytics: ${snapshot.tripPassReconciliation.infrastructure.analyticsSink}`,
-                  `quota store: ${snapshot.tripPassReconciliation.infrastructure.sharedQuotaStore}`,
-                  `DeepSeek circuit: ${snapshot.tripPassReconciliation.infrastructure.costCircuits.deepseek}`,
-                  `global circuit: ${snapshot.tripPassReconciliation.infrastructure.costCircuits.global}`,
-                ].join(", ")}
-                meta={`${snapshot.tripPassReconciliation.mode} · ${snapshot.tripPassReconciliation.actions.length} actions`}
-                title="Store and circuit health"
-              />
-              {snapshot.tripPassReconciliation.issues.map((issue) => (
+              {snapshot.tripPassDiagnostics.issues.map((issue) => (
                 <DiagnosticCard
                   body={formatIssueDetails(issue.details)}
                   key={`${issue.code}:${issue.localRef}`}
-                  meta={`${issue.severity} · ${issue.repairable ? "repairable" : "manual"}`}
+                  meta={issue.severity}
                   title={`${issue.code}: ${issue.localRef}`}
-                />
-              ))}
-              {snapshot.tripPassReconciliation.actions.map((action) => (
-                <DiagnosticCard
-                  body={action.reason}
-                  key={`${action.action}:${action.localRef}`}
-                  meta={action.status}
-                  title={`${action.action}: ${action.localRef}`}
                 />
               ))}
             </div>
           ) : (
             <EmptyState
-              description="No Trip Pass reconciliation snapshot is present for this diagnostics view."
+              description="No Usage Meter or paid-answer integrity issues are present."
               icon={Wrench}
-              title="No Trip Pass diagnostics"
+              title="Trip Pass integrity is healthy"
             />
           )}
         </section>

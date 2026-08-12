@@ -4,6 +4,10 @@ Live reconciliation observes authoritative Stripe payment facts and records opaq
 does not mutate Trip Pass orders, access, grants, meters, or provider state. Repair is a separate
 same-origin Operator API action.
 
+This is the only module called reconciliation. `reconcileLiveCommerce` in
+`src/server/operations/live-reconciliation.ts` owns the provider-authoritative comparison and its
+durable Finding lifecycle.
+
 ## Authority and ordering
 
 Stripe is the authority for payment state, amount, and currency. The Ask Siargao ledger is the
@@ -44,6 +48,18 @@ Refund and dispute lifecycle application, webhook retry, Account Closure orderin
 usage have their own handlers and diagnostics. They are not findings produced by this comparison.
 If Stripe lookup is ambiguous or unavailable, reconciliation fails and retries instead of
 inventing a Finding from incomplete provider truth.
+
+## Trip Pass diagnostics
+
+`buildTripPassDiagnostics` in `src/server/trip-pass/diagnostics.ts` is a separate, read-only
+diagnostic module. The admin diagnostics view uses it for Usage Meter integrity, stale reservations,
+paid-answer linkage, and privacy-safe inspection of purged aggregates. Its support lookup accepts an
+opaque order, pass, or Account reference and returns redacted status and meter summaries.
+
+The diagnostic snapshot has no `mode`, mutation confirmation flag, planned actions, provider
+payment comparison, or environment-health payload. A diagnostic issue is not a Reconciliation
+Finding and cannot be passed directly to the Repair API. Repair remains available only for a
+durable open Finding through the workflow below.
 
 ## Repair API
 

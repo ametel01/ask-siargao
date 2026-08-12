@@ -2,10 +2,11 @@ import { redactDiagnosticValue } from "@/server/admin/redaction";
 import type { AuditLifecycleRecord } from "@/server/audit/lifecycle";
 import type { GovernedFact } from "@/server/facts/types";
 import type { QueuedAuditJob } from "@/server/jobs/audit-jobs";
-import type {
-  TripPassReconciliationSnapshot,
-  TripPassSupportLookupResult,
-} from "@/server/trip-pass/reconciliation";
+import {
+  buildTripPassDiagnostics,
+  type TripPassDiagnosticsSnapshot,
+  type TripPassSupportLookupResult,
+} from "@/server/trip-pass/diagnostics";
 
 export type CompletenessDiagnostic = {
   auditRequestId: string;
@@ -72,7 +73,7 @@ export type AuditDiagnosticsInput = {
   llmRuns: LlmRunDiagnostic[];
   toolCalls: ToolCallDiagnostic[];
   sourceProfiles: SourceProfileDiagnostic[];
-  tripPassReconciliation?: TripPassReconciliationSnapshot | null;
+  tripPassDiagnostics?: TripPassDiagnosticsSnapshot | null;
   tripPassSupportLookup?: TripPassSupportLookupResult | null;
   now: Date;
   operationalFindings?: OperationalFindingDiagnostic[];
@@ -180,8 +181,8 @@ export function buildAuditDiagnostics(input: AuditDiagnosticsInput) {
     jobFailures,
     operationalFindings: input.operationalFindings ?? [],
     operationalWorkers: input.operationalWorkers ?? [],
-    tripPassReconciliation: input.tripPassReconciliation
-      ? (redactDiagnosticValue(input.tripPassReconciliation) as TripPassReconciliationSnapshot)
+    tripPassDiagnostics: input.tripPassDiagnostics
+      ? (redactDiagnosticValue(input.tripPassDiagnostics) as TripPassDiagnosticsSnapshot)
       : null,
     tripPassSupportLookup: input.tripPassSupportLookup
       ? (redactDiagnosticValue(input.tripPassSupportLookup) as TripPassSupportLookupResult)
@@ -209,7 +210,7 @@ export async function loadLiveDiagnostics(
   db: import("@/server/db/query-client").DatabaseQueryClient,
   now = new Date(),
 ) {
-  const [findings, workers] = await Promise.all([
+  const [findings, workers, tripPassDiagnostics] = await Promise.all([
     db.query<{
       id: string;
       impact: "warning" | "high";
@@ -232,6 +233,7 @@ export async function loadLiveDiagnostics(
        from operational_worker_tasks
        where status <> 'succeeded' order by next_attempt_at, id limit 100`,
     ),
+    buildTripPassDiagnostics({ db, now }),
   ]);
   return buildAuditDiagnostics({
     accommodationMatches: [],
@@ -260,6 +262,7 @@ export async function loadLiveDiagnostics(
     reviewerResults: [],
     sourceProfiles: [],
     toolCalls: [],
+    tripPassDiagnostics,
   });
 }
 
@@ -416,43 +419,18 @@ export function createSampleDiagnosticsSnapshot(now = new Date("2026-06-23T08:00
         freshnessWindowDays: 1,
       },
     ],
-    tripPassReconciliation: {
+    tripPassDiagnostics: {
       generatedAt: now.toISOString(),
-      mode: "dry_run",
       scope: {},
       thresholds: {
-        staleOrderMinutes: 30,
         staleReservationMinutes: 10,
       },
-      infrastructure: {
-        analyticsSink: "unavailable",
-        sharedQuotaStore: "unavailable",
-        costCircuits: {
-          deepseek: "configured",
-          openai: "unconfigured",
-          global: "configured",
-        },
-        priceCatalog: {
-          productCode: "siargao_trip_pass_14d_v1",
-          productVersion: 1,
-          stripePriceConfigured: true,
-        },
-      },
       issues: [
-        {
-          code: "paid_without_pass",
-          severity: "repairable",
-          localRef: "order_support_001",
-          reason: "paid order has no linked Trip Pass grant",
-          repairable: true,
-          details: { grants: 0, passes: 0 },
-        },
         {
           code: "stale_usage_reservation",
           severity: "repairable",
           localRef: "usage_event_stale_001",
           reason: "reserved usage event exceeded the release window",
-          repairable: true,
           details: { passRef: "trip_pass_support_001", meterType: "live_refresh" },
         },
         {
@@ -460,21 +438,6 @@ export function createSampleDiagnosticsSnapshot(now = new Date("2026-06-23T08:00
           severity: "warning",
           localRef: "usage_event_missing_provider",
           reason: "settled usage event has no provider request reference",
-          repairable: false,
-        },
-      ],
-      actions: [
-        {
-          action: "grant_missing_trip_pass",
-          localRef: "order_support_001",
-          status: "planned",
-          reason: "dry_run_would_create_manual_reconciliation_grant",
-        },
-        {
-          action: "release_stale_reservation",
-          localRef: "usage_event_stale_001",
-          status: "planned",
-          reason: "dry_run_would_release_reserved_usage_event",
         },
       ],
     },
