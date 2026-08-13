@@ -336,15 +336,22 @@ async function completeHostedCheckout(
     if (!page.url().startsWith(checkoutUrl)) await page.goto(checkoutUrl);
     const emailInput = page.getByLabel(/email/i);
     if (await emailInput.isVisible()) await emailInput.fill(email);
-    const cardPaymentMethod = page.getByRole("radio", { name: /^Card$/i });
-    if (await cardPaymentMethod.isVisible()) await cardPaymentMethod.check({ force: true });
-    await page.getByLabel(/card number/i).fill(cardNumber);
+    const cardNumberInput = page.getByLabel(/card number/i);
+    if (!(await cardNumberInput.isVisible())) {
+      const cardPaymentMethod = page
+        .locator("#payment-method-label-card")
+        .locator('xpath=ancestor::div[contains(@class, "AccordionItemHeader--clickable")]');
+      await cardPaymentMethod.waitFor({ state: "visible" });
+      await cardPaymentMethod.click();
+    }
+    await cardNumberInput.waitFor({ state: "visible" });
+    await cardNumberInput.fill(cardNumber);
     await page.getByLabel(/expiration/i).fill("1234");
-    await page.getByLabel(/security code|cvc/i).fill("123");
+    await page.locator('input[name="cardCvc"]').fill("123");
     const name = page.getByLabel(/name on card/i);
     if (await name.isVisible()) await name.fill("Protected Test User");
     await page.getByRole("checkbox", { name: /terms/i }).check();
-    await page.getByRole("button", { name: /pay/i }).click();
+    await page.locator('[data-testid="hosted-payment-submit-button"]').click();
     await page.waitForURL(new RegExp(`^${escapeRegExp(origin)}/settings`), { timeout: 60_000 });
   });
 }
