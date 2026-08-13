@@ -165,6 +165,27 @@ test("Stripe ambiguity proof is not hidden by the SDK's forced connection retry"
   );
 });
 
+test("reversed Stripe delivery proves the durable inbox retry state", async () => {
+  const acceptance = await readFile(
+    "tests/provider/stripe-release-candidate.stripe.e2e.ts",
+    "utf8",
+  );
+  const scenarioStart = acceptance.indexOf(
+    'test("reversed delivery retries authoritative dispute lookup before app suspension"',
+  );
+  const scenarioEnd = acceptance.indexOf(
+    'test("closure race records Paid After Closure',
+    scenarioStart,
+  );
+
+  expect(scenarioStart).toBeGreaterThan(-1);
+  expect(scenarioEnd).toBeGreaterThan(scenarioStart);
+  const reversedDelivery = acceptance.slice(scenarioStart, scenarioEnd);
+  expect(reversedDelivery).toContain('inboxStatus: "pending"');
+  expect(reversedDelivery).toContain('reason: "trip_pass_payment_intent_not_found"');
+  expect(reversedDelivery).not.toContain('applicationStatus: "rejected"');
+});
+
 test("provider lane command rejects an invalid lane before protected execution", async () => {
   const child = Bun.spawn(["bun", "run", "qa:provider-rc", "--", "--lane", "invalid"], {
     stderr: "pipe",
