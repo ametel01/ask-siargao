@@ -70,6 +70,10 @@ Each workflow job selects its lane with `bun run qa:provider-rc -- --lane clerk`
 and publishes the resulting exact-SHA artifact. The Release Evidence lane module owns preflight,
 provider acceptance, worker draining, final-boundary sealing, receipt validation, and evidence
 completion in semantic order; the workflow does not reproduce that sequence as shell steps.
+If hosted Stripe Checkout fails before evidence completion, the job uploads a seven-day,
+exact-SHA diagnostic containing only provider state enums and known-control booleans/counts. It
+never uploads screenshots, traces, videos, raw DOM, provider bodies, identifiers, emails, or card
+values.
 
 Clerk proves a real email-code session and a Google-linked session, route and ownership policy,
 account management, signed webhook convergence, seven-day session maximum, and terminal deletion.
