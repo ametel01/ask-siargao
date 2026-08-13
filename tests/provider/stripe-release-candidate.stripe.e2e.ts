@@ -384,9 +384,11 @@ async function completeHostedCheckout(
     await expect(submit).toBeVisible();
     await expect(submit).toBeEnabled();
     // Stripe's hosted agent layout can block Playwright pointer hit-testing even
-    // after every required field and disclosure is valid. Dispatch the exact
-    // proved control, then let the authoritative Session poll verify payment.
-    await submit.dispatchEvent("click");
+    // after every required field and disclosure is valid. Force the real
+    // Playwright click on the exact proved control; a synthetic dispatch does not
+    // enter Stripe's React submit path. The authoritative Session poll below
+    // still verifies that the provider accepted payment.
+    await submit.click({ force: true });
   });
   await safeProviderCall("confirm paid test Checkout", async () => {
     await expect
