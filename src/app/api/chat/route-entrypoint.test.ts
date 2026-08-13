@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { postChatRouteResponse } from "@/app/api/chat/route";
+import { postChatRouteResponse } from "@/app/api/chat/route-entrypoint";
 import {
   modelProviderConsentCookieName,
   modelProviderConsentVersion,

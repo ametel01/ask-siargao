@@ -15,7 +15,7 @@ const serverEnv = isProductionPerformanceRun
   : `${baseServerEnv} ${protectedUiHarnessEnv}`;
 const serverCommand = isProductionPerformanceRun
   ? `${serverEnv} bun run start -- --hostname 127.0.0.1 --port 3100`
-  : `${serverEnv} bun run dev -- --hostname 127.0.0.1 --port 3100`;
+  : `${serverEnv} bun run dev -- --webpack --hostname 127.0.0.1 --port 3100`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -23,9 +23,10 @@ export default defineConfig({
   fullyParallel: true,
   grep: isProductionPerformanceRun ? /@production-perf/ : undefined,
   grepInvert: !isProductionPerformanceRun ? /@production-perf/ : undefined,
+  globalSetup: "./tests/e2e/global-setup.ts",
   outputDir: isProductionPerformanceRun ? "test-results/production-perf" : "test-results",
   reporter: "list",
-  workers: isProductionPerformanceRun ? 1 : undefined,
+  workers: 1,
   use: {
     baseURL: "http://localhost:3100",
     storageState: {

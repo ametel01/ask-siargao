@@ -102,7 +102,8 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(preparation).toContain("I am an AI agent acting on behalf of someone else");
   expect(preparation).toContain("expect(agentDisclosureLabel).toBeVisible()");
   expect(preparation).toContain("expect(agentDisclosure).toHaveCount(1)");
-  expect(preparation).toContain("agentDisclosure.check({ force: true })");
+  expect(preparation).toContain('agentDisclosure.dispatchEvent("click")');
+  expect(preparation).not.toContain("agentDisclosure.check(");
   expect(preparation).toContain("expect(agentDisclosure,");
   expect(preparation).toContain(".toBeChecked()");
 
