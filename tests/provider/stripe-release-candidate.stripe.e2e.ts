@@ -1,5 +1,6 @@
+import { mkdir, writeFile } from "node:fs/promises";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import postgres from "postgres";
 import Stripe from "stripe";
 
@@ -388,31 +389,123 @@ async function completeHostedCheckout(
   await safeProviderCall("submit hosted test Checkout", async () => {
     await clickHostedCheckoutSubmit(page);
   });
-  await safeProviderCall("confirm paid test Checkout", async () => {
-    let retries = 0;
-    let lastSubmitAt = Date.now();
-    await expect
-      .poll(
-        async () => {
-          const session = await stripe.checkout.sessions.retrieve(sessionId);
-          const state = `${session.status}:${session.payment_status}`;
-          // Stripe occasionally drops the runner's first hosted submit before it
-          // creates a PaymentIntent. Retry only while the authoritative Session
-          // proves that no payment was accepted, and keep the attempts bounded.
-          if (state === "open:unpaid" && retries < 2 && Date.now() - lastSubmitAt >= 5_000) {
-            await clickHostedCheckoutSubmit(page);
-            retries += 1;
-            lastSubmitAt = Date.now();
-          }
-          return state;
-        },
-        { timeout: 60_000, intervals: [500, 1_000, 2_000] },
-      )
-      .toBe("complete:paid");
-  });
+  let retries = 0;
+  try {
+    await safeProviderCall("confirm paid test Checkout", async () => {
+      let lastSubmitAt = Date.now();
+      await expect
+        .poll(
+          async () => {
+            const session = await stripe.checkout.sessions.retrieve(sessionId);
+            const state = `${session.status}:${session.payment_status}`;
+            // Stripe occasionally drops the runner's first hosted submit before it
+            // creates a PaymentIntent. Retry only while the authoritative Session
+            // proves that no payment was accepted, and keep the attempts bounded.
+            if (state === "open:unpaid" && retries < 2 && Date.now() - lastSubmitAt >= 5_000) {
+              await clickHostedCheckoutSubmit(page);
+              retries += 1;
+              lastSubmitAt = Date.now();
+            }
+            return state;
+          },
+          { timeout: 60_000, intervals: [500, 1_000, 2_000] },
+        )
+        .toBe("complete:paid");
+    });
+  } catch {
+    const diagnosticPath = await writeHostedCheckoutFailureDiagnostic({
+      checkoutUrl,
+      page,
+      retries,
+      sessionId,
+    });
+    throw new Error(
+      `Hosted Checkout did not reach complete:paid; redacted diagnostics written to ${diagnosticPath}.`,
+    );
+  }
   await safeProviderCall("return to protected Checkout status", async () => {
     await page.goto(`${origin}/settings?trip_pass_checkout=return`);
   });
+}
+
+async function writeHostedCheckoutFailureDiagnostic(input: {
+  checkoutUrl: string;
+  page: Page;
+  retries: number;
+  sessionId: string;
+}) {
+  const session = await safeProviderCall("retrieve failed Checkout state", () =>
+    stripe.checkout.sessions.retrieve(input.sessionId),
+  );
+  const submit = input.page.locator('[data-testid="hosted-payment-submit-button"]');
+  const agentDisclosure = input.page
+    .getByText("I am an AI agent acting on behalf of someone else", { exact: true })
+    .locator('input[type="checkbox"]');
+  const diagnostic = {
+    schemaVersion: 1,
+    lane: "stripe",
+    stage: "hosted_checkout_confirmation",
+    expectedReleaseCandidateSha: requiredEnvironment("PROVIDER_RC_EXPECTED_SHA"),
+    retriesAttempted: input.retries,
+    session: {
+      status: session.status,
+      paymentStatus: session.payment_status,
+      paymentIntentCreated: session.payment_intent !== null,
+      customerCreated: session.customer !== null,
+      customerEmailSubmitted: session.customer_email !== null,
+      customerDetailsCreated: session.customer_details !== null,
+    },
+    page: {
+      isStripeCheckout: input.page.url().startsWith("https://checkout.stripe.com/"),
+      matchesExpectedCheckout: input.page.url().startsWith(input.checkoutUrl),
+      visibleAlertCount: await input.page.locator('[role="alert"]:visible').count(),
+    },
+    controls: {
+      email: await hostedInputState(input.page, "email"),
+      cardNumber: await hostedInputState(input.page, "cardNumber"),
+      cardExpiry: await hostedInputState(input.page, "cardExpiry"),
+      cardCvc: await hostedInputState(input.page, "cardCvc"),
+      billingName: await hostedInputState(input.page, "billingName"),
+      termsConsent: await hostedCheckboxState(
+        input.page.locator('input[name="termsOfServiceConsentCheckbox"]:visible'),
+      ),
+      agentDisclosure: await hostedCheckboxState(agentDisclosure),
+      submit: {
+        count: await submit.count(),
+        visible: (await submit.count()) === 1 && (await submit.isVisible()),
+        enabled: (await submit.count()) === 1 && (await submit.isEnabled()),
+      },
+    },
+  };
+  const directory = ".tmp/provider-release-candidate";
+  const path = `${directory}/stripe-diagnostics-${diagnostic.expectedReleaseCandidateSha}.json`;
+  await mkdir(directory, { recursive: true });
+  await writeFile(path, `${JSON.stringify(diagnostic, null, 2)}\n`, "utf8");
+  return path;
+}
+
+async function hostedInputState(page: Page, name: string) {
+  const input = page.locator(`input[name="${name}"]:visible`);
+  const count = await input.count();
+  if (count !== 1) return { count, visible: false };
+  return {
+    count,
+    visible: await input.isVisible(),
+    enabled: await input.isEnabled(),
+    valid: await input.evaluate((element) => (element as HTMLInputElement).checkValidity()),
+    ariaInvalid: (await input.getAttribute("aria-invalid")) === "true",
+  };
+}
+
+async function hostedCheckboxState(checkbox: Locator) {
+  const count = await checkbox.count();
+  if (count !== 1) return { count, visible: false };
+  return {
+    count,
+    visible: await checkbox.isVisible(),
+    enabled: await checkbox.isEnabled(),
+    checked: await checkbox.isChecked(),
+  };
 }
 
 async function clickHostedCheckoutSubmit(page: Page) {
