@@ -334,8 +334,6 @@ async function completeHostedCheckout(
 ) {
   await safeProviderCall("complete hosted test Checkout", async () => {
     if (!page.url().startsWith(checkoutUrl)) await page.goto(checkoutUrl);
-    const emailInput = page.getByLabel(/email/i);
-    if (await emailInput.isVisible()) await emailInput.fill(email);
     const cardNumberInput = page.getByLabel(/card number/i);
     if (!(await cardNumberInput.isVisible())) {
       const cardPaymentMethod = page
@@ -345,10 +343,12 @@ async function completeHostedCheckout(
       await cardPaymentMethod.click();
     }
     await cardNumberInput.waitFor({ state: "visible" });
+    const emailInput = page.locator('input[name="email"]:visible');
+    if (await emailInput.isVisible()) await emailInput.fill(email);
     await cardNumberInput.fill(cardNumber);
     await page.getByLabel(/expiration/i).fill("1234");
     await page.locator('input[name="cardCvc"]').fill("123");
-    const name = page.getByLabel(/name on card/i);
+    const name = page.locator('input[name="billingName"]:visible');
     if (await name.isVisible()) await name.fill("Protected Test User");
     await page.getByRole("checkbox", { name: /terms/i }).check();
     await page.locator('[data-testid="hosted-payment-submit-button"]').click();

@@ -74,9 +74,15 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(hostedCheckout.indexOf("AccordionItemHeader--clickable")).toBeLessThan(
     hostedCheckout.indexOf("cardNumberInput.fill(cardNumber)"),
   );
+  expect(hostedCheckout.indexOf("AccordionItemHeader--clickable")).toBeLessThan(
+    hostedCheckout.indexOf('input[name="email"]:visible'),
+  );
   expect(hostedCheckout).not.toContain("check({ force: true })");
+  expect(hostedCheckout).toContain('input[name="email"]:visible');
   expect(hostedCheckout).toContain('input[name="cardCvc"]');
+  expect(hostedCheckout).toContain('input[name="billingName"]:visible');
   expect(hostedCheckout).not.toContain("security code|cvc");
+  expect(hostedCheckout).not.toContain("name on card");
   expect(hostedCheckout).toContain('data-testid="hosted-payment-submit-button"');
   expect(hostedCheckout).not.toContain("name: /pay/i");
 });
