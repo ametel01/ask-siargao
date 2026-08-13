@@ -33,3 +33,11 @@ describe("security response headers", () => {
     expect(csp?.value).not.toContain("unsafe-eval");
   });
 });
+
+describe("server output tracing", () => {
+  test("ships governed agent memory with the chat route", () => {
+    expect(nextConfig.outputFileTracingIncludes).toEqual({
+      "/api/chat": ["./docs/agent-memory/*.md"],
+    });
+  });
+});

@@ -25,6 +25,12 @@ const nextConfig: NextConfig = {
   experimental: {
     useTypeScriptCli: true,
   },
+  // The chat runtime reads governed Markdown through fs at request time. The
+  // dynamic manifest iteration is not discoverable by Next.js output tracing,
+  // so include only that route's required memory directory explicitly.
+  outputFileTracingIncludes: {
+    "/api/chat": ["./docs/agent-memory/*.md"],
+  },
   async headers() {
     return [
       {
