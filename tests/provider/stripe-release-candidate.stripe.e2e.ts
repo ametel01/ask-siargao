@@ -380,10 +380,11 @@ async function completeHostedCheckout(
     await expect(agentDisclosureLabel).toBeVisible();
     const agentDisclosure = agentDisclosureLabel.locator('input[type="checkbox"]');
     await expect(agentDisclosure).toHaveCount(1);
-    // Stripe deliberately positions this agent-only control far outside the viewport,
-    // where even a forced Playwright check fails. Dispatch the same DOM click only
-    // after its exact label and uniqueness are proved, then verify the checked state.
-    await agentDisclosure.dispatchEvent("click");
+    // Stripe deliberately positions this agent-only control outside ordinary pointer
+    // hit-testing. Focus it directly and use a trusted keyboard event so Stripe's
+    // controlled form state receives the native input/change sequence.
+    await agentDisclosure.focus();
+    await page.keyboard.press("Space");
     await expect(agentDisclosure, "Hosted Checkout did not record agent disclosure.").toBeChecked();
   });
   await safeProviderCall("submit hosted test Checkout", async () => {
