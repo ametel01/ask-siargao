@@ -145,6 +145,26 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(clickHelper).not.toContain('submit.dispatchEvent("click")');
 });
 
+test("Stripe ambiguity proof is not hidden by the SDK's forced connection retry", async () => {
+  const acceptance = await readFile(
+    "tests/provider/stripe-release-candidate.stripe.e2e.ts",
+    "utf8",
+  );
+  const helperStart = acceptance.indexOf("async function proveAmbiguousRefundRetry");
+  const helperEnd = acceptance.indexOf("async function expectTripPassRefundedAmount", helperStart);
+
+  expect(helperStart).toBeGreaterThan(-1);
+  expect(helperEnd).toBeGreaterThan(helperStart);
+  const ambiguityProof = acceptance.slice(helperStart, helperEnd);
+  expect(ambiguityProof).toContain('code: "EAI_AGAIN"');
+  expect(ambiguityProof).not.toContain('code: "ECONNRESET"');
+  expect(ambiguityProof).not.toContain('code: "EPIPE"');
+  expect(ambiguityProof).toContain("maxNetworkRetries: 0");
+  expect(ambiguityProof.indexOf("await upstreamClient.makeRequest(...args)")).toBeLessThan(
+    ambiguityProof.indexOf('code: "EAI_AGAIN"'),
+  );
+});
+
 test("provider lane command rejects an invalid lane before protected execution", async () => {
   const child = Bun.spawn(["bun", "run", "qa:provider-rc", "--", "--lane", "invalid"], {
     stderr: "pipe",
