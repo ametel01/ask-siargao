@@ -1,6 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { Browser, BrowserContextOptions, Page, PlaywrightTestConfig } from "@playwright/test";
+import type {
+  APIRequestContext,
+  Browser,
+  BrowserContextOptions,
+  Page,
+  PlaywrightTestConfig,
+} from "@playwright/test";
 
 import {
   assertProviderReleaseCandidateContext,
@@ -56,7 +62,6 @@ export function createProviderReleaseCandidatePlaywrightConfig(
 ): PlaywrightTestConfig {
   const env = options.env ?? (process.env as ProviderReleaseCandidateEnv);
   const baseURL = required(env, "PROVIDER_RC_APP_ORIGIN", lane);
-  const protectionBypass = required(env, "PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET", lane);
   const setupProject = `${lane} setup`;
   const setupFile = `**/${lane}.global.setup.ts`;
 
@@ -72,7 +77,6 @@ export function createProviderReleaseCandidatePlaywrightConfig(
     workers: 1,
     use: {
       baseURL,
-      extraHTTPHeaders: protectedDeploymentHeaders(protectionBypass),
       // Protected sessions and testing tokens must never be persisted in CI artifacts.
       screenshot: "off",
       trace: "off",
@@ -154,21 +158,36 @@ export function createProtectedProviderHarness<Lane extends ProviderReleaseCandi
     return dependencies.lifecycle.recordScenarios(scenarios);
   }
 
+  async function authorizeProtectedRequest(request: APIRequestContext) {
+    const response = await request.get(required(env, "PROVIDER_RC_APP_ORIGIN", lane), {
+      headers: protectedDeploymentHeaders(
+        required(env, "PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET", lane),
+      ),
+    });
+    if (response.status() >= 400) {
+      throw new Error(`Protected ${providerName(lane)} deployment authorization failed.`);
+    }
+  }
+
+  async function authorizePage(page: Page) {
+    await authorizeProtectedRequest(page.request);
+  }
+
   function requiredEnvironment(name: string) {
     return required(env, name, lane);
   }
 
-  function newBrowserContext(browser: Browser) {
+  async function newBrowserContext(browser: Browser) {
     const options: BrowserContextOptions = {
       baseURL: required(env, "PROVIDER_RC_APP_ORIGIN", lane),
-      extraHTTPHeaders: protectedDeploymentHeaders(
-        required(env, "PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET", lane),
-      ),
     };
-    return browser.newContext(options);
+    const context = await browser.newContext(options);
+    await authorizeProtectedRequest(context.request);
+    return context;
   }
 
   return {
+    authorizePage,
     newBrowserContext,
     providerCall,
     recordScenarios,

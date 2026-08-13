@@ -15,6 +15,7 @@ const providerHarness = await createLiveProtectedProviderHarness("clerk", {
   providerTimeoutMs: 20_000,
 });
 const {
+  authorizePage: authorizeProtectedPage,
   newBrowserContext: newProtectedContext,
   providerCall: safeProviderStep,
   recordScenarios,
@@ -24,6 +25,10 @@ const {
 const emailCodeUser = requiredTestEmail("PROVIDER_RC_CLERK_EMAIL_CODE_USER");
 const closureUser = requiredTestEmail("PROVIDER_RC_CLERK_CLOSURE_USER");
 const googleOAuthUser = requiredEnvironment("PROVIDER_RC_CLERK_GOOGLE_EMAIL");
+
+test.beforeEach(async ({ page }) => {
+  await authorizeProtectedPage(page);
+});
 
 test("email-code, verified-email, session persistence, route/API denial, and sign-out", async ({
   browser,

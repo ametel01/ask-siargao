@@ -57,14 +57,11 @@ describe("protected provider harness", () => {
       expect(config.workers).toBe(1);
       expect(config.use).toMatchObject({
         baseURL: "https://provider-rc.asksiargao.test",
-        extraHTTPHeaders: {
-          "x-vercel-protection-bypass": "vercel-bypass-redacted",
-          "x-vercel-set-bypass-cookie": "true",
-        },
         screenshot: "off",
         trace: "off",
         video: "off",
       });
+      expect(config.use?.extraHTTPHeaders).toBeUndefined();
       expect(config.projects).toEqual([
         {
           name: `${lane} setup`,
@@ -130,12 +127,21 @@ describe("protected provider harness", () => {
     expect(calls).toEqual([]);
   });
 
-  test("creates isolated browser contexts with the protected deployment headers", async () => {
+  test("authorizes isolated browser contexts without globally forwarding bypass headers", async () => {
     let contextOptions: object | undefined;
+    let authorizationRequest: object | undefined;
     const browser = {
       async newContext(options: object) {
         contextOptions = options;
-        return { marker: "protected-context" } as unknown as BrowserContext;
+        return {
+          marker: "protected-context",
+          request: {
+            async get(url: string, requestOptions: object) {
+              authorizationRequest = { requestOptions, url };
+              return { status: () => 200 };
+            },
+          },
+        } as unknown as BrowserContext;
       },
     } as unknown as Browser;
     const harness = createProtectedProviderHarness("clerk", {
@@ -145,13 +151,46 @@ describe("protected provider harness", () => {
 
     const context = await harness.newBrowserContext(browser);
 
-    expect(context as unknown).toEqual({ marker: "protected-context" });
+    expect((context as unknown as { marker: string }).marker).toBe("protected-context");
     expect(contextOptions).toEqual({
       baseURL: "https://provider-rc.asksiargao.test",
-      extraHTTPHeaders: {
-        "x-vercel-protection-bypass": "vercel-bypass-redacted",
-        "x-vercel-set-bypass-cookie": "true",
+    });
+    expect(authorizationRequest).toEqual({
+      requestOptions: {
+        headers: {
+          "x-vercel-protection-bypass": "vercel-bypass-redacted",
+          "x-vercel-set-bypass-cookie": "true",
+        },
       },
+      url: "https://provider-rc.asksiargao.test",
+    });
+  });
+
+  test("authorizes a default page through a scoped cookie-setting request", async () => {
+    let authorizationRequest: object | undefined;
+    const harness = createProtectedProviderHarness("stripe", {
+      env: protectedEnvironment("stripe"),
+      lifecycle: lifecycleStub("stripe"),
+    });
+    const page = {
+      request: {
+        async get(url: string, requestOptions: object) {
+          authorizationRequest = { requestOptions, url };
+          return { status: () => 200 };
+        },
+      },
+    } as unknown as Page;
+
+    await harness.authorizePage(page);
+
+    expect(authorizationRequest).toEqual({
+      requestOptions: {
+        headers: {
+          "x-vercel-protection-bypass": "vercel-bypass-redacted",
+          "x-vercel-set-bypass-cookie": "true",
+        },
+      },
+      url: "https://provider-rc.asksiargao.test",
     });
   });
 });

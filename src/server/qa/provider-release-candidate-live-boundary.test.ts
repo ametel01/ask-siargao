@@ -90,6 +90,8 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(hostedCheckout).toContain('data-testid="hosted-payment-submit-button"');
   expect(hostedCheckout).not.toContain("name: /pay/i");
   expect(hostedCheckout).toContain('toBe("complete:paid")');
+  expect(hostedCheckout).toContain("timeout: 60_000");
+  expect(hostedCheckout).toContain("intervals: [500, 1_000, 2_000]");
   expect(hostedCheckout).toContain("trip_pass_checkout=return");
   expect(hostedCheckout).not.toContain("page.waitForURL");
 });

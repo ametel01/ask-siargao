@@ -14,6 +14,7 @@ test.describe.configure({ mode: "serial" });
 
 const providerHarness = await createLiveProtectedProviderHarness("stripe");
 const {
+  authorizePage: authorizeProtectedPage,
   providerCall: safeProviderCall,
   recordScenarios,
   requiredEnvironment,
@@ -23,6 +24,10 @@ const stripe = new Stripe(requiredEnvironment("STRIPE_RESTRICTED_KEY"), {
   apiVersion: STRIPE_API_VERSION,
 });
 const origin = new URL(requiredEnvironment("PROVIDER_RC_APP_ORIGIN")).origin;
+
+test.beforeEach(async ({ page }) => {
+  await authorizeProtectedPage(page);
+});
 
 test("app checkout, cancellation, return-before-event, activation, duplicate, settlement, and refunds", async ({
   page,
@@ -354,10 +359,13 @@ async function completeHostedCheckout(
     await page.locator('input[name="termsOfServiceConsentCheckbox"]:visible').check();
     await page.locator('[data-testid="hosted-payment-submit-button"]').click();
     await expect
-      .poll(async () => {
-        const session = await stripe.checkout.sessions.retrieve(sessionId);
-        return `${session.status}:${session.payment_status}`;
-      })
+      .poll(
+        async () => {
+          const session = await stripe.checkout.sessions.retrieve(sessionId);
+          return `${session.status}:${session.payment_status}`;
+        },
+        { timeout: 60_000, intervals: [500, 1_000, 2_000] },
+      )
       .toBe("complete:paid");
     await page.goto(`${origin}/settings?trip_pass_checkout=return`);
   });
