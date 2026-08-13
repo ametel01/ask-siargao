@@ -110,6 +110,9 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   const submission = hostedCheckout.slice(submitStart, confirmationStart);
   expect(submission).toContain("clickHostedCheckoutSubmit(page)");
   expect(submission).not.toContain('submit.dispatchEvent("click")');
+  expect(hostedCheckout).toContain("await submit.focus()");
+  expect(hostedCheckout).toContain('await page.keyboard.press("Enter")');
+  expect(hostedCheckout).not.toContain("submit.click({ force: true })");
 
   const confirmation = hostedCheckout.slice(confirmationStart, returnStart);
   expect(confirmation).toContain("stripe.checkout.sessions.retrieve(sessionId)");
@@ -141,7 +144,9 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(clickHelper).toContain("expect(submit).toHaveCount(1)");
   expect(clickHelper).toContain("expect(submit).toBeVisible()");
   expect(clickHelper).toContain("expect(submit).toBeEnabled()");
-  expect(clickHelper).toContain("submit.click({ force: true })");
+  expect(clickHelper).toContain("await submit.focus()");
+  expect(clickHelper).toContain('await page.keyboard.press("Enter")');
+  expect(clickHelper).not.toContain("submit.click({ force: true })");
   expect(clickHelper).not.toContain('submit.dispatchEvent("click")');
 });
 
