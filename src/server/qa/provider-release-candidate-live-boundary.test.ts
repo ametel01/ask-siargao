@@ -60,6 +60,22 @@ test("Clerk acceptance cannot forge deletion convergence before the cleanup work
   expect(closureScenario).not.toContain("assertClerkUserConverged");
 });
 
+test("Stripe Checkout selects Card before entering hosted payment fields", async () => {
+  const acceptance = await readFile(
+    "tests/provider/stripe-release-candidate.stripe.e2e.ts",
+    "utf8",
+  );
+  const helperStart = acceptance.indexOf("async function completeHostedCheckout");
+  const helperEnd = acceptance.indexOf("async function retrieveLatestCheckout", helperStart);
+
+  expect(helperStart).toBeGreaterThan(-1);
+  expect(helperEnd).toBeGreaterThan(helperStart);
+  const hostedCheckout = acceptance.slice(helperStart, helperEnd);
+  expect(hostedCheckout.indexOf("name: /^Card$/i")).toBeLessThan(
+    hostedCheckout.indexOf("card number"),
+  );
+});
+
 test("provider lane command rejects an invalid lane before protected execution", async () => {
   const child = Bun.spawn(["bun", "run", "qa:provider-rc", "--", "--lane", "invalid"], {
     stderr: "pipe",
