@@ -107,6 +107,13 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(preparation).toContain("expect(agentDisclosure,");
   expect(preparation).toContain(".toBeChecked()");
 
+  const submission = hostedCheckout.slice(submitStart, confirmationStart);
+  expect(submission).toContain("expect(submit).toHaveCount(1)");
+  expect(submission).toContain("expect(submit).toBeVisible()");
+  expect(submission).toContain("expect(submit).toBeEnabled()");
+  expect(submission).toContain('submit.dispatchEvent("click")');
+  expect(submission).not.toContain("submit.click(");
+
   const confirmation = hostedCheckout.slice(confirmationStart, returnStart);
   expect(confirmation).toContain("stripe.checkout.sessions.retrieve(sessionId)");
   expect(confirmation).toContain('toBe("complete:paid")');
