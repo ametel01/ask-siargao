@@ -333,8 +333,9 @@ async function completeHostedCheckout(
   cardNumber = "4242424242424242",
 ) {
   await safeProviderCall("complete hosted test Checkout", async () => {
+    const sessionId = await latestCheckoutSessionId(page);
     if (!page.url().startsWith(checkoutUrl)) await page.goto(checkoutUrl);
-    const cardNumberInput = page.getByLabel(/card number/i);
+    const cardNumberInput = page.locator('input[name="cardNumber"]:visible');
     if (!(await cardNumberInput.isVisible())) {
       const cardPaymentMethod = page
         .locator("#payment-method-label-card")
@@ -346,13 +347,19 @@ async function completeHostedCheckout(
     const emailInput = page.locator('input[name="email"]:visible');
     if (await emailInput.isVisible()) await emailInput.fill(email);
     await cardNumberInput.fill(cardNumber);
-    await page.getByLabel(/expiration/i).fill("1234");
-    await page.locator('input[name="cardCvc"]').fill("123");
+    await page.locator('input[name="cardExpiry"]:visible').fill("1234");
+    await page.locator('input[name="cardCvc"]:visible').fill("123");
     const name = page.locator('input[name="billingName"]:visible');
     if (await name.isVisible()) await name.fill("Protected Test User");
-    await page.getByRole("checkbox", { name: /terms/i }).check();
+    await page.locator('input[name="termsOfServiceConsentCheckbox"]:visible').check();
     await page.locator('[data-testid="hosted-payment-submit-button"]').click();
-    await page.waitForURL(new RegExp(`^${escapeRegExp(origin)}/settings`), { timeout: 60_000 });
+    await expect
+      .poll(async () => {
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        return `${session.status}:${session.payment_status}`;
+      })
+      .toBe("complete:paid");
+    await page.goto(`${origin}/settings?trip_pass_checkout=return`);
   });
 }
 
@@ -502,8 +509,4 @@ function providerId(value: string | { id: string } | null) {
 
 function safeAssert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
