@@ -70,21 +70,23 @@ Each workflow job selects its lane with `bun run qa:provider-rc -- --lane clerk`
 and publishes the resulting exact-SHA artifact. The Release Evidence lane module owns preflight,
 provider acceptance, worker draining, final-boundary sealing, receipt validation, and evidence
 completion in semantic order; the workflow does not reproduce that sequence as shell steps.
-If hosted Stripe Checkout fails before evidence completion, the job uploads a seven-day,
-exact-SHA diagnostic containing only provider state enums and known-control booleans/counts. It
-never uploads screenshots, traces, videos, raw DOM, provider bodies, identifiers, emails, or card
-values.
-
 Clerk proves a real email-code session and a Google-linked session, route and ownership policy,
 account management, signed webhook convergence, seven-day session maximum, and terminal deletion.
 The Google proof combines a live redirect to `accounts.google.com` with a unique verified Google
 external account created by an earlier human-completed OAuth callback, then signs in that exact
 Clerk subject with Clerk's official testing helper. CI never stores or submits a Google password.
-Stripe proves Checkout creation, a distinct 30-minute expiry boundary, authenticated cancellation,
-return-before-event, activation, duplicate/reversed delivery, ambiguous retry, cumulative refunds,
-disputes, closure race, Paid After Closure refund, and paid-answer settlement. The workflow emits
-receipts only for scenarios actually executed and re-probes SHA/database boundaries before each
-mutating group and final evidence.
+Stripe proves real Checkout Session creation, a distinct 30-minute expiry boundary, authenticated
+cancellation, real server-side test-mode card payments, activation from simulated successful
+Checkout UI output, duplicate/reversed delivery, ambiguous retry, cumulative refunds, disputes,
+closure race, Paid After Closure refund, and paid-answer settlement. Stripe's
+[automated-testing guidance](https://docs.stripe.com/automated-testing) says hosted Checkout has
+security measures that prevent automated frontend testing and recommends simulating interface
+output. The protected lane therefore never submits Stripe's hosted UI. Before any paid launch, an
+eligible human must separately complete hosted Checkout in a normal browser and attach the exact
+Price, amount, currency, terms-consent, success-return, and resulting test-mode Session/PaymentIntent
+proof to the launch issue. This human proof is not required for the checkout-off Free Controlled
+Beta. The workflow emits receipts only for scenarios actually executed and re-probes SHA/database
+boundaries before each mutating group and final evidence.
 
 No protected credential is available to pull-request CI, and repository evidence must not imply
 this human run occurred. Provider QA must be rerun after a relevant provider-configuration change.

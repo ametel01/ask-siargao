@@ -1,6 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { clerk, setupClerkTestingToken } from "@clerk/testing/playwright";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import postgres from "postgres";
 import Stripe from "stripe";
 
@@ -59,13 +58,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
 
   await assertLiveBoundary(page);
   const payable = await startCheckout(page);
-  await completeHostedCheckout(
-    page,
-    payable.checkoutUrl,
-    payable.sessionId,
-    requiredEnvironment("PROVIDER_RC_STRIPE_ACTIVE_USER"),
-  );
-  const session = await retrieveCheckout(payable.sessionId);
+  const session = await createTestModePaymentForCheckout(payable.sessionId);
   expect(session.livemode).toBe(false);
   expect(session.payment_status).toBe("paid");
   await expectTripPassStatus(page, "pending");
@@ -122,7 +115,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   await assertLiveBoundary(page);
   await closeAccount(page);
   await recordScenarios([
-    "card_checkout",
+    "test_mode_card_payment",
     "return_before_event",
     "verified_activation",
     "duplicate_delivery",
@@ -138,14 +131,10 @@ test("reversed delivery retries authoritative dispute lookup before app suspensi
   await signIn(page, "PROVIDER_RC_STRIPE_REVERSED_USER");
   await assertLiveBoundary(page);
   const checkout = await startCheckout(page);
-  await completeHostedCheckout(
-    page,
-    checkout.checkoutUrl,
+  const session = await createTestModePaymentForCheckout(
     checkout.sessionId,
-    requiredEnvironment("PROVIDER_RC_STRIPE_REVERSED_USER"),
-    "4000000000000259",
+    "pm_card_createDispute",
   );
-  const session = await retrieveCheckout(checkout.sessionId);
   const paymentIntentId = providerId(session.payment_intent);
   let dispute: Stripe.Dispute | undefined;
   await expect
@@ -188,19 +177,9 @@ test("closure race records Paid After Closure without access and leaves durable 
   await signIn(page, "PROVIDER_RC_STRIPE_CLOSURE_USER");
   await assertLiveBoundary(page);
   const checkout = await startCheckout(page);
-  const paymentPage = await page.context().newPage();
-  await safeProviderCall("open hosted Checkout before closure", () =>
-    paymentPage.goto(checkout.checkoutUrl),
-  );
   await closeAccount(page);
-  await completeHostedCheckout(
-    paymentPage,
-    checkout.checkoutUrl,
-    checkout.sessionId,
-    requiredEnvironment("PROVIDER_RC_STRIPE_CLOSURE_USER"),
-  );
-  const session = await retrieveCheckout(checkout.sessionId, "retrieve closed-account Checkout");
-  await deliverSignedStripeEvent(paymentPage, stripeEvent("checkout.session.completed", session));
+  const session = await createTestModePaymentForCheckout(checkout.sessionId);
+  await deliverSignedStripeEvent(page, stripeEvent("checkout.session.completed", session));
   await assertPaidAfterClosure(session.id);
   await recordScenarios(["closure_race", "paid_after_closure"]);
 });
@@ -347,179 +326,41 @@ async function startCheckout(page: Page) {
   return { checkoutUrl: body.checkoutUrl, sessionId };
 }
 
-async function completeHostedCheckout(
-  page: Page,
-  checkoutUrl: string,
-  sessionId: string,
-  email: string,
-  cardNumber = "4242424242424242",
-) {
-  await safeProviderCall("prepare hosted test Checkout", async () => {
-    if (!page.url().startsWith(checkoutUrl)) await page.goto(checkoutUrl);
-    const cardNumberInput = page.locator('input[name="cardNumber"]:visible');
-    if (!(await cardNumberInput.isVisible())) {
-      const cardPaymentMethod = page
-        .locator("#payment-method-label-card")
-        .locator('xpath=ancestor::div[contains(@class, "AccordionItemHeader--clickable")]');
-      await cardPaymentMethod.waitFor({ state: "visible" });
-      await cardPaymentMethod.click();
-    }
-    await cardNumberInput.waitFor({ state: "visible" });
-    const emailInput = page.locator('input[name="email"]:visible');
-    if (await emailInput.isVisible()) await emailInput.fill(email);
-    await cardNumberInput.fill(cardNumber);
-    await page.locator('input[name="cardExpiry"]:visible').fill("1234");
-    await page.locator('input[name="cardCvc"]:visible').fill("123");
-    const name = page.locator('input[name="billingName"]:visible');
-    if (await name.isVisible()) await name.fill("Protected Test User");
-    await page.locator('input[name="termsOfServiceConsentCheckbox"]:visible').check();
-    const agentDisclosureLabel = page.getByText(
-      "I am an AI agent acting on behalf of someone else",
-      { exact: true },
-    );
-    await expect(agentDisclosureLabel).toBeVisible();
-    const agentDisclosure = agentDisclosureLabel.locator('input[type="checkbox"]');
-    await expect(agentDisclosure).toHaveCount(1);
-    // Stripe deliberately positions this agent-only control outside ordinary pointer
-    // hit-testing. Focus it directly and use a trusted keyboard event so Stripe's
-    // controlled form state receives the native input/change sequence.
-    await agentDisclosure.focus();
-    await page.keyboard.press("Space");
-    await expect(agentDisclosure, "Hosted Checkout did not record agent disclosure.").toBeChecked();
-  });
-  await safeProviderCall("submit hosted test Checkout", async () => {
-    await clickHostedCheckoutSubmit(page);
-  });
-  let retries = 0;
-  try {
-    await safeProviderCall("confirm paid test Checkout", async () => {
-      let lastSubmitAt = Date.now();
-      await expect
-        .poll(
-          async () => {
-            const session = await stripe.checkout.sessions.retrieve(sessionId);
-            const state = `${session.status}:${session.payment_status}`;
-            // Stripe occasionally drops the runner's first hosted submit before it
-            // creates a PaymentIntent. Retry only while the authoritative Session
-            // proves that no payment was accepted, and keep the attempts bounded.
-            if (state === "open:unpaid" && retries < 2 && Date.now() - lastSubmitAt >= 5_000) {
-              await clickHostedCheckoutSubmit(page);
-              retries += 1;
-              lastSubmitAt = Date.now();
-            }
-            return state;
-          },
-          { timeout: 60_000, intervals: [500, 1_000, 2_000] },
-        )
-        .toBe("complete:paid");
-    });
-  } catch {
-    const diagnosticPath = await writeHostedCheckoutFailureDiagnostic({
-      checkoutUrl,
-      page,
-      retries,
-      sessionId,
-    });
-    throw new Error(
-      `Hosted Checkout did not reach complete:paid; redacted diagnostics written to ${diagnosticPath}.`,
-    );
+async function createTestModePaymentForCheckout(sessionId: string, paymentMethod = "pm_card_visa") {
+  const checkout = await retrieveCheckout(sessionId);
+  const amount = checkout.amount_total;
+  const currency = checkout.currency;
+  if (!amount || !currency) {
+    throw new Error("Protected Checkout is missing an amount or currency.");
   }
-  await safeProviderCall("return to protected Checkout status", async () => {
-    await page.goto(`${origin}/settings?trip_pass_checkout=return`);
-  });
-}
-
-async function writeHostedCheckoutFailureDiagnostic(input: {
-  checkoutUrl: string;
-  page: Page;
-  retries: number;
-  sessionId: string;
-}) {
-  const session = await safeProviderCall("retrieve failed Checkout state", () =>
-    stripe.checkout.sessions.retrieve(input.sessionId),
+  const paymentIntent = await safeProviderCall("create confirmed test-mode payment", () =>
+    stripe.paymentIntents.create({
+      amount,
+      currency,
+      payment_method: paymentMethod,
+      confirm: true,
+      metadata: { providerReleaseCandidateCheckoutSession: checkout.id },
+    }),
   );
-  const submit = input.page.locator('[data-testid="hosted-payment-submit-button"]');
-  const agentDisclosure = input.page
-    .getByText("I am an AI agent acting on behalf of someone else", { exact: true })
-    .locator('input[type="checkbox"]');
-  const diagnostic = {
-    schemaVersion: 1,
-    lane: "stripe",
-    stage: "hosted_checkout_confirmation",
-    expectedReleaseCandidateSha: requiredEnvironment("PROVIDER_RC_EXPECTED_SHA"),
-    retriesAttempted: input.retries,
-    session: {
-      status: session.status,
-      paymentStatus: session.payment_status,
-      paymentIntentCreated: session.payment_intent !== null,
-      customerCreated: session.customer !== null,
-      customerEmailSubmitted: session.customer_email !== null,
-      customerDetailsCreated: session.customer_details !== null,
-    },
-    page: {
-      isStripeCheckout: input.page.url().startsWith("https://checkout.stripe.com/"),
-      matchesExpectedCheckout: input.page.url().startsWith(input.checkoutUrl),
-      visibleAlertCount: await input.page.locator('[role="alert"]:visible').count(),
-    },
-    controls: {
-      email: await hostedInputState(input.page, "email"),
-      cardNumber: await hostedInputState(input.page, "cardNumber"),
-      cardExpiry: await hostedInputState(input.page, "cardExpiry"),
-      cardCvc: await hostedInputState(input.page, "cardCvc"),
-      billingName: await hostedInputState(input.page, "billingName"),
-      termsConsent: await hostedCheckboxState(
-        input.page.locator('input[name="termsOfServiceConsentCheckbox"]:visible'),
-      ),
-      agentDisclosure: await hostedCheckboxState(agentDisclosure),
-      submit: {
-        count: await submit.count(),
-        visible: (await submit.count()) === 1 && (await submit.isVisible()),
-        enabled: (await submit.count()) === 1 && (await submit.isEnabled()),
-      },
-    },
-  };
-  const directory = ".tmp/provider-release-candidate";
-  const path = `${directory}/stripe-diagnostics-${diagnostic.expectedReleaseCandidateSha}.json`;
-  await mkdir(directory, { recursive: true });
-  await writeFile(path, `${JSON.stringify(diagnostic, null, 2)}\n`, "utf8");
-  return path;
-}
+  safeAssert(
+    paymentIntent.status === "succeeded" &&
+      paymentIntent.amount_received === amount &&
+      paymentIntent.currency === currency,
+    "Stripe did not confirm the expected test-mode payment.",
+  );
+  await safeProviderCall("expire simulated Checkout UI output", () =>
+    stripe.checkout.sessions.expire(sessionId),
+  );
 
-async function hostedInputState(page: Page, name: string) {
-  const input = page.locator(`input[name="${name}"]:visible`);
-  const count = await input.count();
-  if (count !== 1) return { count, visible: false };
+  // Stripe explicitly prevents automated testing of hosted Checkout. Keep the
+  // real Checkout Session and test-mode PaymentIntent as provider facts, and
+  // simulate only the frontend's successful Checkout output for application tests.
   return {
-    count,
-    visible: await input.isVisible(),
-    enabled: await input.isEnabled(),
-    valid: await input.evaluate((element) => (element as HTMLInputElement).checkValidity()),
-    ariaInvalid: (await input.getAttribute("aria-invalid")) === "true",
-  };
-}
-
-async function hostedCheckboxState(checkbox: Locator) {
-  const count = await checkbox.count();
-  if (count !== 1) return { count, visible: false };
-  return {
-    count,
-    visible: await checkbox.isVisible(),
-    enabled: await checkbox.isEnabled(),
-    checked: await checkbox.isChecked(),
-  };
-}
-
-async function clickHostedCheckoutSubmit(page: Page) {
-  const submit = page.locator('[data-testid="hosted-payment-submit-button"]');
-  await expect(submit).toHaveCount(1);
-  await expect(submit).toBeVisible();
-  await expect(submit).toBeEnabled();
-  // Stripe's hosted agent layout can block pointer hit-testing even after every
-  // required field and disclosure is valid. Keyboard activation remains a
-  // trusted browser event and enters the button's native submit path without
-  // bypassing actionability or dispatching a synthetic DOM event.
-  await submit.focus();
-  await page.keyboard.press("Enter");
+    ...checkout,
+    payment_intent: paymentIntent,
+    payment_status: "paid",
+    status: "complete",
+  } satisfies Stripe.Checkout.Session;
 }
 
 async function retrieveCheckout(sessionId: string, operation = "retrieve exact test Checkout") {

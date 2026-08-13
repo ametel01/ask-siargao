@@ -104,12 +104,12 @@ describe("protected provider harness", () => {
     const page = deploymentPage(sha);
 
     await harness.revalidate(page);
-    await harness.recordScenarios(["card_checkout", "verified_activation"]);
+    await harness.recordScenarios(["test_mode_card_payment", "verified_activation"]);
     await harness.seal(page);
 
     expect(calls).toEqual([
       `revalidate:${sha}`,
-      "record:card_checkout,verified_activation",
+      "record:test_mode_card_payment,verified_activation",
       `seal:${sha}`,
     ]);
   });

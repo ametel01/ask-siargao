@@ -168,15 +168,6 @@ jobs:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.PROVIDER_RC_STRIPE_WEBHOOK_SECRET }}
         run: bun run qa:provider-rc -- --lane stripe
 
-      - name: Upload redacted Stripe failure diagnostics
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: provider-rc-stripe-diagnostics-${{ inputs.release_candidate_sha }}
-          path: .tmp/provider-release-candidate/stripe-diagnostics-${{ inputs.release_candidate_sha }}.json
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Upload exact Stripe evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
