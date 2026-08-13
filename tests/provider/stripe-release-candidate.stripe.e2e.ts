@@ -38,7 +38,8 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   const first = await startCheckout(page);
   const retry = await startCheckout(page);
   safeAssert(retry.checkoutUrl === first.checkoutUrl, "Checkout retry did not reuse one Session.");
-  await assertThirtyMinuteExpiryBoundary(page);
+  safeAssert(retry.sessionId === first.sessionId, "Checkout retry changed the Session identity.");
+  await assertThirtyMinuteExpiryBoundary(page, first.sessionId);
   await recordScenarios(["thirty_minute_expiry_boundary"]);
   await expectTripPassStatus(page, "pending");
   await page.goto("/settings?trip_pass_checkout=return");
@@ -50,7 +51,7 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   });
   expect(cancellation.status()).toBe(200);
   const expired = await safeProviderCall("retrieve cancelled Checkout", () =>
-    latestCheckoutSessionId(page).then((id) => stripe.checkout.sessions.retrieve(id)),
+    stripe.checkout.sessions.retrieve(first.sessionId),
   );
   expect(expired.status).toBe("expired");
   await recordScenarios(["authenticated_cancellation"]);
@@ -60,9 +61,10 @@ test("app checkout, cancellation, return-before-event, activation, duplicate, se
   await completeHostedCheckout(
     page,
     payable.checkoutUrl,
+    payable.sessionId,
     requiredEnvironment("PROVIDER_RC_STRIPE_ACTIVE_USER"),
   );
-  const session = await retrieveLatestCheckout(page);
+  const session = await retrieveCheckout(payable.sessionId);
   expect(session.livemode).toBe(false);
   expect(session.payment_status).toBe("paid");
   await expectTripPassStatus(page, "pending");
@@ -138,10 +140,11 @@ test("reversed delivery retries authoritative dispute lookup before app suspensi
   await completeHostedCheckout(
     page,
     checkout.checkoutUrl,
+    checkout.sessionId,
     requiredEnvironment("PROVIDER_RC_STRIPE_REVERSED_USER"),
     "4000000000000259",
   );
-  const session = await retrieveLatestCheckout(page);
+  const session = await retrieveCheckout(checkout.sessionId);
   const paymentIntentId = providerId(session.payment_intent);
   let dispute: Stripe.Dispute | undefined;
   await expect
@@ -188,9 +191,10 @@ test("closure race records Paid After Closure without access and leaves durable 
   await completeHostedCheckout(
     paymentPage,
     checkout.checkoutUrl,
+    checkout.sessionId,
     requiredEnvironment("PROVIDER_RC_STRIPE_CLOSURE_USER"),
   );
-  const session = await retrieveCheckoutForClosedAccount();
+  const session = await retrieveCheckout(checkout.sessionId, "retrieve closed-account Checkout");
   await deliverSignedStripeEvent(paymentPage, stripeEvent("checkout.session.completed", session));
   await assertPaidAfterClosure(session.id);
   await recordScenarios(["closure_race", "paid_after_closure"]);
@@ -283,8 +287,8 @@ async function signIn(page: Page, emailName: string) {
   expect((await page.request.get("/api/me/profile")).status()).toBe(200);
 }
 
-async function assertThirtyMinuteExpiryBoundary(page: Page) {
-  const session = await retrieveLatestCheckout(page);
+async function assertThirtyMinuteExpiryBoundary(page: Page, sessionId: string) {
+  const session = await retrieveCheckout(sessionId);
   const userId = await page.evaluate(() => window.Clerk.user?.id ?? null);
   if (!userId) throw new Error("The protected session has no authenticated user.");
   const boundaryMatches = await withDatabase(async (sql) => {
@@ -299,7 +303,7 @@ async function assertThirtyMinuteExpiryBoundary(page: Page) {
         extract(epoch from checkout_session_expires_at)::double precision as expiry_epoch_seconds
       from trip_pass_orders
       where user_id = ${userId}
-      order by created_at desc
+        and stripe_checkout_session_id = ${sessionId}
       limit 1
     `;
     const row = rows[0];
@@ -328,16 +332,20 @@ async function startCheckout(page: Page) {
   if (!body.checkoutUrl || !["started", "reused"].includes(body.status ?? "")) {
     throw new Error("The protected app did not return a payable checkout.");
   }
-  return { checkoutUrl: body.checkoutUrl };
+  const sessionId = new URL(body.checkoutUrl).pathname.split("/").at(-1);
+  if (!sessionId?.startsWith("cs_test_")) {
+    throw new Error("The protected app returned an invalid test Checkout URL.");
+  }
+  return { checkoutUrl: body.checkoutUrl, sessionId };
 }
 
 async function completeHostedCheckout(
   page: Page,
   checkoutUrl: string,
+  sessionId: string,
   email: string,
   cardNumber = "4242424242424242",
 ) {
-  const sessionId = await latestCheckoutSessionId(page);
   await safeProviderCall("prepare hosted test Checkout", async () => {
     if (!page.url().startsWith(checkoutUrl)) await page.goto(checkoutUrl);
     const cardNumberInput = page.locator('input[name="cardNumber"]:visible');
@@ -357,14 +365,17 @@ async function completeHostedCheckout(
     const name = page.locator('input[name="billingName"]:visible');
     if (await name.isVisible()) await name.fill("Protected Test User");
     await page.locator('input[name="termsOfServiceConsentCheckbox"]:visible').check();
-    const agentDisclosure = page
-      .getByText("I am an AI agent acting on behalf of someone else", { exact: true })
-      .locator('input[type="checkbox"]');
-    await agentDisclosure.evaluate((checkbox) => (checkbox as HTMLInputElement).click());
-    safeAssert(
-      await agentDisclosure.isChecked(),
-      "Hosted Checkout did not record agent disclosure.",
+    const agentDisclosureLabel = page.getByText(
+      "I am an AI agent acting on behalf of someone else",
+      { exact: true },
     );
+    await expect(agentDisclosureLabel).toBeVisible();
+    const agentDisclosure = agentDisclosureLabel.locator('input[type="checkbox"]');
+    await expect(agentDisclosure).toHaveCount(1);
+    // Stripe deliberately positions this agent-only control offscreen, so a forced
+    // Playwright check is required after its visible label and uniqueness are proved.
+    await agentDisclosure.check({ force: true });
+    await expect(agentDisclosure, "Hosted Checkout did not record agent disclosure.").toBeChecked();
   });
   await safeProviderCall("submit hosted test Checkout", async () => {
     const submit = page.locator('[data-testid="hosted-payment-submit-button"]');
@@ -387,46 +398,11 @@ async function completeHostedCheckout(
   });
 }
 
-async function retrieveLatestCheckout(page: Page) {
-  return safeProviderCall("retrieve latest test Checkout", async () =>
-    stripe.checkout.sessions.retrieve(await latestCheckoutSessionId(page), {
+async function retrieveCheckout(sessionId: string, operation = "retrieve exact test Checkout") {
+  return safeProviderCall(operation, async () =>
+    stripe.checkout.sessions.retrieve(sessionId, {
       expand: ["line_items", "payment_intent"],
     }),
-  );
-}
-
-async function latestCheckoutSessionId(page: Page) {
-  const userId = await page.evaluate(() => window.Clerk.user?.id ?? null);
-  if (!userId) throw new Error("The protected session has no authenticated user.");
-  return withDatabase(async (sql) => {
-    const rows = await sql<{ stripe_checkout_session_id: string | null }[]>`
-      select stripe_checkout_session_id
-      from trip_pass_orders
-      where user_id = ${userId}
-      order by created_at desc
-      limit 1
-    `;
-    const id = rows[0]?.stripe_checkout_session_id;
-    if (!id) throw new Error("The app has no provider checkout reference.");
-    return id;
-  });
-}
-
-async function retrieveCheckoutForClosedAccount() {
-  const sessionId = await withDatabase(async (sql) => {
-    const rows = await sql<{ stripe_checkout_session_id: string }[]>`
-      select stripe_checkout_session_id
-      from trip_pass_orders
-      where closure_tombstone_id is not null
-        and status in ('checkout_created', 'pending')
-      order by updated_at desc
-      limit 1
-    `;
-    if (!rows[0]) throw new Error("No closure-race checkout remained for verification.");
-    return rows[0].stripe_checkout_session_id;
-  });
-  return safeProviderCall("retrieve closed-account Checkout", () =>
-    stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent"] }),
   );
 }
 
