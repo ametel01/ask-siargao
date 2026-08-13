@@ -513,11 +513,12 @@ async function clickHostedCheckoutSubmit(page: Page) {
   await expect(submit).toHaveCount(1);
   await expect(submit).toBeVisible();
   await expect(submit).toBeEnabled();
-  // Stripe's hosted agent layout can block Playwright pointer hit-testing even
-  // after every required field and disclosure is valid. Force the real
-  // Playwright click on the exact proved control; a synthetic dispatch does not
-  // enter Stripe's React submit path.
-  await submit.click({ force: true });
+  // Stripe's hosted agent layout can block pointer hit-testing even after every
+  // required field and disclosure is valid. Keyboard activation remains a
+  // trusted browser event and enters the button's native submit path without
+  // bypassing actionability or dispatching a synthetic DOM event.
+  await submit.focus();
+  await page.keyboard.press("Enter");
 }
 
 async function retrieveCheckout(sessionId: string, operation = "retrieve exact test Checkout") {
