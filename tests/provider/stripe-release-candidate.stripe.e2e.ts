@@ -163,7 +163,11 @@ test("reversed delivery retries authoritative dispute lookup before app suspensi
     stripeEvent("charge.dispute.created", dispute),
     false,
   );
-  expect(premature).toMatchObject({ status: 200, applicationStatus: "rejected" });
+  expect(premature).toMatchObject({
+    status: 200,
+    inboxStatus: "pending",
+    reason: "trip_pass_payment_intent_not_found",
+  });
   await deliverSignedStripeEvent(page, stripeEvent("checkout.session.completed", session));
   expect(
     await deliverSignedStripeEvent(page, stripeEvent("charge.dispute.created", dispute)),
@@ -444,10 +448,14 @@ async function deliverSignedStripeEvent(page: Page, event: Stripe.Event, success
   if (success) expect(response.status()).toBe(200);
   const body = (await response.json()) as {
     applicationStatus?: string;
+    inboxStatus?: string;
+    reason?: string;
     semanticOrdering?: string;
   };
   return {
     applicationStatus: body.applicationStatus,
+    inboxStatus: body.inboxStatus,
+    reason: body.reason,
     semanticOrdering: body.semanticOrdering,
     status: response.status(),
   };
