@@ -130,23 +130,17 @@ test("workflow names the lifecycle that owns both protected lanes", async () => 
   );
 });
 
-test("Stripe failures upload only exact-SHA redacted diagnostics", async () => {
+test("Stripe lane publishes evidence without hosted-browser artifacts", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const stripe = jobBlock(workflow, "stripe-test-mode");
   const acceptance = stripe.indexOf(
     "Run protected Stripe acceptance through the Release Evidence lifecycle",
   );
-  const diagnostics = stripe.indexOf("Upload redacted Stripe failure diagnostics");
   const evidence = stripe.indexOf("Upload exact Stripe evidence");
-  const shaExpression = "${" + "{ inputs.release_candidate_sha }}";
-  const failureExpression = "$" + "{{ failure() }}";
 
-  expect(diagnostics).toBeGreaterThan(acceptance);
-  expect(evidence).toBeGreaterThan(diagnostics);
-  expect(stripe).toContain(`if: ${failureExpression}`);
-  expect(stripe).toContain(`provider-rc-stripe-diagnostics-${shaExpression}`);
-  expect(stripe).toContain(`stripe-diagnostics-${shaExpression}.json`);
-  expect(stripe).toContain("if-no-files-found: ignore");
+  expect(evidence).toBeGreaterThan(acceptance);
+  expect(stripe).not.toContain("Stripe failure diagnostics");
+  expect(stripe).not.toContain("stripe-diagnostics");
   expect(stripe).not.toContain("test-results/provider-stripe");
   expect(stripe).not.toContain("trace.zip");
 });

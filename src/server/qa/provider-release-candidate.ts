@@ -5,7 +5,7 @@ import type { MigrationFile } from "@/server/db/migration-files";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 
-export const providerReleaseCandidateSchemaVersion = "provider-release-candidate/v2";
+export const providerReleaseCandidateSchemaVersion = "provider-release-candidate/v3";
 export const providerReleaseCandidateEnvironment = "provider-release-candidate";
 
 export type ProviderReleaseCandidateLane = "clerk" | "stripe";
@@ -79,7 +79,7 @@ export const providerReleaseCandidateScenarios = {
     "provider_user_deletion",
   ],
   stripe: [
-    "card_checkout",
+    "test_mode_card_payment",
     "thirty_minute_expiry_boundary",
     "return_before_event",
     "verified_activation",

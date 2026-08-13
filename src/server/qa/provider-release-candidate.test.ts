@@ -213,6 +213,8 @@ describe("protected provider release-candidate policy", () => {
     expect(providerReleaseCandidateScenarios.stripe).toHaveLength(13);
     expect(providerReleaseCandidateScenarios.stripe).toContain("paid_after_closure");
     expect(providerReleaseCandidateScenarios.stripe).toContain("thirty_minute_expiry_boundary");
+    expect(providerReleaseCandidateScenarios.stripe).toContain("test_mode_card_payment");
+    expect(providerReleaseCandidateScenarios.stripe).not.toContain("card_checkout");
     expect(providerReleaseCandidateScenarios.clerk).toContain("step_up_account_closure");
     expect(providerReleaseCandidateScenarios.clerk).toContain("account_management");
   });
