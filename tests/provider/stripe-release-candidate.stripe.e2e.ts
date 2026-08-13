@@ -337,8 +337,8 @@ async function completeHostedCheckout(
   email: string,
   cardNumber = "4242424242424242",
 ) {
-  await safeProviderCall("complete hosted test Checkout", async () => {
-    const sessionId = await latestCheckoutSessionId(page);
+  const sessionId = await latestCheckoutSessionId(page);
+  await safeProviderCall("prepare hosted test Checkout", async () => {
     if (!page.url().startsWith(checkoutUrl)) await page.goto(checkoutUrl);
     const cardNumberInput = page.locator('input[name="cardNumber"]:visible');
     if (!(await cardNumberInput.isVisible())) {
@@ -357,7 +357,21 @@ async function completeHostedCheckout(
     const name = page.locator('input[name="billingName"]:visible');
     if (await name.isVisible()) await name.fill("Protected Test User");
     await page.locator('input[name="termsOfServiceConsentCheckbox"]:visible').check();
-    await page.locator('[data-testid="hosted-payment-submit-button"]').click();
+    const agentDisclosure = page
+      .getByText("I am an AI agent acting on behalf of someone else", { exact: true })
+      .locator('input[type="checkbox"]');
+    await agentDisclosure.evaluate((checkbox) => (checkbox as HTMLInputElement).click());
+    safeAssert(
+      await agentDisclosure.isChecked(),
+      "Hosted Checkout did not record agent disclosure.",
+    );
+  });
+  await safeProviderCall("submit hosted test Checkout", async () => {
+    const submit = page.locator('[data-testid="hosted-payment-submit-button"]');
+    await submit.click();
+    await expect(submit).toBeDisabled({ timeout: 5_000 });
+  });
+  await safeProviderCall("confirm paid test Checkout", async () => {
     await expect
       .poll(
         async () => {
@@ -367,6 +381,8 @@ async function completeHostedCheckout(
         { timeout: 60_000, intervals: [500, 1_000, 2_000] },
       )
       .toBe("complete:paid");
+  });
+  await safeProviderCall("return to protected Checkout status", async () => {
     await page.goto(`${origin}/settings?trip_pass_checkout=return`);
   });
 }

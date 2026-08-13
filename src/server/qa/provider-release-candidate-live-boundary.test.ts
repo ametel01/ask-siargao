@@ -84,10 +84,19 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(hostedCheckout).toContain('input[name="cardCvc"]:visible');
   expect(hostedCheckout).toContain('input[name="billingName"]:visible');
   expect(hostedCheckout).toContain('input[name="termsOfServiceConsentCheckbox"]:visible');
+  expect(hostedCheckout).toContain("I am an AI agent acting on behalf of someone else");
+  expect(hostedCheckout).toContain(
+    "agentDisclosure.evaluate((checkbox) => (checkbox as HTMLInputElement).click())",
+  );
+  expect(hostedCheckout).toContain("agentDisclosure.isChecked()");
   expect(hostedCheckout).not.toContain("security code|cvc");
   expect(hostedCheckout).not.toContain("getByLabel(/expiration/i)");
   expect(hostedCheckout).not.toContain("name on card");
   expect(hostedCheckout).toContain('data-testid="hosted-payment-submit-button"');
+  expect(hostedCheckout).toContain('safeProviderCall("prepare hosted test Checkout"');
+  expect(hostedCheckout).toContain('safeProviderCall("submit hosted test Checkout"');
+  expect(hostedCheckout).toContain('safeProviderCall("confirm paid test Checkout"');
+  expect(hostedCheckout).toContain('safeProviderCall("return to protected Checkout status"');
   expect(hostedCheckout).not.toContain("name: /pay/i");
   expect(hostedCheckout).toContain('toBe("complete:paid")');
   expect(hostedCheckout).toContain("timeout: 60_000");
