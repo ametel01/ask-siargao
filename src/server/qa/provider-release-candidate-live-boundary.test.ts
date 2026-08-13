@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 
 import { runProviderReleaseCandidateLane } from "@/server/qa/provider-release-candidate";
 import { createLiveProviderReleaseCandidateLaneAdapter } from "@/server/qa/provider-release-candidate-live-boundary";
@@ -43,6 +44,20 @@ test("live adapters execute both provider lanes through the semantic phase inter
 
     expect(events).toEqual([...commandsByLane[lane]]);
   }
+});
+
+test("Clerk acceptance cannot forge deletion convergence before the cleanup worker", async () => {
+  const acceptance = await readFile("tests/provider/clerk-release-candidate.clerk.e2e.ts", "utf8");
+  const closureStart = acceptance.indexOf(
+    'test("ownership denial precedes terminal step-up closure"',
+  );
+  const closureEnd = acceptance.indexOf('test("final live boundary', closureStart);
+
+  expect(closureStart).toBeGreaterThan(-1);
+  expect(closureEnd).toBeGreaterThan(closureStart);
+  const closureScenario = acceptance.slice(closureStart, closureEnd);
+  expect(closureScenario).not.toContain('type: "user.deleted"');
+  expect(closureScenario).not.toContain("assertClerkUserConverged");
 });
 
 test("provider lane command rejects an invalid lane before protected execution", async () => {

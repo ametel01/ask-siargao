@@ -240,18 +240,13 @@ test("single-session policy rejects adding a second account to one browser", asy
   await recordScenarios(["single_session"]);
 });
 
-test("ownership denial precedes terminal step-up closure and provider deletion convergence", async ({
-  page,
-}) => {
+test("ownership denial precedes terminal step-up closure", async ({ page }) => {
   await assertScenarioBoundary(page.context().browser());
   await setupClerkTestingToken({ page });
   await page.goto("/sign-in");
   await safeProviderStep("Closure-user Clerk sign-in", () =>
     clerk.signIn({ page, emailAddress: closureUser }),
   );
-  const closingUserId = await page.evaluate(() => window.Clerk.user?.id ?? null);
-  if (!closingUserId) throw new Error("The closure session did not expose its Clerk user.");
-
   const foreignItemId = process.env.PROVIDER_RC_FOREIGN_SAVED_ITEM_ID;
   if (!foreignItemId) throw new Error("PROVIDER_RC_FOREIGN_SAVED_ITEM_ID is required.");
   const ownershipResponse = await page.request.delete(`/api/trips/saved/${foreignItemId}`, {
@@ -266,12 +261,6 @@ test("ownership denial precedes terminal step-up closure and provider deletion c
   await expect
     .poll(async () => isTerminalAuthDenial((await page.request.get("/api/me/profile")).status()))
     .toBe(true);
-  await deliverSignedClerkWebhook(page.request, {
-    type: "user.deleted",
-    object: "event",
-    data: { id: closingUserId, deleted: true, object: "user" },
-  });
-  await assertClerkUserConverged(closingUserId, true);
   await recordScenarios(["ownership_denial", "step_up_account_closure"]);
 });
 
