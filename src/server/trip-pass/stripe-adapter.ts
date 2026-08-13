@@ -74,9 +74,19 @@ export function createTripPassCheckoutClient(
       return summarizeTripPassCheckoutSession(session);
     },
     async expireCheckoutSession(sessionId) {
-      const session = await stripe.checkout.sessions.expire(sessionId, {
-        expand: ["line_items"],
-      });
+      let session: Stripe.Checkout.Session;
+      try {
+        session = await stripe.checkout.sessions.expire(sessionId, {
+          expand: ["line_items"],
+        });
+      } catch (error) {
+        if (!isStripeInvalidRequestError(error)) {
+          throw error;
+        }
+        session = await stripe.checkout.sessions.retrieve(sessionId, {
+          expand: ["line_items"],
+        });
+      }
       return summarizeTripPassCheckoutSession(session);
     },
   };
@@ -310,6 +320,10 @@ function classifyStripeCheckoutSessionCreationFailure(error: unknown) {
     return "definitive";
   }
   return "ambiguous";
+}
+
+function isStripeInvalidRequestError(error: unknown) {
+  return (error as { type?: string }).type === "StripeInvalidRequestError";
 }
 
 export function isDefinitiveTripPassCheckoutSessionCreationError(error: unknown) {
