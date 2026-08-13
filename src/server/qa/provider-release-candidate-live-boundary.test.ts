@@ -60,7 +60,7 @@ test("Clerk acceptance cannot forge deletion convergence before the cleanup work
   expect(closureScenario).not.toContain("assertClerkUserConverged");
 });
 
-test("Stripe Checkout selects Card before entering hosted payment fields", async () => {
+test("Stripe Checkout opens the visible Card accordion before entering hosted fields", async () => {
   const acceptance = await readFile(
     "tests/provider/stripe-release-candidate.stripe.e2e.ts",
     "utf8",
@@ -71,9 +71,14 @@ test("Stripe Checkout selects Card before entering hosted payment fields", async
   expect(helperStart).toBeGreaterThan(-1);
   expect(helperEnd).toBeGreaterThan(helperStart);
   const hostedCheckout = acceptance.slice(helperStart, helperEnd);
-  expect(hostedCheckout.indexOf("name: /^Card$/i")).toBeLessThan(
-    hostedCheckout.indexOf("card number"),
+  expect(hostedCheckout.indexOf("AccordionItemHeader--clickable")).toBeLessThan(
+    hostedCheckout.indexOf("cardNumberInput.fill(cardNumber)"),
   );
+  expect(hostedCheckout).not.toContain("check({ force: true })");
+  expect(hostedCheckout).toContain('input[name="cardCvc"]');
+  expect(hostedCheckout).not.toContain("security code|cvc");
+  expect(hostedCheckout).toContain('data-testid="hosted-payment-submit-button"');
+  expect(hostedCheckout).not.toContain("name: /pay/i");
 });
 
 test("provider lane command rejects an invalid lane before protected execution", async () => {
