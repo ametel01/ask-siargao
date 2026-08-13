@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { sharedTripPageForToken } from "@/app/trips/shared/[token]/page";
+import { sharedTripPageForToken } from "@/app/trips/shared/[token]/page-content";
 import type { RecommendationCard } from "@/server/chat/agent-runtime";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import { runInitialMigration } from "@/server/db/test-database";

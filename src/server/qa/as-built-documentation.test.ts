@@ -66,6 +66,19 @@ test("as-built environment example covers the production-readiness interfaces", 
   expect(example).not.toContain("INNGEST_SIGNING_KEY");
 });
 
+test("production builds use the documented reliable Next bundler", async () => {
+  const [packageJson, scriptsReference] = await Promise.all([
+    Bun.file("package.json").json(),
+    readFile("documentation/developer/reference/scripts.md", "utf8"),
+  ]);
+  const buildCommand = packageJson.scripts?.build;
+
+  expect(buildCommand).toBe(
+    "bun run validate:deployment && rm -rf .next && NEXT_PRIVATE_BUILD_WORKER=0 ./node_modules/.bin/next build --webpack",
+  );
+  expect(scriptsReference).toContain(`| \`bun run build\` | \`${buildCommand}\` |`);
+});
+
 test("environment template, reference, and code stay aligned for release-owned variables", async () => {
   const [example, reference, reportAccess, repositoryEnvUse] = await Promise.all([
     readFile(".env.example", "utf8"),
