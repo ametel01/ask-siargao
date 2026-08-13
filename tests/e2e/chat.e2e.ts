@@ -200,7 +200,13 @@ test("requires explicit DeepSeek processing acknowledgement before the first cha
     });
   });
 
+  const consentStatusResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/privacy/model-provider-consent",
+  );
   await page.goto("/chat");
+  await consentStatusResponse;
   await page.getByLabel("Ask anything about Siargao").fill("Where should I eat tonight?");
   await page.getByRole("button", { name: "Send question" }).click();
 
