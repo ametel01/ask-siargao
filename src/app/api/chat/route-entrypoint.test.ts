@@ -16,6 +16,7 @@ describe("chat route entrypoint", () => {
     let rateLimitCalls = 0;
     let responseCalls = 0;
     const response = await postChatRouteResponse(new Request("https://asksiargao.com/api/chat"), {
+      authenticate: async () => "user_consent_boundary",
       env: productionDeepSeek,
       rateLimit: async () => {
         rateLimitCalls += 1;
@@ -37,13 +38,41 @@ describe("chat route entrypoint", () => {
     expect(responseCalls).toBe(0);
   });
 
-  test("accepts the current consent version and continues through the chat boundary", async () => {
+  test("rejects signed-out requests before rate limiting or the chat implementation", async () => {
+    let rateLimitCalls = 0;
+    let responseCalls = 0;
     const request = new Request("https://asksiargao.com/api/chat", {
       headers: {
         cookie: `${modelProviderConsentCookieName}=${modelProviderConsentVersion}`,
       },
     });
     const response = await postChatRouteResponse(request, {
+      authenticate: async () => null,
+      env: productionDeepSeek,
+      rateLimit: async () => {
+        rateLimitCalls += 1;
+        return allowedRateLimit();
+      },
+      respond: async () => {
+        responseCalls += 1;
+        return Response.json({ ok: true });
+      },
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "unauthenticated" });
+    expect(rateLimitCalls).toBe(0);
+    expect(responseCalls).toBe(0);
+  });
+
+  test("accepts the current consent version for an authenticated request", async () => {
+    const request = new Request("https://asksiargao.com/api/chat", {
+      headers: {
+        cookie: `${modelProviderConsentCookieName}=${modelProviderConsentVersion}`,
+      },
+    });
+    const response = await postChatRouteResponse(request, {
+      authenticate: async () => "user_chat_boundary",
       env: productionDeepSeek,
       rateLimit: async () => allowedRateLimit(),
       respond: async (_request, headers) =>
