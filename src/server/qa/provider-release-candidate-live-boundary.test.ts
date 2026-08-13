@@ -79,12 +79,19 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   );
   expect(hostedCheckout).not.toContain("check({ force: true })");
   expect(hostedCheckout).toContain('input[name="email"]:visible');
-  expect(hostedCheckout).toContain('input[name="cardCvc"]');
+  expect(hostedCheckout).toContain('input[name="cardNumber"]:visible');
+  expect(hostedCheckout).toContain('input[name="cardExpiry"]:visible');
+  expect(hostedCheckout).toContain('input[name="cardCvc"]:visible');
   expect(hostedCheckout).toContain('input[name="billingName"]:visible');
+  expect(hostedCheckout).toContain('input[name="termsOfServiceConsentCheckbox"]:visible');
   expect(hostedCheckout).not.toContain("security code|cvc");
+  expect(hostedCheckout).not.toContain("getByLabel(/expiration/i)");
   expect(hostedCheckout).not.toContain("name on card");
   expect(hostedCheckout).toContain('data-testid="hosted-payment-submit-button"');
   expect(hostedCheckout).not.toContain("name: /pay/i");
+  expect(hostedCheckout).toContain('toBe("complete:paid")');
+  expect(hostedCheckout).toContain("trip_pass_checkout=return");
+  expect(hostedCheckout).not.toContain("page.waitForURL");
 });
 
 test("provider lane command rejects an invalid lane before protected execution", async () => {
