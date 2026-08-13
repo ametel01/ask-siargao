@@ -35,6 +35,7 @@ describe("Clerk route policy", () => {
       ["/api/me/provider-release-candidate", "protected"],
       ["/api/me/privacy", "protected"],
       ["/api/me/trip-pass", "protected"],
+      ["/api/chat", "protected"],
       ["/api/chat/threads", "protected"],
       ["/api/chat/threads/thread_123", "protected"],
       ["/api/chat/ratings", "protected"],

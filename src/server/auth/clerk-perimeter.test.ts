@@ -35,6 +35,7 @@ describe("Clerk proxy perimeter", () => {
       "/profile",
       "/admin/diagnostics",
       "/api/admin/repairs",
+      "/api/chat",
       "/api/me/profile",
     ]) {
       const auth = protectRecorder();

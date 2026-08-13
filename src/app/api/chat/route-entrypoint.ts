@@ -6,9 +6,11 @@ import {
   modelProviderConsentVersion,
   requiresModelProviderConsent,
 } from "@/lib/model-provider-consent";
+import { getAuthenticatedClerkUserId } from "@/server/auth/clerk-users";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
 
 type ChatRouteEntrypointDependencies = {
+  authenticate: () => Promise<string | null>;
   env?: Record<string, string | undefined>;
   rateLimit: typeof rateLimitRequest;
   respond: (request: Request, headers: HeadersInit) => Promise<Response>;
@@ -17,6 +19,7 @@ type ChatRouteEntrypointDependencies = {
 export async function postChatRouteResponse(
   request: Request,
   dependencies: ChatRouteEntrypointDependencies = {
+    authenticate: getAuthenticatedClerkUserId,
     rateLimit: rateLimitRequest,
     respond: (chatRequest, headers) =>
       chatResponse(
@@ -28,6 +31,14 @@ export async function postChatRouteResponse(
       ),
   },
 ) {
+  const userId = await dependencies.authenticate();
+  if (!userId) {
+    return Response.json(
+      { error: "unauthenticated" },
+      { status: 401, headers: { "cache-control": "private, no-store" } },
+    );
+  }
+
   if (
     requiresModelProviderConsent(dependencies.env) &&
     !hasModelProviderConsent(request.headers.get("cookie"))
