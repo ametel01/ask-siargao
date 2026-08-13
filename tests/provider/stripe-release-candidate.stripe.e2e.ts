@@ -336,6 +336,8 @@ async function completeHostedCheckout(
     if (!page.url().startsWith(checkoutUrl)) await page.goto(checkoutUrl);
     const emailInput = page.getByLabel(/email/i);
     if (await emailInput.isVisible()) await emailInput.fill(email);
+    const cardPaymentMethod = page.getByRole("radio", { name: /^Card$/i });
+    if (await cardPaymentMethod.isVisible()) await cardPaymentMethod.check({ force: true });
     await page.getByLabel(/card number/i).fill(cardNumber);
     await page.getByLabel(/expiration/i).fill("1234");
     await page.getByLabel(/security code|cvc/i).fill("123");
