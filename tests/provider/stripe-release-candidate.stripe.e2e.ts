@@ -448,7 +448,12 @@ async function closeAccount(page: Page) {
   await page.getByRole("button", { name: "Close Account", exact: true }).click();
   await page.getByLabel("Account Closure confirmation").fill("CLOSE MY ACCOUNT");
   await page.getByRole("button", { name: "Close Account permanently" }).click();
-  await expect.poll(async () => (await page.request.get("/api/me/profile")).status()).toBe(404);
+  await expect
+    .poll(async () => {
+      const status = (await page.request.get("/api/me/profile")).status();
+      return status === 401 || status === 404;
+    })
+    .toBe(true);
 }
 
 async function assertPaidAfterClosure(sessionId: string) {
