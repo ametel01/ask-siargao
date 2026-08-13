@@ -223,7 +223,10 @@ async function proveAmbiguousRefundRetry(page: Page, paymentIntentId: string) {
       if (!responseDropped && method === "POST" && path === "/v1/refunds") {
         responseDropped = true;
         const error = new Error("Controlled response loss after provider acceptance.");
-        Object.assign(error, { code: "ECONNRESET" });
+        // stripe-node retries ECONNRESET and EPIPE once even when maxNetworkRetries is zero.
+        // Use a different transport error so the first accepted response remains ambiguous to
+        // the caller and the explicit idempotent retry below is the one that proves convergence.
+        Object.assign(error, { code: "EAI_AGAIN" });
         throw error;
       }
       return response;
