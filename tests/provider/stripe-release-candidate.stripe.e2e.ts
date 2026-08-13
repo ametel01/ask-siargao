@@ -380,8 +380,13 @@ async function completeHostedCheckout(
   });
   await safeProviderCall("submit hosted test Checkout", async () => {
     const submit = page.locator('[data-testid="hosted-payment-submit-button"]');
-    await submit.click();
-    await expect(submit).toBeDisabled({ timeout: 5_000 });
+    await expect(submit).toHaveCount(1);
+    await expect(submit).toBeVisible();
+    await expect(submit).toBeEnabled();
+    // Stripe's hosted agent layout can block Playwright pointer hit-testing even
+    // after every required field and disclosure is valid. Dispatch the exact
+    // proved control, then let the authoritative Session poll verify payment.
+    await submit.dispatchEvent("click");
   });
   await safeProviderCall("confirm paid test Checkout", async () => {
     await expect
