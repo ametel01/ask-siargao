@@ -379,23 +379,25 @@ async function completeHostedCheckout(
     await expect(agentDisclosure, "Hosted Checkout did not record agent disclosure.").toBeChecked();
   });
   await safeProviderCall("submit hosted test Checkout", async () => {
-    const submit = page.locator('[data-testid="hosted-payment-submit-button"]');
-    await expect(submit).toHaveCount(1);
-    await expect(submit).toBeVisible();
-    await expect(submit).toBeEnabled();
-    // Stripe's hosted agent layout can block Playwright pointer hit-testing even
-    // after every required field and disclosure is valid. Force the real
-    // Playwright click on the exact proved control; a synthetic dispatch does not
-    // enter Stripe's React submit path. The authoritative Session poll below
-    // still verifies that the provider accepted payment.
-    await submit.click({ force: true });
+    await clickHostedCheckoutSubmit(page);
   });
   await safeProviderCall("confirm paid test Checkout", async () => {
+    let retries = 0;
+    let lastSubmitAt = Date.now();
     await expect
       .poll(
         async () => {
           const session = await stripe.checkout.sessions.retrieve(sessionId);
-          return `${session.status}:${session.payment_status}`;
+          const state = `${session.status}:${session.payment_status}`;
+          // Stripe occasionally drops the runner's first hosted submit before it
+          // creates a PaymentIntent. Retry only while the authoritative Session
+          // proves that no payment was accepted, and keep the attempts bounded.
+          if (state === "open:unpaid" && retries < 2 && Date.now() - lastSubmitAt >= 5_000) {
+            await clickHostedCheckoutSubmit(page);
+            retries += 1;
+            lastSubmitAt = Date.now();
+          }
+          return state;
         },
         { timeout: 60_000, intervals: [500, 1_000, 2_000] },
       )
@@ -404,6 +406,18 @@ async function completeHostedCheckout(
   await safeProviderCall("return to protected Checkout status", async () => {
     await page.goto(`${origin}/settings?trip_pass_checkout=return`);
   });
+}
+
+async function clickHostedCheckoutSubmit(page: Page) {
+  const submit = page.locator('[data-testid="hosted-payment-submit-button"]');
+  await expect(submit).toHaveCount(1);
+  await expect(submit).toBeVisible();
+  await expect(submit).toBeEnabled();
+  // Stripe's hosted agent layout can block Playwright pointer hit-testing even
+  // after every required field and disclosure is valid. Force the real
+  // Playwright click on the exact proved control; a synthetic dispatch does not
+  // enter Stripe's React submit path.
+  await submit.click({ force: true });
 }
 
 async function retrieveCheckout(sessionId: string, operation = "retrieve exact test Checkout") {

@@ -108,14 +108,15 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(preparation).toContain(".toBeChecked()");
 
   const submission = hostedCheckout.slice(submitStart, confirmationStart);
-  expect(submission).toContain("expect(submit).toHaveCount(1)");
-  expect(submission).toContain("expect(submit).toBeVisible()");
-  expect(submission).toContain("expect(submit).toBeEnabled()");
-  expect(submission).toContain("submit.click({ force: true })");
+  expect(submission).toContain("clickHostedCheckoutSubmit(page)");
   expect(submission).not.toContain('submit.dispatchEvent("click")');
 
   const confirmation = hostedCheckout.slice(confirmationStart, returnStart);
   expect(confirmation).toContain("stripe.checkout.sessions.retrieve(sessionId)");
+  expect(confirmation).toContain('state === "open:unpaid"');
+  expect(confirmation).toContain("retries < 2");
+  expect(confirmation).toContain("Date.now() - lastSubmitAt >= 5_000");
+  expect(confirmation).toContain("clickHostedCheckoutSubmit(page)");
   expect(confirmation).toContain('toBe("complete:paid")');
   expect(confirmation).toContain("timeout: 60_000");
   expect(confirmation).toContain("intervals: [500, 1_000, 2_000]");
@@ -131,6 +132,17 @@ test("Stripe Checkout opens the visible Card accordion before entering hosted fi
   expect(startCheckout).toContain('sessionId?.startsWith("cs_test_")');
   expect(startCheckout).toContain("return { checkoutUrl: body.checkoutUrl, sessionId }");
   expect(hostedCheckout).not.toContain("latestCheckoutSessionId");
+
+  const clickHelperStart = acceptance.indexOf("async function clickHostedCheckoutSubmit");
+  const clickHelperEnd = acceptance.indexOf("async function retrieveCheckout", clickHelperStart);
+  expect(clickHelperStart).toBeGreaterThan(helperStart);
+  expect(clickHelperEnd).toBeGreaterThan(clickHelperStart);
+  const clickHelper = acceptance.slice(clickHelperStart, clickHelperEnd);
+  expect(clickHelper).toContain("expect(submit).toHaveCount(1)");
+  expect(clickHelper).toContain("expect(submit).toBeVisible()");
+  expect(clickHelper).toContain("expect(submit).toBeEnabled()");
+  expect(clickHelper).toContain("submit.click({ force: true })");
+  expect(clickHelper).not.toContain('submit.dispatchEvent("click")');
 });
 
 test("provider lane command rejects an invalid lane before protected execution", async () => {
