@@ -1,25 +1,15 @@
-"use client";
+if (navigator.doNotTrack !== "1") {
+  const section = document.getElementById("trip-pass");
 
-import { useEffect } from "react";
-
-export function TripPassPricingTelemetry() {
-  useEffect(() => {
-    if (navigator.doNotTrack === "1") {
-      return;
-    }
-
-    const section = document.getElementById("trip-pass");
-    if (!section) {
-      return;
-    }
-
+  if (section) {
     let sent = false;
     const send = () => {
       if (sent) {
         return;
       }
+
       sent = true;
-      void fetch("/api/observability/events", {
+      fetch("/api/observability/events", {
         body: JSON.stringify({
           name: "trip_pass_pricing_viewed",
           surface: "landing",
@@ -40,9 +30,5 @@ export function TripPassPricingTelemetry() {
       { threshold: 0.35 },
     );
     observer.observe(section);
-
-    return () => observer.disconnect();
-  }, []);
-
-  return null;
+  }
 }

@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import nextConfig, { contentSecurityPolicyReportOnly } from "./next.config";
 
+describe("mobile rendering performance", () => {
+  test("inlines the small Tailwind bundle to remove first-load CSS round trips", () => {
+    expect(nextConfig.experimental?.inlineCss).toBe(true);
+  });
+});
+
 describe("security response headers", () => {
   test("ships a tested report-only CSP on every application path", async () => {
     expect(nextConfig.headers).toBeDefined();

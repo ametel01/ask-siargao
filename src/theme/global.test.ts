@@ -40,13 +40,11 @@ describe("reduced motion policy", () => {
 describe("self-hosted typography", () => {
   test("keeps production builds independent from Google Fonts", () => {
     expect(rootLayout).not.toContain('from "next/font/google"');
-    expect(rootLayout).toContain("@fontsource/cormorant-garamond/latin-500.css");
-    expect(rootLayout).toContain("@fontsource/nunito-sans/latin-400.css");
+    expect(rootLayout).toContain("@fontsource-variable/cormorant-garamond/wght.css");
+    expect(rootLayout).toContain("@fontsource-variable/nunito-sans/wght.css");
+    expect(css).toContain('--font-heading:\n    "Cormorant Garamond Variable"');
     expect(css).toContain(
-      '--font-heading: "Cormorant Garamond", "Iowan Old Style", Georgia, "Times New Roman", serif;',
-    );
-    expect(css).toContain(
-      '--font-body: "Nunito Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif;',
+      '--font-body: "Nunito Sans Variable", "Avenir Next", "Segoe UI", system-ui, sans-serif;',
     );
   });
 });

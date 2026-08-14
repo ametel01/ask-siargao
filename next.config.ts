@@ -23,6 +23,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED: process.env.NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED ?? "1",
   },
   experimental: {
+    inlineCss: true,
     useTypeScriptCli: true,
   },
   // The chat runtime reads governed Markdown through fs at request time. The

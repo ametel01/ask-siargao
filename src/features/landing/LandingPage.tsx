@@ -13,23 +13,32 @@ import {
   ShieldCheck,
   Waves,
 } from "lucide-react";
-import Image from "next/image";
-import Link from "next/link";
+import { getImageProps } from "next/image";
+import type { ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { projectCapabilityEvidencePresentation } from "@/features/chat/evidence-presentation-state";
 import { tripPassPublicOffer } from "@/features/trip-pass/public-copy";
-import { TripPassPricingTelemetry } from "@/features/trip-pass/TripPassPricingTelemetry";
 import { cn } from "@/lib/utils";
 import {
   publicPageFamilies,
   publicSurfaceRegistry,
 } from "@/server/public-pages/public-surface-registry";
-import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/components/ask-siargao";
+import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/styles/app-surface";
 
 const heroPrompt = "Given today's weather and tide, should we still go to Cloud 9?";
 const landingPrimaryActionClass =
   "landing-primary-action min-h-11 rounded-lg px-4 text-sm font-semibold shadow-cta landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3";
+
+const { props: responsiveHeroImageProps } = getImageProps({
+  alt: "",
+  className: "object-cover object-[72%_34%] lg:object-[58%_42%]",
+  fetchPriority: "high",
+  fill: true,
+  loading: "eager",
+  sizes: "(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 100vw",
+  src: "/images/ask-siargao-mobile-hero-bg.png",
+});
 
 const navigationItems = [
   { label: "Example", href: "#example-reality-check" },
@@ -158,13 +167,13 @@ export function LandingPage() {
 function Header() {
   return (
     <header className="flex min-h-16 items-center justify-between gap-4 lg:min-h-[4.75rem]">
-      <Link
+      <a
         aria-label="Ask Siargao home"
         className="min-w-0 rounded-md no-underline landing-focus-ring focus-visible:outline-offset-4"
         href="/"
       >
         <LandingBrand />
-      </Link>
+      </a>
 
       <nav
         aria-label="Landing page"
@@ -181,17 +190,15 @@ function Header() {
         ))}
       </nav>
 
-      <Button
-        asChild
+      <LandingActionLink
         className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-5"
+        href="/chat"
         variant="outline"
       >
-        <Link href="/chat">
-          <MessageCircle aria-hidden="true" size={19} />
-          <span className="hidden sm:inline">Ask in chat</span>
-          <span className="sm:hidden">Chat</span>
-        </Link>
-      </Button>
+        <MessageCircle aria-hidden="true" size={19} />
+        <span className="hidden sm:inline">Ask in chat</span>
+        <span className="sm:hidden">Chat</span>
+      </LandingActionLink>
     </header>
   );
 }
@@ -200,11 +207,13 @@ function LandingBrand() {
   return (
     <span className="inline-flex min-w-0 items-center gap-3 text-text-on-dark sm:gap-4">
       <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-text-on-dark bg-surface-night-card shadow-none backdrop-blur-sm sm:size-16 lg:size-[4.4rem]">
-        <Image
+        {/* biome-ignore lint/performance/noImgElement: This local SVG does not benefit from image optimization or client hydration. */}
+        <img
           alt=""
           aria-hidden="true"
           className="size-[72%] object-contain"
           height={58}
+          loading="lazy"
           src="/ask_siargao_palm_icon.svg"
           width={58}
         />
@@ -271,12 +280,13 @@ function PromptComposer() {
         <p className="m-0 min-w-0 text-base leading-normal font-semibold text-text-muted sm:text-lg">
           “{heroPrompt}”
         </p>
-        <Button asChild className={cn(landingPrimaryActionClass, "w-full sm:w-auto")}>
-          <Link href={chatPromptHref(heroPrompt)}>
-            <Send aria-hidden="true" size={19} />
-            Try this example
-          </Link>
-        </Button>
+        <LandingActionLink
+          className={cn(landingPrimaryActionClass, "w-full sm:w-auto")}
+          href={chatPromptHref(heroPrompt)}
+        >
+          <Send aria-hidden="true" size={19} />
+          Try this example
+        </LandingActionLink>
       </div>
     </section>
   );
@@ -286,22 +296,20 @@ function QuickChips() {
   return (
     <section aria-label="Common trip constraints" className="flex flex-wrap items-center gap-3">
       {quickChips.map(({ icon: Icon, label, prompt, tone }) => (
-        <Button
-          asChild
+        <LandingActionLink
           className="min-h-11 rounded-full border border-border-on-dark bg-surface-night-card px-5 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3"
+          href={chatPromptHref(prompt)}
           key={label}
           variant="outline"
         >
-          <Link href={chatPromptHref(prompt)}>
-            <Icon
-              aria-hidden="true"
-              className={cn(tone === "coral" ? "text-brand-sunset-coral" : "text-brand-lagoon-300")}
-              size={22}
-              strokeWidth={2.1}
-            />
-            {label}
-          </Link>
-        </Button>
+          <Icon
+            aria-hidden="true"
+            className={cn(tone === "coral" ? "text-brand-sunset-coral" : "text-brand-lagoon-300")}
+            size={22}
+            strokeWidth={2.1}
+          />
+          {label}
+        </LandingActionLink>
       ))}
     </section>
   );
@@ -348,15 +356,12 @@ function CoastalFrame() {
       aria-label="A coastal view from Siargao"
       className="pointer-events-none absolute -inset-x-5 -top-5 bottom-0 -z-10 overflow-hidden sm:-inset-x-8 md:-inset-x-10 lg:pointer-events-auto lg:relative lg:inset-auto lg:z-auto lg:min-h-[39rem] lg:rounded-[2.25rem] lg:border lg:border-border-on-dark lg:shadow-coastal-frame"
     >
-      <Image
+      {/* biome-ignore lint/performance/noImgElement: getImageProps keeps Next image optimization without hydrating the LCP image. */}
+      <img
+        {...responsiveHeroImageProps}
         alt=""
         aria-hidden="true"
-        className="object-cover object-[72%_34%] lg:object-[58%_42%]"
         data-testid="responsive-hero-image"
-        fill
-        loading="eager"
-        sizes="(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 100vw"
-        src="/images/ask-siargao-mobile-hero-bg.png"
       />
       <div className="absolute inset-0 bg-[image:var(--gradient-landing-coastal-overlay)] lg:hidden" />
       <div className="absolute inset-0 hidden bg-gradient-to-t from-brand-navy-980/90 via-transparent to-brand-navy-980/10 lg:block" />
@@ -421,13 +426,13 @@ function PlanningPanel() {
               </h3>
               <p className="m-0 text-base leading-normal font-normal text-text-muted">{body}</p>
             </div>
-            <Link
+            <a
               className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-700 no-underline hover:text-brand-lagoon-600 landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3"
               href={chatPromptHref(prompt)}
             >
               Run this check
               <ArrowRight aria-hidden="true" size={20} strokeWidth={2.1} />
-            </Link>
+            </a>
           </article>
         ))}
       </div>
@@ -463,7 +468,7 @@ function TourismNavigation() {
         <ul className="m-0 grid list-none border-border-on-dark border-y p-0">
           {tourismTopics.map((topic) => (
             <li className="border-border-on-dark border-t first:border-t-0" key={topic.family}>
-              <Link
+              <a
                 className="group grid min-h-20 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-md px-2 py-4 text-text-on-dark no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card landing-focus-ring focus-visible:outline-offset-2 sm:px-4"
                 href={topic.hubPath}
               >
@@ -479,7 +484,7 @@ function TourismNavigation() {
                   size={21}
                   strokeWidth={2.1}
                 />
-              </Link>
+              </a>
             </li>
           ))}
         </ul>
@@ -495,7 +500,7 @@ function TripPassPricingSection() {
       className="grid min-w-0 gap-6 border-border-on-dark border-t px-0 pt-8 pb-10 md:gap-8 md:pt-10 lg:grid-cols-[minmax(18rem,0.62fr)_minmax(0,1.38fr)] lg:items-start lg:pb-14"
       id="trip-pass"
     >
-      <TripPassPricingTelemetry />
+      <script defer src="/scripts/trip-pass-pricing-telemetry.js" />
       <div className="grid min-w-0 gap-4 lg:sticky lg:top-6">
         <h2
           className="m-0 max-w-[12ch] text-balance font-heading text-[clamp(2.35rem,8vw,4.1rem)] leading-[0.98] font-semibold text-text-on-dark"
@@ -508,19 +513,20 @@ function TripPassPricingSection() {
           throughout your trip.
         </p>
         <div className="flex flex-wrap gap-3">
-          <Button asChild className={landingPrimaryActionClass}>
-            <Link href={tripPassPublicOffer.links.chat}>
-              <MessageCircle aria-hidden="true" size={18} />
-              Start {tripPassPublicOffer.freeAnswerLimit} free answers
-            </Link>
-          </Button>
-          <Button
-            asChild
+          <LandingActionLink
+            className={landingPrimaryActionClass}
+            href={tripPassPublicOffer.links.chat}
+          >
+            <MessageCircle aria-hidden="true" size={18} />
+            Start {tripPassPublicOffer.freeAnswerLimit} free answers
+          </LandingActionLink>
+          <LandingActionLink
             className="min-h-11 rounded-lg border-border-on-dark bg-surface-night-card px-4 text-sm font-semibold text-text-on-dark shadow-none hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3"
+            href={tripPassPublicOffer.links.legal}
             variant="outline"
           >
-            <Link href={tripPassPublicOffer.links.legal}>Read terms</Link>
-          </Button>
+            Read terms
+          </LandingActionLink>
         </div>
       </div>
 
@@ -606,26 +612,27 @@ function TripPassPricingSection() {
             {`Checkout opens in signed-in settings when available. Your ${tripPassPublicOffer.durationDays}-day pass starts after payment is confirmed.`}
           </p>
           <div className="flex flex-wrap items-center gap-3 border-border-on-dark border-t pt-4">
-            <Button asChild className={landingPrimaryActionClass}>
-              <Link href={tripPassPublicOffer.links.settings}>
-                Get Trip Pass in settings
-                <ArrowRight aria-hidden="true" size={18} />
-              </Link>
-            </Button>
-            <Link
+            <LandingActionLink
+              className={landingPrimaryActionClass}
+              href={tripPassPublicOffer.links.settings}
+            >
+              Get Trip Pass in settings
+              <ArrowRight aria-hidden="true" size={18} />
+            </LandingActionLink>
+            <a
               className="inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
               href={tripPassPublicOffer.links.legal}
             >
               Trip Pass terms and refunds
               <ArrowRight aria-hidden="true" size={18} />
-            </Link>
-            <Link
+            </a>
+            <a
               className="inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
               href="/legal/privacy"
             >
               Privacy notice
               <ArrowRight aria-hidden="true" size={18} />
-            </Link>
+            </a>
           </div>
         </section>
       </div>
@@ -666,12 +673,13 @@ function OfferCard({
         <p className="m-0 text-sm leading-normal font-semibold text-text-on-dark-muted">{body}</p>
       </div>
       {action ? (
-        <Button asChild className={cn(landingPrimaryActionClass, "mt-auto w-full")}>
-          <Link href={action.href}>
-            {action.label}
-            <ArrowRight aria-hidden="true" size={18} />
-          </Link>
-        </Button>
+        <LandingActionLink
+          className={cn(landingPrimaryActionClass, "mt-auto w-full")}
+          href={action.href}
+        >
+          {action.label}
+          <ArrowRight aria-hidden="true" size={18} />
+        </LandingActionLink>
       ) : null}
     </article>
   );
@@ -679,4 +687,28 @@ function OfferCard({
 
 function chatPromptHref(prompt: string) {
   return `/chat?prompt=${encodeURIComponent(prompt)}`;
+}
+
+function LandingActionLink({
+  children,
+  className,
+  href,
+  variant = "default",
+}: {
+  children: ReactNode;
+  className?: string;
+  href: string;
+  variant?: "default" | "outline";
+}) {
+  return (
+    <a
+      className={cn(buttonVariants({ className, variant }))}
+      data-size="default"
+      data-slot="button"
+      data-variant={variant}
+      href={href}
+    >
+      {children}
+    </a>
+  );
 }

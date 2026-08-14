@@ -74,6 +74,7 @@ test("uses one eager responsive hero image across mobile and desktop", async ({ 
   const heroImage = page.getByTestId("responsive-hero-image");
   await expect(heroImage).toHaveCount(1);
   await expect(heroImage).toHaveAttribute("loading", "eager");
+  await expect(heroImage).toHaveAttribute("fetchpriority", "high");
   await expect(heroImage).toHaveAttribute(
     "sizes",
     "(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 100vw",
@@ -82,6 +83,38 @@ test("uses one eager responsive hero image across mobile and desktop", async ({ 
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(heroImage).toBeVisible();
+});
+
+test("@production-perf removes the landing render and hydration waterfalls", async ({ page }) => {
+  const events: Array<Record<string, unknown>> = [];
+  await page.route("**/api/observability/events", async (route) => {
+    events.push(route.request().postDataJSON());
+    await route.fulfill({ body: JSON.stringify({ status: "accepted" }), status: 200 });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/", { waitUntil: "networkidle" });
+
+  await expect(page.locator('link[rel="stylesheet"]')).toHaveCount(0);
+  await expect(page.locator("style")).not.toHaveCount(0);
+
+  const heroImage = page.getByTestId("responsive-hero-image");
+  await expect(heroImage).toHaveAttribute("loading", "eager");
+  await expect(heroImage).toHaveAttribute("fetchpriority", "high");
+
+  const loadedFonts = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return performance
+      .getEntriesByType("resource")
+      .map((entry) => entry.name)
+      .filter((name) => new URL(name).pathname.endsWith(".woff2"));
+  });
+  expect(loadedFonts).toHaveLength(2);
+
+  await page.locator("#trip-pass").scrollIntoViewIfNeeded();
+  await expect
+    .poll(() => events.find((event) => event.name === "trip_pass_pricing_viewed"))
+    .toMatchObject({ surface: "landing" });
 });
 
 test("keeps every primary landing action on one contrast-stable color role", async ({ page }) => {

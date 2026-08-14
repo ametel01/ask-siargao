@@ -1,17 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
-import "@fontsource/cormorant-garamond/latin-500.css";
-import "@fontsource/cormorant-garamond/latin-600.css";
-import "@fontsource/cormorant-garamond/latin-700.css";
-import "@fontsource/nunito-sans/latin-400.css";
-import "@fontsource/nunito-sans/latin-600.css";
-import "@fontsource/nunito-sans/latin-700.css";
-import "@fontsource/nunito-sans/latin-800.css";
-import "@fontsource/nunito-sans/latin-900.css";
+import "@fontsource-variable/cormorant-garamond/wght.css";
+import "@fontsource-variable/nunito-sans/wght.css";
 import { SkipToMainContent } from "@/components/SkipToMainContent";
-import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import "@/theme/global.css";
 
 export const metadata: Metadata = {
@@ -31,17 +23,12 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
-  const appContent = (
-    <>
-      <SkipToMainContent />
-      <TooltipProvider>{children}</TooltipProvider>
-      <Toaster position="top-center" richColors />
-    </>
-  );
-
   return (
     <html lang="en">
-      <body>{appContent}</body>
+      <body>
+        <SkipToMainContent />
+        {children}
+      </body>
     </html>
   );
 }

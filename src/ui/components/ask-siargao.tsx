@@ -4,6 +4,14 @@ import type { ComponentType, HTMLAttributes, ReactNode } from "react";
 
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { appSurfaceLineItemClass } from "@/ui/styles/app-surface";
+
+export {
+  appSurfaceInsetClass,
+  appSurfaceLineItemClass,
+  appSurfaceOverlayClass,
+  appSurfacePanelClass,
+} from "@/ui/styles/app-surface";
 
 type IconComponent = ComponentType<{
   "aria-hidden"?: boolean;
@@ -17,25 +25,6 @@ const sunsetBackdropClass =
   "min-h-screen bg-[image:var(--gradient-sunset-backdrop)] bg-cover bg-center bg-no-repeat text-text-on-dark";
 
 export const appShellClass = "mx-auto grid w-full max-w-[1180px] gap-6 px-5 py-7 md:px-8 md:py-12";
-
-/*
- * Shared product surface roles:
- * - panel: the primary bounded workspace or section.
- * - inset: quiet supporting groups inside a workspace.
- * - overlay: dialogs, sheets, and transient floating UI.
- * - line item: repeated rows that should not become nested cards.
- */
-export const appSurfacePanelClass =
-  "rounded-md border border-border-default bg-surface-default text-text-default shadow-surface-panel";
-
-export const appSurfaceInsetClass =
-  "rounded-md border border-border-default/80 bg-surface-soft text-text-default shadow-none";
-
-export const appSurfaceOverlayClass =
-  "rounded-md border border-border-default bg-surface-default text-text-default shadow-surface-overlay";
-
-export const appSurfaceLineItemClass =
-  "border-border-default border-t bg-transparent shadow-none first:border-t-0";
 
 export const appPanelClass =
   "rounded-md border border-border-on-dark bg-surface-glass p-5 text-text-default shadow-surface-panel md:p-6";
