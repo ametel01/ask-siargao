@@ -376,7 +376,9 @@ async function proveNativeRollbackAndReplay(db: DatabaseQueryClient) {
         raise exception 'forced native lifecycle rollback';
       end if;
       return new;
-    end $$;
+    end $$
+  `);
+  await db.query(`
     create trigger issue152_terminal_projection_failure
     before update on trip_pass_orders for each row
     execute function fail_issue152_terminal_projection()
