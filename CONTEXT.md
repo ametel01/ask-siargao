@@ -229,6 +229,16 @@ _Avoid_: Entitlement, activation
 An allowance counter attached to a Trip Pass for one category of metered use.
 _Avoid_: Quota, balance
 
+**Agent Turn Recovery**:
+The bounded attempt to recover an interrupted or invalid answer-generation turn before it can
+become a Travel Answer.
+_Avoid_: Travel Answer recovery, repair pipeline
+
+**Limited Answer Candidate**:
+An answer-generation result that satisfies mandatory recovery integrity requirements while missing
+one or more optional quality goals. It is not a Travel Answer until durable admission succeeds.
+_Avoid_: Degraded Travel Answer, terminal fallback, completed with limits
+
 **Travel Answer**:
 A complete, policy-compliant assistant answer durably stored for an Ask Siargao Account. It counts
 once even if client delivery is interrupted and is retrievable through the same idempotency key.
