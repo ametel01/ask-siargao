@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import "@fontsource/cormorant-garamond/latin-500.css";
@@ -15,9 +15,19 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import "@/theme/global.css";
 
 export const metadata: Metadata = {
+  applicationName: "Ask Siargao",
   title: "Ask Siargao",
   description:
     "A chat-first Siargao travel assistant for stays, food, weather, transfers, and local trip questions.",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Ask Siargao",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#05082a",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

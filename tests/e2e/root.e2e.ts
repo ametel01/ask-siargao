@@ -399,8 +399,14 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
     );
     const paidActions = pricing.getByRole("link", { name: "Get Trip Pass in settings" });
     await expect(paidActions).toHaveCount(2);
-    await expect(paidActions.first()).toHaveAttribute("href", "/settings#pass");
-    await expect(paidActions.last()).toHaveAttribute("href", "/settings#pass");
+    await expect(paidActions.first()).toHaveAttribute(
+      "href",
+      "/sign-in?redirect_url=%2Fsettings%23pass",
+    );
+    await expect(paidActions.last()).toHaveAttribute(
+      "href",
+      "/sign-in?redirect_url=%2Fsettings%23pass",
+    );
     await expect(
       pricing.getByRole("link", { name: "Trip Pass terms and refunds" }),
     ).toHaveAttribute("href", "/legal/trip-pass");
@@ -439,13 +445,18 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
   await expect(page.getByText("verified Stripe payment event")).toBeVisible();
   await expect(page.getByText("Full refunds revoke remaining pass access.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Provider availability" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Manage in settings" })).toHaveAttribute(
+  const manageInSettings = page.getByRole("link", { name: "Manage in settings" });
+  await expect(manageInSettings).toHaveAttribute(
     "href",
-    "/settings#pass",
+    "/sign-in?redirect_url=%2Fsettings%23pass",
   );
   await expect(
     page.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b|\bguaranteed\b/i),
   ).toHaveCount(0);
+
+  await manageInSettings.click();
+  await expect(page).toHaveURL("/sign-in?redirect_url=%2Fsettings%23pass");
+  await expect(page.getByRole("heading", { name: "Sign in unavailable" })).toBeVisible();
 });
 
 test("landing remains usable at a 200 percent zoom equivalent with reduced motion", async ({

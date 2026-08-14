@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Ask Siargao palm</title>
+  <rect width="512" height="512" fill="#05082a" />
+  <circle cx="256" cy="256" r="196" fill="#062f35" />
+  <circle cx="256" cy="256" r="178" fill="none" stroke="#14b8a6" stroke-width="20" />
+  <g
+    fill="none"
+    stroke="#fffdf7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M257 236c-4 67-2 112 7 151" stroke-width="34" />
+    <path d="M252 224c-42-37-80-46-117-28" stroke-width="32" />
+    <path d="M255 218c-29-54-60-73-98-70" stroke-width="32" />
+    <path d="M259 214c-6-55 11-88 48-111" stroke-width="32" />
+    <path d="M264 218c35-50 74-67 118-53" stroke-width="32" />
+    <path d="M267 226c49-27 89-25 119 2" stroke-width="32" />
+    <path d="M201 393c37-18 77-18 115 0" stroke-width="26" />
+  </g>
+  <circle cx="375" cy="130" r="22" fill="#ffd65a" />
+</svg>

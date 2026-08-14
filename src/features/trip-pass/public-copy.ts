@@ -13,7 +13,7 @@ export const tripPassPublicOffer = {
     chat: "/chat",
     legal: "/legal/trip-pass",
     pricing: "/#trip-pass",
-    settings: "/settings#pass",
+    settings: "/sign-in?redirect_url=%2Fsettings%23pass",
   },
 } as const;
 

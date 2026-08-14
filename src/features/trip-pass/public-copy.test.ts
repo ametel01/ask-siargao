@@ -21,6 +21,7 @@ describe("Trip Pass public copy contract", () => {
     expect(tripPassPublicOffer.priceLabel).toBe(
       tripPassProductCatalog.presentation.launchPriceLabel,
     );
+    expect(tripPassPublicOffer.links.settings).toBe("/sign-in?redirect_url=%2Fsettings%23pass");
   });
 
   test("keeps public positioning truthful and bounded", () => {
