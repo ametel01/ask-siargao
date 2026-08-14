@@ -158,6 +158,7 @@ export const config = {
     "/operators/:slug/llm.md",
     "/risks/:slug/llm.md",
     "/routes/:slug/llm.md",
+    "/guides/:slug/llm.md",
     "/__clerk/:path*",
     "/(api|trpc)(.*)",
   ],

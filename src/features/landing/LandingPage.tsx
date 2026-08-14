@@ -39,7 +39,16 @@ const navigationItems = [
   { label: "Trip Pass", href: "#trip-pass" },
 ] as const;
 
-const tourismTopics = publicPageFamilies.map((family) => publicSurfaceRegistry[family]);
+const tourismTopics = [
+  {
+    family: "guides",
+    hubPath: "/guides",
+    hubTitle: "Siargao planning guides",
+    hubDescription:
+      "Start with complete itineraries and first-timer guidance, then adapt the plan in chat.",
+  },
+  ...publicPageFamilies.map((family) => publicSurfaceRegistry[family]),
+];
 
 const quickChips = [
   {

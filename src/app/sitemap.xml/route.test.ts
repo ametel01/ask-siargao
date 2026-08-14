@@ -21,10 +21,13 @@ test("serves home, topic hubs, and every eligible tourism page as canonical URLs
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("application/xml; charset=utf-8");
-  expect(locations).toHaveLength(11);
+  expect(locations).toHaveLength(19);
   expect(locations[0]).toBe("https://www.asksiargao.com/");
   expect(locations).toContain("https://www.asksiargao.com/accommodations");
   expect(locations).toContain("https://www.asksiargao.com/accommodations/example-surf-stay");
+  expect(locations).toContain("https://www.asksiargao.com/guides");
+  expect(locations).toContain("https://www.asksiargao.com/guides/complete-siargao-travel-guide");
+  expect(locations).toContain("https://www.asksiargao.com/guides/siargao-7-day-itinerary");
   expect(locations.every((url) => url?.startsWith("https://www.asksiargao.com/"))).toBe(true);
   expect(xml).not.toContain("audit_");
   expect(xml).not.toContain("<loc>/");

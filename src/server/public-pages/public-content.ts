@@ -453,7 +453,10 @@ export function buildPublicJsonLd(page: PublicKnowledgePage) {
   };
 }
 
-export function buildSitemapXml(pages: readonly PublicKnowledgePage[] = publicPagesForIndex()) {
+export function buildSitemapXml(
+  pages: readonly PublicKnowledgePage[] = publicPagesForIndex(),
+  additionalEntries: readonly { path: string; lastModified?: string }[] = [],
+) {
   const entries = new Map<string, string | undefined>();
   entries.set(buildCanonicalSiteUrl("/"), undefined);
 
@@ -476,6 +479,10 @@ export function buildSitemapXml(pages: readonly PublicKnowledgePage[] = publicPa
       buildCanonicalSiteUrl(buildPublicHumanPath(page.family, page.slug)),
       sitemapDate(page.updatedAt),
     );
+  }
+
+  for (const entry of additionalEntries) {
+    entries.set(buildCanonicalSiteUrl(entry.path), entry.lastModified);
   }
 
   const urls = [...entries].map(([url, lastModified]) => sitemapUrl(url, lastModified)).join("");
@@ -512,19 +519,23 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;");
 }
 
-export function buildLlmsTxt(pages: readonly PublicKnowledgePage[] = publicPagesForIndex()) {
+export function buildLlmsTxt(
+  pages: readonly PublicKnowledgePage[] = publicPagesForIndex(),
+  additionalLines: readonly string[] = [],
+) {
   return [
     "# Ask Siargao public knowledge",
     "",
-    "Public pages use only republishable facts with visible evidence, confidence, freshness, source type, canonical URL, and limitations.",
+    "The governed knowledge pages below use only republishable facts with visible evidence, confidence, freshness, source type, canonical URL, and limitations.",
     "",
     "## Indexes",
     "- /api/public/entities",
     "- /api/public/evidence",
     "- /api/public/risk-preview",
     "",
-    "## Pages",
+    "## Governed knowledge pages",
     ...pages.map((page) => `- ${page.title}: ${page.canonicalUrl} (${page.llmMarkdownPath})`),
+    ...(additionalLines.length > 0 ? ["", ...additionalLines] : []),
     "",
   ].join("\n");
 }

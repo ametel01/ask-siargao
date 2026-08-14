@@ -57,6 +57,19 @@ export const clerkRoutePolicyEntries = [
   ),
   page("src/app/legal/privacy/page.tsx", "/legal/privacy", "public", "public privacy notice"),
   page("src/app/legal/trip-pass/page.tsx", "/legal/trip-pass", "public", "public Trip Pass terms"),
+  page("src/app/guides/page.tsx", "/guides", "public", "public planning guide hub"),
+  page(
+    "src/app/guides/[slug]/page.tsx",
+    "/guides/[slug]",
+    "public",
+    "public editorial planning guide",
+  ),
+  route(
+    "src/app/guides/[slug]/llm.md/route.ts",
+    "/guides/[slug]/llm.md",
+    "public",
+    "public editorial planning guide LLM markdown",
+  ),
   page(
     "src/app/trips/shared/[token]/page.tsx",
     "/trips/shared/public-token",

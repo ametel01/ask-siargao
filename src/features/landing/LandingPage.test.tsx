@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-
+import { PlanningGuidesHubPage } from "@/features/guides/PlanningGuidesHubPage";
 import { LandingPage } from "@/features/landing/LandingPage";
 import { PublicKnowledgeHubPage } from "@/features/public-pages/PublicKnowledgeHubPage";
+import { planningGuidePath } from "@/server/guides/planning-guide-output";
+import { planningGuides } from "@/server/guides/planning-guides";
 import { publicKnowledgePages } from "@/server/public-pages/public-content";
 import {
   publicPageFamilies,
@@ -19,6 +21,7 @@ test("uses a homepage H1 aligned with the page title", () => {
 
 test("makes every eligible tourism page reachable from home through HTML links", () => {
   const documents = new Map<string, string>([["/", renderToStaticMarkup(<LandingPage />)]]);
+  documents.set("/guides", renderToStaticMarkup(<PlanningGuidesHubPage />));
 
   for (const family of publicPageFamilies) {
     const surface = publicSurfaceRegistry[family];
@@ -40,6 +43,10 @@ test("makes every eligible tourism page reachable from home through HTML links",
   }
   for (const page of publicKnowledgePages) {
     expect(discoveredPaths).toContain(page.humanPath);
+  }
+  expect(discoveredPaths).toContain("/guides");
+  for (const guide of planningGuides) {
+    expect(discoveredPaths).toContain(planningGuidePath(guide));
   }
 });
 

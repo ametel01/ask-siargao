@@ -14,7 +14,7 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
+    page.getByRole("heading", { name: /live, local Siargao travel advice/i }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Ask in chat" })).toHaveAttribute("href", "/chat");
   await expect(page.getByLabel("Example Reality Check")).toContainText(
@@ -109,7 +109,7 @@ test("applies the documented landing typography roles", async ({ page }) => {
   await page.goto("/");
 
   const heroHeading = page.getByRole("heading", {
-    name: /reality-check the island around your real constraints/i,
+    name: /live, local Siargao travel advice/i,
   });
   await expect(heroHeading).toHaveCSS("font-family", /Cormorant Garamond/);
   await expect(page.getByText("Can check forecasts when asked")).toHaveCSS("font-size", "12px");
@@ -148,6 +148,7 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
     ["Example", "#example-reality-check"],
     ["Planning inputs", "#planning-inputs"],
     ["Plan smarter", "#plan-smarter"],
+    ["Travel guides", "#travel-guides"],
   ] as const) {
     const link = navigation.getByRole("link", { name: label });
     await expect(link).toHaveAttribute("href", target);
@@ -166,6 +167,10 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
     },
     {
       link: navigation.getByRole("link", { name: "Plan smarter" }),
+      rgb: [142, 230, 216],
+    },
+    {
+      link: navigation.getByRole("link", { name: "Travel guides" }),
       rgb: [142, 230, 216],
     },
     {
@@ -277,7 +282,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
+      page.getByRole("heading", { name: /live, local Siargao travel advice/i }),
     ).toBeVisible();
     await page.evaluate(async () => {
       await document.fonts.ready;
@@ -314,7 +319,10 @@ for (const viewport of [
     if (viewport.width === 390) {
       const rightMargin = 20;
       const criticalElements = [
-        { name: "header chat CTA", locator: page.getByRole("link", { name: "Chat" }) },
+        {
+          name: "header chat CTA",
+          locator: page.getByRole("link", { name: "Chat", exact: true }),
+        },
         { name: "example prompt card", locator: page.getByLabel("Example Reality Check") },
         {
           name: "example prompt CTA",
@@ -1857,7 +1865,7 @@ for (const width of [390, 768, 1024, 1366]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(
-      page.getByRole("heading", { name: /reality-check the island around your real constraints/i }),
+      page.getByRole("heading", { name: /live, local Siargao travel advice/i }),
     ).toBeVisible();
 
     const overflow = await page.evaluate(

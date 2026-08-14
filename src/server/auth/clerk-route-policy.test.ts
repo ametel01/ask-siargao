@@ -24,6 +24,9 @@ describe("Clerk route policy", () => {
       ["/llms.txt", "public"],
       ["/robots.txt", "public"],
       ["/sitemap.xml", "public"],
+      ["/guides", "public"],
+      ["/guides/siargao-5-day-itinerary", "public"],
+      ["/guides/siargao-5-day-itinerary/llm.md", "public"],
       ["/accommodations", "public"],
       ["/accommodations/example-stay", "public"],
       ["/accommodations/example-stay/llm.md", "public"],
@@ -64,7 +67,7 @@ describe("Clerk route policy", () => {
     const policyFiles = clerkRoutePolicyEntries.map((entry) => entry.routeFile).toSorted();
 
     expect(policyFiles).toEqual(routeFiles.toSorted());
-    expect(routeFiles).toHaveLength(68);
+    expect(routeFiles).toHaveLength(71);
   });
 
   test("proves a seeded omitted route would fail inventory coverage", () => {
