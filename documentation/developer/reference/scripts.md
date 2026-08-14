@@ -53,6 +53,7 @@ adapter exists.
 | `bun run test:e2e:clerk:final-boundary` | `playwright test --config=playwright.clerk.config.ts --grep='final live boundary'` | After Clerk deletion/worker checks, authenticate the persistent boundary fixture and re-prove the exact deployed SHA, database sentinel, and complete migration ledger immediately before evidence. |
 | `bun run test:e2e:clerk:verify-deletion` | `bun run src/server/qa/verify-clerk-release-candidate-deletion.ts` | After the protected Closure Operation worker drains, verify the disposable Clerk test identity no longer exists without printing its email or provider response. |
 | `bun run test:smoke:trip-pass-stripe` | `bun run src/server/qa/run-stripe-release-candidate.ts` | Run authenticated protected-app Playwright against real Stripe test mode: per-group exact deployed-SHA/database proof, real Checkout Session creation/cancellation, real server-side test payments/refunds/disputes, simulated successful hosted-UI output, signed webhooks, activation/duplicate/reversed delivery, paid-answer settlement, closure race, and Paid After Closure; then run supplemental contracts. Stripe blocks automated hosted Checkout submission, so a separate human browser proof is required before paid launch. |
+| `bun run test:smoke:production-chat` | `bun run src/server/deployment/production-chat-smoke.ts` | Require production readiness plus a complete, correct Siargao answer from the configured DeepSeek model. The gated production workflow runs it against the staged production deployment before promotion and against the live production origin afterward. Set `PRODUCTION_SMOKE_DEPLOYMENT` and `VERCEL_TOKEN` for a protected staged deployment, or `PRODUCTION_APP_ORIGIN` for the live origin. |
 | `bun run test:e2e:stripe:final-boundary` | `playwright test --config=playwright.stripe.config.ts --grep='final live boundary'` | After Stripe workers, authenticate the persistent boundary fixture and re-prove the exact deployed SHA, database sentinel, and complete migration ledger immediately before evidence. |
 | `bun run qa:provider-rc` | `bun run src/server/qa/run-provider-release-candidate-lane.ts` | Execute one protected provider Release Evidence lane from preflight through its semantic acceptance, worker, final-boundary, and immutable evidence phases. Pass `-- --lane clerk` or `-- --lane stripe`; the command fails before provider access outside the protected manual-dispatch context. |
 | `bun run doctor` | `npx react-doctor@latest` | Run the advisory React Doctor scan locally. |
@@ -84,6 +85,22 @@ PostgreSQL, and Redis kept as independently visible jobs. Only the downstream tr
 can attest that those CI gates passed. A complete `bun run verify:foundation` pass for one exact
 Prospective Candidate establishes local Foundation Gate Status evidence but does not provide
 provider QA, Production Readiness, or human Launch Authorization.
+
+## Production Release
+
+Vercel Git integration does not deploy `main` directly. After the exact `main` SHA completes the
+`CI` workflow successfully, `.github/workflows/production-release.yml` runs through the protected
+`Production` environment. It requires that SHA to remain the current `origin/main`, applies pending
+migrations with `PRODUCTION_DATABASE_MIGRATION_URL`, creates a production deployment with domain
+assignment disabled, verifies readiness and a real DeepSeek Siargao answer, promotes only that
+deployment, and repeats the readiness and DeepSeek smoke against `https://www.asksiargao.com`.
+
+The `Production` environment owns `PRODUCTION_DATABASE_MIGRATION_URL`, `VERCEL_TOKEN`,
+`VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. The database URL belongs to a login that is only a member
+of `ask_siargao_migration`; it is never delivered to the application runtime. The Vercel token is
+project-scoped. GitHub branch protection requires pull requests and all CI jobs before `main` can
+advance. Preview deployments remain automatic, while `vercel.json` disables Git-triggered `main`
+deployments so the protected workflow is the only production promotion path.
 
 ## Protected Staging Deployment
 

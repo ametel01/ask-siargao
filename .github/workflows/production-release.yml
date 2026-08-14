@@ -1,0 +1,103 @@
+name: Production release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  release-production:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    environment: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PRODUCTION_APP_ORIGIN: https://www.asksiargao.com
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Verify the exact successful main commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "ametel01/ask-siargao"
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$current_main" = "$RELEASE_SHA"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install exact dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply production migrations
+        env:
+          DATABASE_CLI_POOL_SIZE: "1"
+          DATABASE_POOL_SIZE: "1"
+          DATABASE_SSL_MODE: verify-full
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_MIGRATION_URL }}
+        run: bun run db:migrate
+
+      - name: Build a staged production deployment
+        id: deploy
+        shell: bash
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.event.repository.id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: bun run src/server/deployment/production-release.ts deploy
+
+      - name: Smoke staged production health and DeepSeek chat
+        env:
+          PRODUCTION_SMOKE_DEPLOYMENT: ${{ steps.deploy.outputs.deployment_url }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: bun run test:smoke:production-chat
+
+      - name: Promote the verified deployment
+        env:
+          PRODUCTION_DEPLOYMENT_ID: ${{ steps.deploy.outputs.deployment_id }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: bun run src/server/deployment/production-release.ts promote
+
+      - name: Smoke live production health and DeepSeek chat
+        run: bun run test:smoke:production-chat
+
+      - name: Record release evidence
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        shell: bash
+        run: |
+          {
+            echo "### Production release"
+            echo ""
+            echo "- Commit: \`$RELEASE_SHA\`"
+            echo "- Deployment: $DEPLOYMENT_URL"
+            echo "- Migration: passed"
+            echo "- Staged health and DeepSeek smoke: passed"
+            echo "- Live health and DeepSeek smoke: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
