@@ -87,6 +87,12 @@ test("uses one eager responsive hero image across mobile and desktop", async ({ 
 
 test("@production-perf removes the landing render and hydration waterfalls", async ({ page }) => {
   const events: Array<Record<string, unknown>> = [];
+  const fontResponses: Array<{ status: number; url: string }> = [];
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname.endsWith(".woff2")) {
+      fontResponses.push({ status: response.status(), url: response.url() });
+    }
+  });
   await page.route("**/api/observability/events", async (route) => {
     events.push(route.request().postDataJSON());
     await route.fulfill({ body: JSON.stringify({ status: "accepted" }), status: 200 });
@@ -110,6 +116,11 @@ test("@production-perf removes the landing render and hydration waterfalls", asy
       .filter((name) => new URL(name).pathname.endsWith(".woff2"));
   });
   expect(loadedFonts).toHaveLength(2);
+  expect(fontResponses).toHaveLength(2);
+  expect(fontResponses.map(({ status }) => status)).toEqual([200, 200]);
+  expect(
+    fontResponses.every(({ url }) => new URL(url).pathname.startsWith("/_next/static/media/")),
+  ).toBe(true);
 
   await page.locator("#trip-pass").scrollIntoViewIfNeeded();
   await expect
@@ -144,13 +155,13 @@ test("applies the documented landing typography roles", async ({ page }) => {
   const heroHeading = page.getByRole("heading", {
     name: /live, local Siargao travel advice/i,
   });
-  await expect(heroHeading).toHaveCSS("font-family", /Cormorant Garamond/);
+  await expect(heroHeading).toHaveCSS("font-family", /cormorantGaramond/);
   await expect(page.getByText("Can check forecasts when asked")).toHaveCSS("font-size", "12px");
 
   const planningIntroduction = page.getByText(
     "Ask when a choice matters. You get current evidence, local context, a practical next move, and a clear note on what still needs checking.",
   );
-  await expect(planningIntroduction).toHaveCSS("font-family", /Nunito Sans/);
+  await expect(planningIntroduction).toHaveCSS("font-family", /nunitoSans/);
   await expect(planningIntroduction).toHaveCSS("font-size", "16px");
   await expect(planningIntroduction).toHaveCSS("line-height", "24px");
   await expect(planningIntroduction).toHaveCSS("font-weight", "400");
