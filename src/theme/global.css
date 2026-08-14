@@ -9,9 +9,6 @@
 
 :root {
   color-scheme: dark;
-  --font-cormorant-garamond:
-    "Cormorant Garamond Variable", "Iowan Old Style", Georgia, "Times New Roman", serif;
-  --font-nunito-sans: "Nunito Sans Variable", "Avenir Next", "Segoe UI", Arial, sans-serif;
   --brand-navy-980: #05082a;
   --brand-navy-950: #090d3a;
   --brand-navy-900: #10124a;
