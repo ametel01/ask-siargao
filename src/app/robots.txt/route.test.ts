@@ -9,3 +9,11 @@ test("publishes the fully qualified canonical sitemap URL", async () => {
   expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
   expect(await response.text()).toContain("Sitemap: https://www.asksiargao.com/sitemap.xml");
 });
+
+test("allows crawlers to observe noindex metadata on application surfaces", async () => {
+  const robots = await GET().text();
+
+  for (const route of ["/chat", "/sign-in", "/sign-up", "/profile", "/settings", "/trips/"]) {
+    expect(robots).not.toContain(`Disallow: ${route}`);
+  }
+});

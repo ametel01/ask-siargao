@@ -52,6 +52,6 @@ export function buildNoIndexPageMetadata({
   return {
     title,
     description,
-    robots: { index: false, follow: false },
+    robots: { index: false, follow: true },
   };
 }

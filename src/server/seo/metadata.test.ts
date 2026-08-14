@@ -45,11 +45,11 @@ describe("SEO metadata", () => {
     });
   });
 
-  test("keeps private and utility pages out of search results", () => {
+  test("keeps application surfaces out of search results while allowing link discovery", () => {
     expect(buildNoIndexPageMetadata({ title: "Settings | Ask Siargao" })).toEqual({
       title: "Settings | Ask Siargao",
       description: undefined,
-      robots: { index: false, follow: false },
+      robots: { index: false, follow: true },
     });
   });
 });
