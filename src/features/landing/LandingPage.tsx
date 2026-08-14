@@ -21,6 +21,10 @@ import { projectCapabilityEvidencePresentation } from "@/features/chat/evidence-
 import { tripPassPublicOffer } from "@/features/trip-pass/public-copy";
 import { TripPassPricingTelemetry } from "@/features/trip-pass/TripPassPricingTelemetry";
 import { cn } from "@/lib/utils";
+import {
+  publicPageFamilies,
+  publicSurfaceRegistry,
+} from "@/server/public-pages/public-surface-registry";
 import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/components/ask-siargao";
 
 const heroPrompt = "Given today's weather and tide, should we still go to Cloud 9?";
@@ -31,8 +35,11 @@ const navigationItems = [
   { label: "Example", href: "#example-reality-check" },
   { label: "Planning inputs", href: "#planning-inputs" },
   { label: "Plan smarter", href: "#plan-smarter" },
+  { label: "Travel guides", href: "#travel-guides" },
   { label: "Trip Pass", href: "#trip-pass" },
 ] as const;
+
+const tourismTopics = publicPageFamilies.map((family) => publicSurfaceRegistry[family]);
 
 const quickChips = [
   {
@@ -131,6 +138,7 @@ export function LandingPage() {
             <CoastalFrame />
           </div>
           <PlanningPanel />
+          <TourismNavigation />
           <TripPassPricingSection />
         </div>
       </section>
@@ -151,7 +159,7 @@ function Header() {
 
       <nav
         aria-label="Landing page"
-        className="ml-auto hidden items-center rounded-full border border-border-on-dark bg-surface-night-card p-1 shadow-none backdrop-blur-md lg:flex"
+        className="ml-auto hidden items-center rounded-full border border-border-on-dark bg-surface-night-card p-1 shadow-none backdrop-blur-md xl:flex"
       >
         {navigationItems.map(({ href, label }) => (
           <a
@@ -414,6 +422,59 @@ function PlanningPanel() {
           </article>
         ))}
       </div>
+    </section>
+  );
+}
+
+function TourismNavigation() {
+  return (
+    <section
+      aria-labelledby="travel-guides-title"
+      className="grid min-w-0 gap-6 border-border-on-dark border-t pt-8 md:gap-8 md:pt-10 lg:grid-cols-[minmax(18rem,0.62fr)_minmax(0,1.38fr)] lg:items-start"
+      id="travel-guides"
+    >
+      <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-4 lg:sticky lg:top-6">
+        <span className="inline-flex size-14 items-center justify-center rounded-full border border-border-on-dark bg-surface-night-card text-brand-lagoon-300">
+          <Compass aria-hidden="true" size={29} strokeWidth={1.9} />
+        </span>
+        <div className="grid min-w-0 gap-2">
+          <h2
+            className="m-0 max-w-[12ch] text-balance font-heading text-[clamp(2.35rem,8vw,4.1rem)] leading-[0.98] font-semibold text-text-on-dark"
+            id="travel-guides-title"
+          >
+            Explore Siargao travel guides
+          </h2>
+          <p className="m-0 max-w-[39ch] text-base leading-normal font-semibold text-text-on-dark-muted">
+            Browse published guidance by topic, then open any guide through a regular web link.
+          </p>
+        </div>
+      </div>
+
+      <nav aria-label="Siargao travel guide topics">
+        <ul className="m-0 grid list-none border-border-on-dark border-y p-0">
+          {tourismTopics.map((topic) => (
+            <li className="border-border-on-dark border-t first:border-t-0" key={topic.family}>
+              <Link
+                className="group grid min-h-20 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-md px-2 py-4 text-text-on-dark no-underline transition-colors duration-[var(--duration-fast)] ease-[var(--ease-standard)] hover:bg-surface-night-card landing-focus-ring focus-visible:outline-offset-2 sm:px-4"
+                href={topic.hubPath}
+              >
+                <span className="grid min-w-0 gap-1">
+                  <span className="text-base font-extrabold sm:text-lg">{topic.hubTitle}</span>
+                  <span className="max-w-[68ch] text-sm leading-normal font-semibold text-text-on-dark-muted">
+                    {topic.hubDescription}
+                  </span>
+                </span>
+                <ArrowRight
+                  aria-hidden="true"
+                  className="text-brand-lagoon-300 transition-transform duration-[var(--duration-fast)] ease-[var(--ease-standard)] group-hover:translate-x-1 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0"
+                  size={21}
+                  strokeWidth={2.1}
+                />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </section>
   );
 }
