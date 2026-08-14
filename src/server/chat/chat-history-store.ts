@@ -1,3 +1,4 @@
+import type { AgentTurnRecoveryPublicReason } from "@/server/chat/agent-turn-recovery";
 import type { ChatResponseRatingValue } from "@/server/chat/chat-response-ratings-store";
 import { displayReadyStoredChatTurn } from "@/server/chat/public-turn-assembly";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
@@ -32,6 +33,8 @@ export type ChatHistoryMessage = {
   role: "user" | "assistant";
   content: string;
   status: string;
+  completionStatus: "complete" | "completed_with_limits";
+  terminationReason: AgentTurnRecoveryPublicReason | null;
   requestId: string | null;
   model: string | null;
   sources: unknown[];
@@ -54,6 +57,8 @@ export type ChatHistoryMessageInput = {
   role: "user" | "assistant";
   content: string;
   status?: "complete" | "error";
+  completionStatus?: "complete" | "completed_with_limits";
+  terminationReason?: AgentTurnRecoveryPublicReason | null;
   requestId?: string | null;
   model?: string | null;
   clientMessageId?: string | null;
@@ -228,6 +233,8 @@ export async function loadOwnedChatThreadWithMessages(
     role: "user" | "assistant";
     content: string;
     status: string;
+    completion_status: "complete" | "completed_with_limits";
+    termination_reason: AgentTurnRecoveryPublicReason | null;
     request_id: string | null;
     model: string | null;
     sources_json: unknown;
@@ -246,6 +253,8 @@ export async function loadOwnedChatThreadWithMessages(
         chat_messages.role,
         chat_messages.content,
         chat_messages.status,
+        chat_messages.completion_status,
+        chat_messages.termination_reason,
         chat_messages.request_id,
         chat_messages.model,
         chat_messages.sources_json,
@@ -298,6 +307,8 @@ export async function loadOwnedChatThreadWithMessages(
       role: message.role,
       content: displayTurn.message,
       status: message.status,
+      completionStatus: message.completion_status,
+      terminationReason: message.termination_reason,
       requestId: message.request_id,
       model: message.model,
       sources: displayTurn.sources,
@@ -391,6 +402,8 @@ export async function appendChatHistoryMessage(
         role,
         content,
         status,
+        completion_status,
+        termination_reason,
         request_id,
         model,
         client_message_id,
@@ -414,15 +427,17 @@ export async function appendChatHistoryMessage(
         $7,
         $8,
         $9,
-        $10::text::jsonb,
-        $11::text::jsonb,
+        $10,
+        $11,
         $12::text::jsonb,
         $13::text::jsonb,
         $14::text::jsonb,
         $15::text::jsonb,
         $16::text::jsonb,
-        $17,
-        $18
+        $17::text::jsonb,
+        $18::text::jsonb,
+        $19,
+        $20
       )
     `,
     [
@@ -432,6 +447,8 @@ export async function appendChatHistoryMessage(
       input.role,
       input.content,
       input.status ?? "complete",
+      input.completionStatus ?? "complete",
+      input.terminationReason ?? null,
       input.requestId ?? null,
       input.model ?? null,
       input.clientMessageId ?? null,

@@ -36,6 +36,21 @@ describe("public chat turn assembly", () => {
     });
   });
 
+  test("keeps only the public limited-answer status and coarse reason in storage projection", () => {
+    const turn = assemblePublicChatTurn({
+      browserGeolocation: missingBrowserGeolocation,
+      result: {
+        ...agentTurnResult({ message: "A useful answer with one current detail missing." }),
+        completionStatus: "completed_with_limits",
+        terminationReason: "model_response_unavailable",
+      },
+    });
+
+    expect(turn.storage.completionStatus).toBe("completed_with_limits");
+    expect(turn.storage.terminationReason).toBe("model_response_unavailable");
+    expect(JSON.stringify(turn.storage)).not.toContain("recovery");
+  });
+
   test("projects stored history tool calls without raw arguments or result text", () => {
     const rawToolCall = toolCall({
       arguments: {

@@ -140,6 +140,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0020_shared_trip_link_expiry.sql");
     expect(migrationNames).toContain("0021_operational_schedule_sentinel.sql");
     expect(migrationNames).toContain("0022_operational_schedule_sentinel_authorization.sql");
+    expect(migrationNames).toContain("0023_agent_turn_recovery_status.sql");
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -332,6 +333,7 @@ describe("Step 3 database migration", () => {
       "0020_shared_trip_link_expiry.sql",
       "0021_operational_schedule_sentinel.sql",
       "0022_operational_schedule_sentinel_authorization.sql",
+      "0023_agent_turn_recovery_status.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -417,6 +419,7 @@ describe("Step 3 database migration", () => {
       "0020_shared_trip_link_expiry.sql",
       "0021_operational_schedule_sentinel.sql",
       "0022_operational_schedule_sentinel_authorization.sql",
+      "0023_agent_turn_recovery_status.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -488,6 +491,7 @@ describe("Step 3 database migration", () => {
       "0020_shared_trip_link_expiry.sql",
       "0021_operational_schedule_sentinel.sql",
       "0022_operational_schedule_sentinel_authorization.sql",
+      "0023_agent_turn_recovery_status.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -610,6 +614,7 @@ describe("Step 3 database migration", () => {
       "0020_shared_trip_link_expiry.sql",
       "0021_operational_schedule_sentinel.sql",
       "0022_operational_schedule_sentinel_authorization.sql",
+      "0023_agent_turn_recovery_status.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -1162,6 +1167,8 @@ describe("Step 3 database migration", () => {
       ["context_summary_json", "jsonb", "NO", "'{}'::jsonb"],
       ["error_code", "text", "YES", null],
       ["created_at", "timestamp with time zone", "NO", "now()"],
+      ["completion_status", "text", "NO", "'complete'::text"],
+      ["termination_reason", "text", "YES", null],
     ]);
     expect(
       columnsByTable.chat_response_ratings?.map((column) => [

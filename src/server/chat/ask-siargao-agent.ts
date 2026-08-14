@@ -37,6 +37,12 @@ import {
   executeAgentTool,
 } from "@/server/chat/agent-tools";
 import {
+  type AgentTurnRecoveryPublicReason,
+  createAgentTurnRecovery,
+  createDeterministicTerminalRecoveryStrategy,
+  mapRecoveryDispositionToPublicOutcome,
+} from "@/server/chat/agent-turn-recovery";
+import {
   assertModelCostCircuit,
   ModelCostCircuitError,
   reserveModelCost,
@@ -199,60 +205,98 @@ export async function runAskSiargaoAgentTurn(
     evidenceLifecycle.requiredToolNames,
   );
   const responseInclude = agentMemoryVectorStoreId ? ["file_search_call.results"] : undefined;
+  const recovery = createAgentTurnRecovery<
+    { activeModel: string; terminationReason: AgentTurnRecoveryPublicReason },
+    ReturnType<typeof buildAgentTerminalFallback>
+  >({
+    requestId: resolved.requestId,
+    generationSignal: dependencies.generationAbortSignal,
+    strategies: [
+      createDeterministicTerminalRecoveryStrategy(({ terminationReason }) => ({
+        value: buildAgentTerminalFallback({
+          request: resolved,
+          toolCalls,
+          toolResults,
+          terminationReason,
+        }),
+        reason: terminationReason,
+      })),
+    ],
+    onSummary: (summary) => {
+      logger.info(
+        {
+          recoveryOutcome: summary.outcome,
+          recoveryReason: summary.reason,
+          recoveryAttempts: summary.attempts,
+          recoveryStrategyCount: summary.strategies.length,
+          recoveryDurationMs: summary.durationMs,
+        },
+        "Ask Siargao agent recovery completed.",
+      );
+    },
+  });
   const terminalFallbackResult = (
     activeModel: string,
     terminationReason: AgentTurnResult["terminationReason"] = "model_response_budget_exhausted",
   ) => {
-    const fallback = buildAgentTerminalFallback({
-      request: resolved,
-      toolCalls,
-      toolResults,
-      terminationReason,
-    });
-    const finalizedEvidence = evidenceLifecycle.finalize({
-      finalPayload: fallback.finalPayload,
-      toolCalls,
-      toolResults,
-    });
-    const modelCost = costAccumulator.summary();
-    if (modelCost.callCount > 0) {
-      trackServerEvent({
-        name: "llm_cost_recorded",
-        payload: modelCostTelemetryPayload(modelCost),
-        now: dependencies.now?.(),
+    const recoveryReason = terminationReason ?? "model_response_budget_exhausted";
+    const fallbackPromise = recovery.run({ activeModel, terminationReason: recoveryReason });
+    return fallbackPromise.then((recoveryResult) => {
+      if (recoveryResult.type !== "limited_answer_candidate") {
+        const reason =
+          "reason" in recoveryResult ? recoveryResult.reason : "unexpected_disposition";
+        throw new Error(`Agent turn recovery failed: ${reason}.`);
+      }
+      const publicOutcome = mapRecoveryDispositionToPublicOutcome(recoveryResult);
+      if (!publicOutcome) {
+        throw new Error("Agent turn recovery returned an unmappable limited candidate.");
+      }
+      const fallback = recoveryResult.value;
+      const finalizedEvidence = evidenceLifecycle.finalize({
+        finalPayload: fallback.finalPayload,
+        toolCalls,
+        toolResults,
       });
-    }
-    logger.warn(
-      {
-        completionStatus: fallback.completionStatus,
-        terminationReason: fallback.terminationReason,
+      const modelCost = costAccumulator.summary();
+      if (modelCost.callCount > 0) {
+        trackServerEvent({
+          name: "llm_cost_recorded",
+          payload: modelCostTelemetryPayload(modelCost),
+          now: dependencies.now?.(),
+        });
+      }
+      logger.warn(
+        {
+          completionStatus: fallback.completionStatus,
+          terminationReason: fallback.terminationReason,
+          model: activeModel,
+          modelCallCount: modelCost.callCount,
+          toolCallCount: toolCalls.length,
+        },
+        "Ask Siargao agent returned a deterministic terminal fallback.",
+      );
+      return createAgentTurnResult({
+        message: fallback.message,
+        requestId: resolved.requestId,
         model: activeModel,
-        modelCallCount: modelCost.callCount,
-        toolCallCount: toolCalls.length,
-      },
-      "Ask Siargao agent returned a deterministic terminal fallback.",
-    );
-    return createAgentTurnResult({
-      message: fallback.message,
-      requestId: resolved.requestId,
-      model: activeModel,
-      modelCost,
-      memory,
-      upstreamRequestIds,
-      toolCalls,
-      toolResults,
-      decisionSummaries:
-        finalizedEvidence.decisionSummaries.length > 0
-          ? finalizedEvidence.decisionSummaries
-          : fallback.decisionSummaries,
-      finalPayload: finalizedEvidence.finalPayload ?? fallback.finalPayload,
-      allowedCardKinds: finalizedEvidence.allowedCardKinds,
-      allowedCardIds: finalizedEvidence.allowedCardIds,
-      allowedItineraryIds: finalizedEvidence.allowedItineraryIds,
-      artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
-      repairCount,
-      completionStatus: fallback.completionStatus,
-      terminationReason: fallback.terminationReason,
+        modelCost,
+        memory,
+        upstreamRequestIds,
+        toolCalls,
+        toolResults,
+        decisionSummaries:
+          finalizedEvidence.decisionSummaries.length > 0
+            ? finalizedEvidence.decisionSummaries
+            : fallback.decisionSummaries,
+        finalPayload: finalizedEvidence.finalPayload ?? fallback.finalPayload,
+        allowedCardKinds: finalizedEvidence.allowedCardKinds,
+        allowedCardIds: finalizedEvidence.allowedCardIds,
+        allowedItineraryIds: finalizedEvidence.allowedItineraryIds,
+        artifactSelectionMode: requireStructuredFinalOutput ? "strict" : "compatibility",
+        repairCount,
+        completionStatus: publicOutcome.completionStatus,
+        terminationReason: publicOutcome.terminationReason,
+      });
     });
   };
 
@@ -336,7 +380,7 @@ export async function runAskSiargaoAgentTurn(
     if (modelFailureRequiresRouteError(error)) {
       throw error;
     }
-    return terminalFallbackResult(resolved.model, "model_response_unavailable");
+    return await terminalFallbackResult(resolved.model, "model_response_unavailable");
   }
   let activeModel = response.model ?? resolved.model;
   collectUpstreamRequestId(response._request_id, upstreamRequestIds);
@@ -364,7 +408,7 @@ export async function runAskSiargaoAgentTurn(
           toolResults,
         })
       ) {
-        return terminalFallbackResult(activeModel);
+        return await terminalFallbackResult(activeModel);
       }
       let repairResult: Awaited<ReturnType<typeof runAgentRepairPipeline>>;
       try {
@@ -412,12 +456,12 @@ export async function runAskSiargaoAgentTurn(
           if (modelFailureRequiresRouteError(error.cause)) {
             throw error.cause;
           }
-          return terminalFallbackResult(activeModel, "model_response_unavailable");
+          return await terminalFallbackResult(activeModel, "model_response_unavailable");
         }
         if (modelFailureRequiresRouteError(error)) {
           throw error;
         }
-        return terminalFallbackResult(activeModel, "model_response_invalid");
+        return await terminalFallbackResult(activeModel, "model_response_invalid");
       }
       if (repairResult.repaired) {
         repairCount += 1;
@@ -472,7 +516,7 @@ export async function runAskSiargaoAgentTurn(
           if (modelFailureRequiresRouteError(error)) {
             throw error;
           }
-          return terminalFallbackResult(activeModel, "model_response_unavailable");
+          return await terminalFallbackResult(activeModel, "model_response_unavailable");
         }
         activeModel = response.model ?? activeModel;
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
@@ -560,11 +604,11 @@ export async function runAskSiargaoAgentTurn(
 
     const functionCalls = extractFunctionCalls(response.output);
     if (functionCalls.length === 0) {
-      return terminalFallbackResult(activeModel, "model_response_invalid");
+      return await terminalFallbackResult(activeModel, "model_response_invalid");
     }
 
     if (terminalInspection) {
-      return terminalFallbackResult(activeModel);
+      return await terminalFallbackResult(activeModel);
     }
 
     if (toolCalls.length + functionCalls.length > maxToolCalls) {
@@ -608,7 +652,7 @@ export async function runAskSiargaoAgentTurn(
           if (modelFailureRequiresRouteError(error)) {
             throw error;
           }
-          return terminalFallbackResult(activeModel, "model_response_unavailable");
+          return await terminalFallbackResult(activeModel, "model_response_unavailable");
         }
         activeModel = response.model ?? activeModel;
         collectUpstreamRequestId(response._request_id, upstreamRequestIds);
@@ -662,7 +706,7 @@ export async function runAskSiargaoAgentTurn(
         if (modelFailureRequiresRouteError(error)) {
           throw error;
         }
-        return terminalFallbackResult(activeModel, "model_response_unavailable");
+        return await terminalFallbackResult(activeModel, "model_response_unavailable");
       }
       activeModel = response.model ?? activeModel;
       collectUpstreamRequestId(response._request_id, upstreamRequestIds);
@@ -751,14 +795,14 @@ export async function runAskSiargaoAgentTurn(
       if (modelFailureRequiresRouteError(error)) {
         throw error;
       }
-      return terminalFallbackResult(activeModel, "model_response_unavailable");
+      return await terminalFallbackResult(activeModel, "model_response_unavailable");
     }
     activeModel = response.model ?? activeModel;
     collectUpstreamRequestId(response._request_id, upstreamRequestIds);
     collectHostedFileSearchMemoryFileNames(response.output, memorySnapshot, hostedMemoryFileNames);
   }
 
-  return terminalFallbackResult(activeModel);
+  return await terminalFallbackResult(activeModel);
 }
 
 function agentRepairRequiredAtTerminal(input: {

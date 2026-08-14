@@ -410,6 +410,8 @@ export const chatMessages = pgTable(
     role: text("role").notNull(),
     content: text("content").notNull(),
     status: text("status").notNull().default("complete"),
+    completionStatus: text("completion_status").notNull().default("complete"),
+    terminationReason: text("termination_reason"),
     requestId: text("request_id"),
     model: text("model"),
     clientMessageId: text("client_message_id"),
@@ -447,6 +449,14 @@ export const chatMessages = pgTable(
     ),
     check("chat_messages_role_check", sql`${table.role} in ('user', 'assistant')`),
     check("chat_messages_status_check", sql`${table.status} in ('complete', 'error')`),
+    check(
+      "chat_messages_completion_status_check",
+      sql`${table.completionStatus} in ('complete', 'completed_with_limits')`,
+    ),
+    check(
+      "chat_messages_termination_reason_check",
+      sql`${table.terminationReason} is null or ${table.terminationReason} in ('model_response_budget_exhausted', 'model_response_invalid', 'model_response_unavailable')`,
+    ),
   ],
 );
 

@@ -12,6 +12,16 @@ The thin-harness implementation background is recorded in
 contract with index-only default memory, model-selected public artifacts, and deterministic
 validation around tools, sources, privacy, and provider boundaries.
 
+## Agent Turn Recovery
+
+Interrupted or invalid in-process generation is handled through the request-scoped
+`agent-turn-recovery` seam. Its serialized, dependency-aware strategy lifecycle can end in ordinary
+completion, a Limited Answer Candidate, or failure. Terminal synthesis cannot start more tools or
+re-enter recovery, and a server-owned generation abort is the only abort signal it observes;
+client delivery cancellation is handled after durable admission. Recovery emits a content-free
+structured telemetry summary, while durable Travel Answer storage keeps only the public completion
+status and one of the three coarse model-response reasons.
+
 ## Final Payload Contract
 
 The Responses model should finish with JSON, not plain prose, when structured mode is enabled. The

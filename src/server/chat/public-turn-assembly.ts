@@ -43,6 +43,8 @@ export type DisplayReadyChatTurn = {
 
 export type StorageReadyChatTurn = {
   message: string;
+  completionStatus: AgentTurnResult["completionStatus"];
+  terminationReason: AgentTurnResult["terminationReason"];
   sources: readonly AnswerSourceSummary[];
   cards: readonly RecommendationCard[];
   actions: readonly ChatAction[];
@@ -129,6 +131,8 @@ export function assemblePublicChatTurn({
     display,
     storage: {
       message: display.message,
+      completionStatus: result.completionStatus ?? "complete",
+      terminationReason: result.terminationReason,
       sources: sanitizeStorageSources(result.publicSources),
       cards: sanitizeStorageRecommendationCards(result.cards ?? [], terminalResearchGapApplies),
       actions: sanitizeStorageActions(result.actions ?? []),

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import type { Logger } from "pino";
-
 import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
+import type { AgentTurnRecoveryPublicReason } from "@/server/chat/agent-turn-recovery";
 import type { AnswerSourceSummary } from "@/server/chat/answer-source-summary";
 import type {
   RealityCheckKind,
@@ -232,10 +232,7 @@ export type AgentTurnResult = {
   artifactSelection?: AgentArtifactSelectionSummary;
   repairCount?: number;
   completionStatus?: "complete" | "completed_with_limits";
-  terminationReason?:
-    | "model_response_budget_exhausted"
-    | "model_response_invalid"
-    | "model_response_unavailable";
+  terminationReason?: AgentTurnRecoveryPublicReason;
 };
 
 export type ChatClientGeolocationConsentScope = "single_request" | "trip_session";
@@ -354,6 +351,8 @@ export type AgentRuntimeDependencies = {
   model?: string;
   maxToolCalls?: number;
   maxTurns?: number;
+  /** A server-owned abort signal. Client delivery cancellation is intentionally not wired here. */
+  generationAbortSignal?: AbortSignal;
   onProgress?: (update: AgentProgressUpdate) => void | Promise<void>;
 };
 
