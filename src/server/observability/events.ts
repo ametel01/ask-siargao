@@ -44,6 +44,8 @@ export type ObservabilityEventName =
   | "public_page_generation_failed"
   | "agent_snapshot_freshness_recorded"
   | "public_api_used"
+  | "planning_guide_reality_check_clicked"
+  | "planning_guide_viewed"
   | "indexation_crawl_recorded"
   | "ai_search_referral_recorded"
   | "top_cited_public_page_recorded";
@@ -249,6 +251,8 @@ const eventPayloadAllowlist = {
     "calls",
   ],
   payment_succeeded: ["applicationStatus", "auditRequestId", "eventType"],
+  planning_guide_reality_check_clicked: ["action", "guideSlug", "status", "surface"],
+  planning_guide_viewed: ["guideSlug", "status", "surface"],
   preview_to_payment_started: ["auditRequestId", "state"],
   provider_error_recorded: ["diagnostics", "provider", "reason", "source", "status"],
   public_api_used: ["evidenceIds", "family", "slug"],
@@ -321,7 +325,7 @@ const eventPayloadAllowlist = {
 } as const satisfies Record<ObservabilityEventName, readonly string[]>;
 
 const prohibitedTelemetryKeyPattern =
-  /api.?key|body|cookie|email|idempotency|ip|latitude|longitude|message|orderid|paymentintent|prompt|raw|requestid|secret|sessionid|stripe.*id|(?:^|[_-])token(?:$|[_-])|token$|userid|webhook/iu;
+  /api.?key|body|cookie|email|idempotency|ip|journeyid|latitude|longitude|message|orderid|paymentintent|prompt|raw|requestid|secret|sessionid|stripe.*id|(?:^|[_-])token(?:$|[_-])|token$|userid|webhook/iu;
 
 function allowlistedPayload(
   eventName: ObservabilityEventName,

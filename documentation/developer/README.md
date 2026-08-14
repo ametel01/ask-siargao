@@ -16,6 +16,7 @@ Use these pages when working on the Ask Siargao codebase.
 - [Database authorization reference](reference/database-authorization.md): production database roles, grants, and runtime/migration credential boundaries.
 - [Free Controlled Beta accountability](reference/free-controlled-beta-accountability.md): assigned launch-preparation owners, approved spending limits, and the independent-approver blocker.
 - [Production vendor register](reference/production-vendor-register.md): production suppliers, data categories, regions, retention, contract evidence, deletion routes, incident contacts, and secret-rotation state.
+- [Planning guide analytics](reference/planning-guide-analytics.md): privacy-safe guide views, Reality Check click handoffs, event fields, and PostHog views.
 - [Monitoring and recovery drill — 2026-08-11](reference/monitoring-and-recovery-drill-2026-08-11.md): Sentry, emergency-stop, rollback, PlanetScale restore, RPO/RTO, and rotation evidence plus remaining launch blockers.
 - [Exact-candidate evidence — 2026-08-11](reference/exact-candidate-evidence-2026-08-11.md): Foundation, provider, capacity, headroom, circuit, health, Cron, rollback, restore, and alert results for commit `4b03367c604344fa0514510bdcedc635cb15f7bf`.
 - [Demo data reference](reference/demo-data.md): synthetic and permitted local QA fixtures.

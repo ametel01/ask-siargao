@@ -16,6 +16,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { PlanningGuideTelemetry } from "@/features/guides/PlanningGuideTelemetry";
 import { cn } from "@/lib/utils";
 import {
   buildPlanningGuideJsonLd,
@@ -48,6 +49,7 @@ export function PlanningGuidePage({ guide }: { guide: PlanningGuide }) {
       id="main-content"
       tabIndex={-1}
     >
+      <PlanningGuideTelemetry guideSlug={guide.slug} />
       <script type="application/ld+json">
         {serializeJsonForHtmlScript(buildPlanningGuideJsonLd(guide))}
       </script>
@@ -72,7 +74,11 @@ export function PlanningGuidePage({ guide }: { guide: PlanningGuide }) {
             asChild
             className="min-h-11 bg-brand-lagoon-700 font-extrabold hover:bg-brand-lagoon-600"
           >
-            <Link href={buildGuideChatHref(guide, guide.realityChecks[0])}>
+            <Link
+              data-reality-check-action={guide.realityChecks[0].analyticsKey}
+              data-reality-check-surface="header"
+              href={buildGuideChatHref(guide, guide.realityChecks[0])}
+            >
               <MessageCircle aria-hidden="true" size={18} />
               <span className="hidden sm:inline">Reality-check this guide</span>
               <span className="sm:hidden">Reality Check</span>
@@ -421,6 +427,8 @@ function RealityCheckPanel({ guide }: { guide: PlanningGuide }) {
               index === 1 && "sm:border-t-0 sm:border-l",
               index === 3 && "sm:border-l",
             )}
+            data-reality-check-action={action.analyticsKey}
+            data-reality-check-surface="panel"
             href={buildGuideChatHref(guide, action)}
             key={action.label}
           >

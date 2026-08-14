@@ -188,6 +188,40 @@ describe("privacy-safe analytics events", () => {
     expect(delivered).not.toContain("call_private");
   });
 
+  test("keeps only coarse planning guide funnel dimensions", async () => {
+    const captured: AnalyticsCaptureEvent[] = [];
+    const event = trackServerEvent({
+      distinctId: "guide:019fff77-a797-7470-98ca-9ad3e5e5195b",
+      name: "planning_guide_reality_check_clicked",
+      payload: {
+        action: "weather",
+        guideSlug: "siargao-5-day-itinerary",
+        journeyId: "019fff77-a797-7470-98ca-9ad3e5e5195b",
+        prompt: "Private traveler request",
+        status: "clicked",
+        surface: "panel",
+      },
+      sink: {
+        name: "test-sink",
+        async send(delivered) {
+          captured.push(delivered);
+        },
+      },
+    });
+
+    await event.delivery;
+
+    expect(captured[0]?.properties).toMatchObject({
+      action: "weather",
+      guideSlug: "siargao-5-day-itinerary",
+      status: "clicked",
+      surface: "panel",
+    });
+    const delivered = JSON.stringify(captured[0]);
+    expect(delivered).not.toContain("journeyId");
+    expect(delivered).not.toContain("Private");
+  });
+
   test("does not throw when analytics is unconfigured or the sink times out", async () => {
     const disabled = trackServerEvent({
       env: {},

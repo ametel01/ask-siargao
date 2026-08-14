@@ -102,21 +102,25 @@ const islandMapStops: readonly GuideMapStop[] = [
 
 const sharedRealityChecks: readonly GuideRealityCheck[] = [
   {
+    analyticsKey: "weather",
     label: "Adapt this plan to today’s weather",
     prompt:
       "Adapt this guide to today’s weather and tell me what to keep, change, or confirm locally.",
   },
   {
+    analyticsKey: "no_scooter",
     label: "Check whether it works without a scooter",
     prompt:
       "Reality-check this plan for a traveler who will not ride a scooter. Include transfer fallbacks.",
   },
   {
+    analyticsKey: "hotel_location",
     label: "Reality-check my hotel location",
     prompt:
       "Reality-check my Siargao hotel location against this guide, realistic transfers, and quiet sleep.",
   },
   {
+    analyticsKey: "activity_replacement",
     label: "Replace an activity if conditions change",
     prompt:
       "Give me one practical replacement if the main outdoor activity in this guide does not work today.",

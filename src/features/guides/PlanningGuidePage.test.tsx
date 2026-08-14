@@ -27,6 +27,12 @@ test("renders a complete, trusted guide with a contextual Reality Check", () => 
   expect(html).toContain("Frequently asked questions");
   expect(html).toContain("Related planning guides");
   expect(html).toContain('href="/chat?prompt=Context%3A+5-Day+Siargao+Itinerary.');
+  expect(html).toContain('data-reality-check-action="weather"');
+  expect(html).toContain('data-reality-check-action="no_scooter"');
+  expect(html).toContain('data-reality-check-action="hotel_location"');
+  expect(html).toContain('data-reality-check-action="activity_replacement"');
+  expect(html).toContain('data-reality-check-surface="header"');
+  expect(html).toContain('data-reality-check-surface="panel"');
   expect(html).toContain('"@type":"Article"');
   expect(html).toContain('"@type":"Organization"');
   expect(html).toContain('"@type":"TouristDestination"');

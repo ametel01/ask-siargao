@@ -11,8 +11,9 @@ Server events use `trackServerEvent` and a timeout-bounded PostHog-compatible ca
 chat, or quota responses. Tests can inject a sink without enabling live network delivery.
 
 Client pricing views are sent only from the landing pricing section through
-`POST /api/observability/events`. The route accepts only `trip_pass_pricing_viewed` with
-`surface=landing`; the browser beacon honors `navigator.doNotTrack`.
+`POST /api/observability/events`. Its Trip Pass branch accepts only `trip_pass_pricing_viewed` with
+`surface=landing`; the browser beacon honors `navigator.doNotTrack`. The same endpoint also has a
+separate, strictly validated [planning-guide analytics](planning-guide-analytics.md) contract.
 
 ## Event Matrix
 

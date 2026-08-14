@@ -43,6 +43,7 @@ export type GuideMapStop = {
 };
 
 export type GuideRealityCheck = {
+  analyticsKey: "activity_replacement" | "hotel_location" | "no_scooter" | "weather";
   label: string;
   prompt: string;
 };

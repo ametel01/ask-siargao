@@ -1836,6 +1836,39 @@ test("renders public human, markdown, JSON, sitemap, and llms surfaces", async (
   expect(await llms.text()).toContain("/api/public/entities");
 });
 
+test("tracks a planning guide view through its Reality Check handoff", async ({ page }) => {
+  const events: Array<Record<string, unknown>> = [];
+  await page.route("**/api/observability/events", async (route) => {
+    events.push(route.request().postDataJSON());
+    await route.fulfill({ body: JSON.stringify({ status: "accepted" }), status: 200 });
+  });
+
+  await page.goto("/guides/siargao-5-day-itinerary");
+  await expect
+    .poll(() => events.find((event) => event.name === "planning_guide_viewed"))
+    .toMatchObject({
+      guideSlug: "siargao-5-day-itinerary",
+      surface: "planning_guide",
+    });
+
+  await page.locator('[data-reality-check-surface="panel"]').first().click();
+  await expect(page).toHaveURL(/\/chat\?prompt=/u);
+  await expect
+    .poll(() => events.find((event) => event.name === "planning_guide_reality_check_clicked"))
+    .toMatchObject({
+      action: "weather",
+      guideSlug: "siargao-5-day-itinerary",
+      surface: "panel",
+    });
+
+  const clickEvent = events.find((event) => event.name === "planning_guide_reality_check_clicked");
+  const viewJourneyIds = events
+    .filter((event) => event.name === "planning_guide_viewed")
+    .map((event) => event.journeyId);
+  expect(viewJourneyIds).toContain(clickEvent?.journeyId);
+  expect(JSON.stringify(events)).not.toContain("Adapt this guide");
+});
+
 test("publishes crawl rules that keep private audit surfaces out of indexes", async ({ page }) => {
   const robots = await page.request.get("/robots.txt");
   const robotsText = await robots.text();
