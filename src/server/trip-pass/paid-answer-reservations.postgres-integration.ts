@@ -266,11 +266,16 @@ async function assertPaidAnswerIntegrityMatrix(
   db: DatabaseQueryClient,
   cases: Array<{ reservationId: string; target: RaceTarget; warning: boolean }>,
 ) {
-  for (const entry of cases) {
-    const snapshot = await buildTripPassDiagnostics({
-      db,
-      scope: { passId: entry.target.passId },
-    });
+  const snapshots = await Promise.all(
+    cases.map((entry) =>
+      buildTripPassDiagnostics({
+        db,
+        scope: { passId: entry.target.passId },
+      }),
+    ),
+  );
+  for (const [index, entry] of cases.entries()) {
+    const snapshot = snapshots[index];
     assertEqual(
       snapshot.issues.some(
         (issue) =>

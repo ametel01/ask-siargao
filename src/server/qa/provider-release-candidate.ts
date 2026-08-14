@@ -247,8 +247,10 @@ export async function createProviderReleaseCandidateLifecycle<
   async function recordScenarios(scenarios: readonly ProviderReleaseCandidateScenario<Lane>[]) {
     const identity = await readIdentity();
     await dependencies.files.withLock(lifecycleLockPath(identity), async () => {
-      const migrations = await dependencies.loadMigrations();
-      const initial = await readInitialReceipt(identity);
+      const [migrations, initial] = await Promise.all([
+        dependencies.loadMigrations(),
+        readInitialReceipt(identity),
+      ]);
       assertInitialReceipt(initial, identity, migrations.length);
       const database = await inspectProtectedDatabase(migrations);
       assertProviderReleaseCandidateBoundaryStable({
@@ -277,8 +279,10 @@ export async function createProviderReleaseCandidateLifecycle<
 
   async function revalidate(deployedCommitSha: string) {
     const identity = await readIdentity();
-    const migrations = await dependencies.loadMigrations();
-    const initial = await readInitialReceipt(identity);
+    const [migrations, initial] = await Promise.all([
+      dependencies.loadMigrations(),
+      readInitialReceipt(identity),
+    ]);
     assertInitialReceipt(initial, identity, migrations.length);
     const database = await inspectProtectedDatabase(migrations);
     assertProviderReleaseCandidateBoundaryStable({
@@ -505,9 +509,10 @@ function buildProviderReleaseCandidateEvidence(input: {
 
   const expectedScenarios = providerReleaseCandidateScenarios[input.lane];
   const scenarios = [...new Set(input.scenarios)];
+  const scenarioSet = new Set(scenarios);
   if (
     scenarios.length !== expectedScenarios.length ||
-    expectedScenarios.some((scenario) => !scenarios.includes(scenario))
+    expectedScenarios.some((scenario) => !scenarioSet.has(scenario))
   ) {
     throw new Error("Protected evidence requires every scenario to have an executed receipt.");
   }

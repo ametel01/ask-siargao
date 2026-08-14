@@ -230,6 +230,9 @@ export function buildEvidenceLifecycle(
     toolResults: readonly AgentToolResult[];
   }): EvidenceLifecycleFinalization => {
     const admissibleEvidence = requiredEvidence.admit(toolResults);
+    const allowedCardIdSet = admissibleEvidence.allowedCardIds
+      ? new Set(admissibleEvidence.allowedCardIds)
+      : undefined;
     const appliedFinalPayload = requiredEvidence.applyFinalPayload(
       finalPayload,
       toolCalls,
@@ -240,7 +243,7 @@ export function buildEvidenceLifecycle(
         ? {
             ...appliedFinalPayload,
             displayCardIds: appliedFinalPayload.displayCardIds.filter((cardId) =>
-              admissibleEvidence.allowedCardIds?.includes(cardId),
+              allowedCardIdSet?.has(cardId),
             ),
           }
         : appliedFinalPayload;

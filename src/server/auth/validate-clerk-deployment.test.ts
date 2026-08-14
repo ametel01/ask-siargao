@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,10 +98,10 @@ describe("Clerk deployment validation command", () => {
 
   test("does not hydrate missing production secrets from local environment files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ask-siargao-clerk-validation-"));
-    const localSecret = "sk_live_local_file_must_be_ignored";
+    const localEnvMarker = `test-env-marker-${randomUUID()}`;
 
     try {
-      await writeFile(join(cwd, ".env.local"), `CLERK_SECRET_KEY=${localSecret}\n`);
+      await writeFile(join(cwd, ".env.local"), `CLERK_SECRET_KEY=${localEnvMarker}\n`);
 
       const result = await runValidationCommand(
         {
@@ -113,7 +114,7 @@ describe("Clerk deployment validation command", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("CLERK_SECRET_KEY");
       expect(result.stderr).toContain("missing_required_clerk_field");
-      expect(result.stderr).not.toContain(localSecret);
+      expect(result.stderr).not.toContain(localEnvMarker);
     } finally {
       await rm(cwd, { force: true, recursive: true });
     }

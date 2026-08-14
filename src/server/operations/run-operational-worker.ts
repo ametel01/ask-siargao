@@ -9,6 +9,8 @@ import {
 } from "@/server/operations/sentry-alerts";
 import { runOperationalWorker } from "@/server/operations/worker-runner";
 
+const operationalTaskTypeSet = new Set(operationalTaskTypes);
+
 if (import.meta.main) await main();
 
 async function main() {
@@ -97,7 +99,7 @@ export function parseOperationalWorkerArguments(arguments_: string[]) {
     } else if (argument.startsWith("--task=")) {
       const task = argument.slice(7);
       if (task === "all") taskTypes = undefined;
-      else if (operationalTaskTypes.includes(task as OperationalTaskType)) {
+      else if (operationalTaskTypeSet.has(task as OperationalTaskType)) {
         taskTypes = [task as OperationalTaskType];
       } else throw new Error("invalid_operational_task_type");
     } else throw new Error("invalid_operational_worker_argument");

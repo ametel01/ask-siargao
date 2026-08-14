@@ -134,16 +134,15 @@ export async function reconcileLiveCommerce(
     );
     const recorded: OperationalFindingView[] = [];
     for (const observation of observations) {
-      if (observation.local.user_id) {
-        await lockTripPassAccountFamily(
-          observation.local.user_id,
-          observation.local.product_family,
-          transaction,
-        );
-        await lockTripPassAccountWrites(observation.local.user_id, transaction);
+      const local = observation.local;
+      const userId = local.user_id;
+      const localId = local.id;
+      if (userId) {
+        await lockTripPassAccountFamily(userId, local.product_family, transaction);
+        await lockTripPassAccountWrites(userId, transaction);
       }
       await transaction.query("select id from trip_pass_orders where id = $1 for update", [
-        observation.local.id,
+        localId,
       ]);
       const freshness = await transaction.query<{ last_applied_sequence: string }>(
         `insert into operational_reconciliation_observations (
@@ -155,11 +154,11 @@ export async function reconcileLiveCommerce(
          where operational_reconciliation_observations.last_applied_sequence
            < excluded.last_applied_sequence
          returning last_applied_sequence::text`,
-        [observation.local.id, observation.sequence, at],
+        [localId, observation.sequence, at],
       );
       if (!freshness.rows[0]) continue;
 
-      const currentLocal = (await loadLocalCommerce(transaction, observation.local.id))[0];
+      const currentLocal = (await loadLocalCommerce(transaction, localId))[0];
       if (!currentLocal) continue;
       const observationFindings: OperationalFindingView[] = [];
       for (const candidate of compareCommerce(
@@ -232,7 +231,7 @@ export async function reconcileLiveCommerce(
            and kind = any($2::text[])
            and not (incident_key = any($4::text[]))`,
         [
-          observation.local.id,
+          localId,
           liveCommerceFindingKinds,
           at,
           observationFindings.map((finding) => finding.incidentKey),
@@ -250,7 +249,7 @@ export async function reconcileLiveCommerce(
     operation: "record_reconciliation_findings",
     result: "succeeded",
   });
-  for (const finding of findings) await dependencies.alertFinding?.(finding);
+  await Promise.all(findings.map((finding) => dependencies.alertFinding?.(finding)));
   return { checkedCount: localRows.length, findings, runId, trace: trace.events };
 }
 

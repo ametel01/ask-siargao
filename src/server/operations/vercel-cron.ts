@@ -67,12 +67,13 @@ export async function runOperationalCron(
       },
     },
   );
-  const alerts = await deliverPendingPageWorthyAlerts({ db, sink: sentry });
-  const schedules = await evaluateOperationalSchedules({ db, now: dependencies.now });
-  const scheduleAlerts = [];
-  for (const issue of schedules.issues) {
-    scheduleAlerts.push(
-      await deliverOperationalAlertOnce(
+  const [alerts, schedules] = await Promise.all([
+    deliverPendingPageWorthyAlerts({ db, sink: sentry }),
+    evaluateOperationalSchedules({ db, now: dependencies.now }),
+  ]);
+  const scheduleAlerts = await Promise.all(
+    schedules.issues.map((issue) =>
+      deliverOperationalAlertOnce(
         {
           alertKey: `scheduled-operation:${issue.scheduleKey}:${issue.status}:lifecycle:${issue.lifecycle}`,
           errorCode: issue.errorCode,
@@ -81,8 +82,8 @@ export async function runOperationalCron(
         },
         { db, sink: sentry },
       ),
-    );
-  }
+    ),
+  );
   return {
     alerts: { pending: alerts.checked, schedules: scheduleAlerts },
     enqueued,

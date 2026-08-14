@@ -722,24 +722,26 @@ async function runPageIntentOrderingRegressions(db: DatabaseQueryClient) {
 
   const escalationTaskKey = opaqueTaskKey("native_escalation_task");
   const escalationEvents: string[] = [];
-  for (const attempts of [3, 4, 5, 6]) {
-    await deliverOperationalAlertOnce(
-      {
-        alertKey: workerFailureAlertKey(escalationTaskKey, attempts),
-        errorCode: "operational_worker_repeated_failure",
-        impact: attempts >= 5 ? "high" : "warning",
-        operation: "live_reconciliation",
-      },
-      {
-        db,
-        sink: {
-          async send({ eventId }) {
-            escalationEvents.push(eventId);
+  await Promise.all(
+    [3, 4, 5, 6].map((attempts) =>
+      deliverOperationalAlertOnce(
+        {
+          alertKey: workerFailureAlertKey(escalationTaskKey, attempts),
+          errorCode: "operational_worker_repeated_failure",
+          impact: attempts >= 5 ? "high" : "warning",
+          operation: "live_reconciliation",
+        },
+        {
+          db,
+          sink: {
+            async send({ eventId }) {
+              escalationEvents.push(eventId);
+            },
           },
         },
-      },
-    );
-  }
+      ),
+    ),
+  );
   assert(
     escalationEvents.length === 2 && escalationEvents[0] !== escalationEvents[1],
     "native warning delivery suppressed or duplicated high escalation",

@@ -371,8 +371,9 @@ function validateConfigurationPresence(configurationPresence: unknown, errors: s
     return;
   }
 
+  const expectedKeySet = new Set(expectedKeys);
   for (const key of Object.keys(configurationPresence)) {
-    if (!expectedKeys.includes(key)) {
+    if (!expectedKeySet.has(key)) {
       errors.push(`configuration_presence_unknown_key:${key}`);
     }
   }

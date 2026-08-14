@@ -5,6 +5,7 @@ import { createPostgresConnectionOptions } from "@/server/db/connection-options"
 import { loadMigrationFiles, type MigrationFile } from "@/server/db/migration-files";
 import type { MigrationDatabase, MigrationQueryValue } from "@/server/db/migration-runner";
 import { runLedgerBackedMigrations } from "@/server/db/migration-runner";
+import { createPostgresQueryClient, type DatabaseQueryClient } from "@/server/db/query-client";
 import {
   assertSafeIntegrationServiceUrl,
   disposableIntegrationServiceMarkers,
@@ -20,18 +21,16 @@ export type RealPostgresHarness = {
   readonly databaseUrl: string;
   readonly namespace: string;
   createClient(input?: { max?: number }): Sql;
-  createQueryClient(input?: { max?: number }): {
-    end(): Promise<void>;
-    query<T>(query: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
-    transaction<T>(
-      callback: (client: {
-        query<T>(query: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
-      }) => Promise<T>,
-    ): Promise<T>;
-  };
+  createQueryClient(input?: { max?: number }): HarnessQueryClient;
   migrate(
     migrationFiles?: readonly MigrationFile[],
   ): Promise<{ applied: string[]; skipped: string[] }>;
+};
+
+type HarnessQueryClient = {
+  end(): Promise<void>;
+  query<T>(query: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
+  transaction<T>(callback: (client: DatabaseQueryClient) => Promise<T>): Promise<T>;
 };
 
 type HarnessOptions = {
@@ -127,9 +126,18 @@ function createRealPostgresHarness(input: {
     },
     createQueryClient(clientInput = {}) {
       const sql = this.createClient(clientInput);
-      const queryClient = createHarnessQueryClient(sql);
+      const queryClient = createPostgresQueryClient(sql);
+      if (!queryClient.transaction) {
+        throw new Error("Postgres harness transactions are unavailable.");
+      }
+      const transaction = queryClient.transaction;
       return {
-        ...queryClient,
+        async query<T>(query: string, params: readonly unknown[] = []) {
+          return queryClient.query<T>(query, [...params]);
+        },
+        async transaction<T>(callback: (client: DatabaseQueryClient) => Promise<T>) {
+          return transaction(callback);
+        },
         async end() {
           await sql.end();
         },
@@ -145,32 +153,6 @@ function createRealPostgresHarness(input: {
       } finally {
         await sql.end();
       }
-    },
-  };
-}
-
-type HarnessSql = {
-  begin?<T>(callback: (sql: HarnessSql) => Promise<T>): Promise<T>;
-  unsafe(statement: string, params?: readonly unknown[]): Promise<unknown[]>;
-};
-
-function createHarnessQueryClient(sql: HarnessSql, inTransaction = false) {
-  return {
-    inTransaction,
-    async query<T>(query: string, params: readonly unknown[] = []) {
-      return { rows: (await sql.unsafe(query, [...params])) as T[] };
-    },
-    async transaction<T>(
-      callback: (client: {
-        query<T>(query: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
-      }) => Promise<T>,
-    ) {
-      if (!sql.begin) {
-        throw new Error("Nested harness transactions are not supported.");
-      }
-      return (await sql.begin(async (transactionSql) =>
-        callback(createHarnessQueryClient(transactionSql, true)),
-      )) as T;
     },
   };
 }

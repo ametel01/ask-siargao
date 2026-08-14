@@ -164,22 +164,24 @@ export async function runFoundationVerification(input: FoundationDependencies = 
       (<T>(work: (owner: IntegrationLifecycleOwner) => Promise<T>) =>
         runWithIntegrationLifecycle(work, { process: input.lifecycleProcess }));
     const exitCode = await lifecycle(async (owner) => {
-      const postgresService = await serviceRuntime.prepare({
-        containerName: identity.postgres.containerName,
-        env,
-        explicitUrl: env.DATABASE_URL,
-        identity,
-        kind: "postgres",
-        owner,
-      });
-      const redisService = await serviceRuntime.prepare({
-        containerName: identity.redis.containerName,
-        env,
-        explicitUrl: env.REDIS_URL,
-        identity,
-        kind: "redis",
-        owner,
-      });
+      const [postgresService, redisService] = await Promise.all([
+        serviceRuntime.prepare({
+          containerName: identity.postgres.containerName,
+          env,
+          explicitUrl: env.DATABASE_URL,
+          identity,
+          kind: "postgres",
+          owner,
+        }),
+        serviceRuntime.prepare({
+          containerName: identity.redis.containerName,
+          env,
+          explicitUrl: env.REDIS_URL,
+          identity,
+          kind: "redis",
+          owner,
+        }),
+      ]);
 
       owner.deferCleanup((signal) => commandRunner.stop(signal));
 

@@ -19,7 +19,8 @@ export async function enqueueDueOperationalTasks(
     throw new Error("invalid_operational_enqueue_limit");
   }
   const taskTypes = input.taskTypes ?? operationalTaskTypes;
-  const unsupported = taskTypes.find((taskType) => !operationalTaskTypes.includes(taskType));
+  const supportedTaskTypes = new Set(operationalTaskTypes);
+  const unsupported = taskTypes.find((taskType) => !supportedTaskTypes.has(taskType));
   if (unsupported) throw new Error("invalid_operational_task_type");
   const cycleKey = input.cycleKey ?? (await readDatabaseCycleKey(db));
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/.test(cycleKey)) {
@@ -35,17 +36,19 @@ export async function enqueueDueOperationalTasks(
   };
   for (const taskType of taskTypes) {
     const targets = await loadDueTargets(taskType, cycleKey, limit, db);
-    for (const target of targets) {
-      const inserted = await enqueueOperationalTask(
-        {
-          id: stableOperationalTaskId(taskType, target.resource_ref),
-          resourceRef: target.resource_ref,
-          taskType,
-        },
-        db,
-      );
-      if (inserted) enqueued[taskType] += 1;
-    }
+    const inserted = await Promise.all(
+      targets.map((target) =>
+        enqueueOperationalTask(
+          {
+            id: stableOperationalTaskId(taskType, target.resource_ref),
+            resourceRef: target.resource_ref,
+            taskType,
+          },
+          db,
+        ),
+      ),
+    );
+    enqueued[taskType] += inserted.filter(Boolean).length;
   }
   return enqueued;
 }

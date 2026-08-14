@@ -582,9 +582,9 @@ async function runPostClosureMutationMatrix(harness: RealPostgresHarness) {
           [userId],
         ),
     ];
-    for (const mutation of mutations) {
-      await expectRejects(mutation(), "account is terminally closed");
-    }
+    await Promise.all(
+      mutations.map((mutation) => expectRejects(mutation(), "account is terminally closed")),
+    );
   } finally {
     await client.end();
   }

@@ -29,8 +29,10 @@ export async function runStagingDeployment(input: StagingDeploymentDependencies 
   if (branch.trim() !== "main") throw new Error("Staging deployment requires the main branch.");
 
   await runChecked(run, ["git", "fetch", "upstream", "main"]);
-  const headSha = await runChecked(run, ["git", "rev-parse", "HEAD"]);
-  const trustedMainSha = await runChecked(run, ["git", "rev-parse", "upstream/main"]);
+  const [headSha, trustedMainSha] = await Promise.all([
+    runChecked(run, ["git", "rev-parse", "HEAD"]),
+    runChecked(run, ["git", "rev-parse", "upstream/main"]),
+  ]);
   if (headSha.trim() !== trustedMainSha.trim()) {
     throw new Error(
       "Staging deployment requires HEAD to match upstream/main. Push the candidate first.",

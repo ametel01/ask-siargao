@@ -2,6 +2,8 @@ import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { type OperationalTaskType, operationalTaskTypes } from "@/server/operations/contracts";
 import { enqueueDueOperationalTasks } from "@/server/operations/operational-task-producer";
 
+const operationalTaskTypeSet = new Set(operationalTaskTypes);
+
 if (import.meta.main) {
   const result = await enqueueDueOperationalTasks(
     parseOperationalTaskProducerArguments(process.argv.slice(2)),
@@ -20,7 +22,7 @@ export function parseOperationalTaskProducerArguments(arguments_: string[]) {
     else if (argument.startsWith("--task=")) {
       const task = argument.slice(7);
       if (task === "all") taskTypes = undefined;
-      else if (operationalTaskTypes.includes(task as OperationalTaskType)) {
+      else if (operationalTaskTypeSet.has(task as OperationalTaskType)) {
         taskTypes = [task as OperationalTaskType];
       } else throw new Error("invalid_operational_task_type");
     } else throw new Error("invalid_operational_task_producer_argument");
