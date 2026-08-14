@@ -64,6 +64,11 @@ export const clerkRoutePolicyEntries = [
     "public saved-trip share page",
     "share token validation remains required by the page",
   ),
+  publicKnowledgeHubPage("accommodations"),
+  publicKnowledgeHubPage("areas"),
+  publicKnowledgeHubPage("operators"),
+  publicKnowledgeHubPage("risks"),
+  publicKnowledgeHubPage("routes"),
   publicKnowledgePage("accommodations"),
   publicKnowledgePage("areas"),
   publicKnowledgePage("operators"),
@@ -332,6 +337,18 @@ function publicKnowledgePage(
     pathPattern: `/${family}/[slug]`,
     routeFile: `src/app/${family}/[slug]/page.tsx`,
     samplePath: `/${family}/example`,
+  } satisfies ClerkRoutePolicyEntry;
+}
+
+function publicKnowledgeHubPage(
+  family: "accommodations" | "areas" | "operators" | "risks" | "routes",
+) {
+  return {
+    classification: "public",
+    intent: `public ${family} knowledge hub`,
+    pathPattern: `/${family}`,
+    routeFile: `src/app/${family}/page.tsx`,
+    samplePath: `/${family}`,
   } satisfies ClerkRoutePolicyEntry;
 }
 

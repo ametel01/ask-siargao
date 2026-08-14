@@ -1802,7 +1802,16 @@ test("renders public human, markdown, JSON, sitemap, and llms surfaces", async (
   expect(body.claims[0].claim).toBe("Example Surf Stay is listed as a General Luna accommodation.");
 
   const sitemap = await page.request.get("/sitemap.xml");
-  expect(await sitemap.text()).toContain("/accommodations/example-surf-stay");
+  const sitemapText = await sitemap.text();
+  expect(sitemapText).toContain("<loc>https://www.asksiargao.com/</loc>");
+  expect(sitemapText).toContain("<loc>https://www.asksiargao.com/accommodations</loc>");
+  expect(sitemapText).toContain(
+    "<loc>https://www.asksiargao.com/accommodations/example-surf-stay</loc>",
+  );
+
+  await page.goto("/accommodations");
+  await expect(page.getByRole("heading", { name: "Where to stay in Siargao" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Example Surf Stay/ })).toBeVisible();
 
   const llms = await page.request.get("/llms.txt");
   expect(await llms.text()).toContain("/api/public/entities");
@@ -1814,6 +1823,7 @@ test("publishes crawl rules that keep private audit surfaces out of indexes", as
 
   expect(robotsText).toContain("Disallow: /audits/");
   expect(robotsText).toContain("Disallow: /admin/");
+  expect(robotsText).toContain("Sitemap: https://www.asksiargao.com/sitemap.xml");
 
   const report = await page.goto("/audits/audit_123/report");
   expect(report?.headers()["x-robots-tag"]).toContain("noindex");

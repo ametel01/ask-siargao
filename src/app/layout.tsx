@@ -1,26 +1,18 @@
 import type { Metadata } from "next";
-import { Cormorant_Garamond, Nunito_Sans } from "next/font/google";
 import type { ReactNode } from "react";
 
+import "@fontsource/cormorant-garamond/latin-500.css";
+import "@fontsource/cormorant-garamond/latin-600.css";
+import "@fontsource/cormorant-garamond/latin-700.css";
+import "@fontsource/nunito-sans/latin-400.css";
+import "@fontsource/nunito-sans/latin-600.css";
+import "@fontsource/nunito-sans/latin-700.css";
+import "@fontsource/nunito-sans/latin-800.css";
+import "@fontsource/nunito-sans/latin-900.css";
 import { SkipToMainContent } from "@/components/SkipToMainContent";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "@/theme/global.css";
-
-const bodyFont = Nunito_Sans({
-  display: "swap",
-  subsets: ["latin"],
-  variable: "--font-sans",
-  weight: ["400", "600", "700", "800", "900"],
-});
-
-const displayFont = Cormorant_Garamond({
-  display: "swap",
-  subsets: ["latin"],
-  style: "normal",
-  variable: "--font-display",
-  weight: ["500", "600", "700"],
-});
 
 export const metadata: Metadata = {
   title: "Ask Siargao",
@@ -38,7 +30,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   );
 
   return (
-    <html className={`${bodyFont.variable} ${displayFont.variable}`} lang="en">
+    <html lang="en">
       <body>{appContent}</body>
     </html>
   );

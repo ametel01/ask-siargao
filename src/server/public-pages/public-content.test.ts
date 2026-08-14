@@ -177,7 +177,11 @@ describe("public knowledge surfaces", () => {
     expect(buildPublicPageMarkdown(page)).toContain(publicRepublishFact.claim);
     expect(JSON.stringify(buildPublicPageJson(page))).toContain(publicRepublishFact.claim);
     expect(JSON.stringify(buildPublicJsonLd(page))).toContain(publicRepublishFact.claim);
-    expect(buildSitemapXml([page])).toContain(page.canonicalUrl);
+    const sitemap = buildSitemapXml([page]);
+    expect(sitemap).toContain("<loc>https://www.asksiargao.com/</loc>");
+    expect(sitemap).toContain("<loc>https://www.asksiargao.com/risks</loc>");
+    expect(sitemap).toContain("<loc>https://www.asksiargao.com/risks/public-source-policy</loc>");
+    expect(sitemap).not.toContain("https://siargao.example");
     expect(buildLlmsTxt([page])).toContain(page.llmMarkdownPath);
     expect(buildLlmsTxt([page])).not.toContain(citationOnlyOfficial.claim);
   });
@@ -188,7 +192,12 @@ describe("public knowledge surfaces", () => {
     const llms = buildLlmsTxt(pages);
 
     expect(pages.length).toBeGreaterThanOrEqual(5);
-    expect(sitemap).toContain("/accommodations/example-surf-stay");
+    expect(sitemap).toContain(
+      "<loc>https://www.asksiargao.com/accommodations/example-surf-stay</loc>",
+    );
+    for (const hub of ["accommodations", "areas", "routes", "operators", "risks"]) {
+      expect(sitemap).toContain(`<loc>https://www.asksiargao.com/${hub}</loc>`);
+    }
     expect(llms).toContain("/api/public/entities");
     expect(llms).toContain("/accommodations/example-surf-stay/llm.md");
     expect(sitemap).not.toContain("audit_");

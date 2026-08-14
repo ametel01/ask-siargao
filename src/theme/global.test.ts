@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 const css = await Bun.file(new URL("./global.css", import.meta.url)).text();
+const rootLayout = await Bun.file(new URL("../app/layout.tsx", import.meta.url)).text();
 
 const customProperties = new Map(
   [...css.matchAll(/^\s*(--[\w-]+):\s*([^;]+);/gm)].map((match) => [match[1], match[2].trim()]),
@@ -33,6 +34,20 @@ describe("reduced motion policy", () => {
     expect(css).toContain('[data-slot="button"]:active');
     expect(css).toContain("[data-sonner-toast][data-sonner-toast]");
     expect(css).toContain('[data-answer-arrival-motion="decision-strip-sequence"]');
+  });
+});
+
+describe("self-hosted typography", () => {
+  test("keeps production builds independent from Google Fonts", () => {
+    expect(rootLayout).not.toContain('from "next/font/google"');
+    expect(rootLayout).toContain("@fontsource/cormorant-garamond/latin-500.css");
+    expect(rootLayout).toContain("@fontsource/nunito-sans/latin-400.css");
+    expect(css).toContain(
+      '--font-heading: "Cormorant Garamond", "Iowan Old Style", Georgia, "Times New Roman", serif;',
+    );
+    expect(css).toContain(
+      '--font-body: "Nunito Sans", "Avenir Next", "Segoe UI", system-ui, sans-serif;',
+    );
   });
 });
 

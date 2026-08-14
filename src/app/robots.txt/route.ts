@@ -1,3 +1,5 @@
+import { canonicalSitemapUrl } from "@/server/public-pages/canonical-urls";
+
 export function GET() {
   return new Response(
     [
@@ -7,7 +9,7 @@ export function GET() {
       "Disallow: /api/audit/",
       "Disallow: /api/stripe/",
       "Allow: /api/public/",
-      "Sitemap: /sitemap.xml",
+      `Sitemap: ${canonicalSitemapUrl}`,
       "",
     ].join("\n"),
     {

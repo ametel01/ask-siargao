@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { PublicKnowledgeHubPage } from "@/features/public-pages/PublicKnowledgeHubPage";
 import { PublicKnowledgePage } from "@/features/public-pages/PublicKnowledgePage";
 import { trackServerEvent } from "@/server/observability/events";
+import { buildCanonicalSiteUrl } from "@/server/public-pages/canonical-urls";
 import { getPublicKnowledgeCatalog } from "@/server/public-pages/public-catalog";
 import {
   buildPublicPageJson,
@@ -10,6 +13,30 @@ import {
 } from "@/server/public-pages/public-content";
 import type { PublicSurfaceDefinition } from "@/server/public-pages/public-surface-registry";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
+
+const PUBLIC_INDEX_PAGE_LIMIT = 1_000;
+
+export function publicKnowledgeHubMetadata(surface: PublicSurfaceDefinition): Metadata {
+  return {
+    title: `${surface.hubTitle} | Ask Siargao`,
+    description: surface.hubDescription,
+    alternates: { canonical: buildCanonicalSiteUrl(surface.hubPath) },
+    robots: { index: true, follow: true },
+  };
+}
+
+export async function renderPublicKnowledgeHub(surface: PublicSurfaceDefinition) {
+  const pages = await getPublicKnowledgeCatalog().listEligiblePages({
+    limit: PUBLIC_INDEX_PAGE_LIMIT,
+  });
+
+  return (
+    <PublicKnowledgeHubPage
+      pages={pages.filter((page) => page.family === surface.catalogFamilyKey)}
+      surface={surface}
+    />
+  );
+}
 
 export async function renderPublicHumanPage(surface: PublicSurfaceDefinition, slug: string) {
   const family = surface.catalogFamilyKey;

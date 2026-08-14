@@ -6,12 +6,16 @@ import type {
 } from "@/server/audit/enums";
 import { createDefaultSourceRegistry } from "@/server/providers/adapters";
 import type { SourceRegistry } from "@/server/providers/source-registry";
+import { buildCanonicalSiteUrl } from "@/server/public-pages/canonical-urls";
 import {
   buildPublicCanonicalUrl,
+  buildPublicHubPath,
   buildPublicHumanPath,
   buildPublicJsonApiPath,
   buildPublicLlmMarkdownPath,
   type PublicPageFamily,
+  publicPageFamilies,
+  publicSurfaceRegistry,
 } from "@/server/public-pages/public-surface-registry";
 
 export type { PublicPageFamily } from "@/server/public-pages/public-surface-registry";
@@ -450,14 +454,62 @@ export function buildPublicJsonLd(page: PublicKnowledgePage) {
 }
 
 export function buildSitemapXml(pages: readonly PublicKnowledgePage[] = publicPagesForIndex()) {
-  const urls = pages
-    .map(
-      (page) =>
-        `<url><loc>${page.canonicalUrl}</loc><lastmod>${page.updatedAt.slice(0, 10)}</lastmod></url>`,
-    )
-    .join("");
+  const entries = new Map<string, string | undefined>();
+  entries.set(buildCanonicalSiteUrl("/"), undefined);
+
+  for (const family of publicPageFamilies) {
+    const surface = publicSurfaceRegistry[family];
+    if (!surface.includeInSitemap) {
+      continue;
+    }
+
+    const familyPages = pages.filter((page) => page.family === family);
+    entries.set(buildCanonicalSiteUrl(buildPublicHubPath(family)), latestSitemapDate(familyPages));
+  }
+
+  for (const page of pages) {
+    if (!publicSurfaceRegistry[page.family].includeInSitemap) {
+      continue;
+    }
+
+    entries.set(
+      buildCanonicalSiteUrl(buildPublicHumanPath(page.family, page.slug)),
+      sitemapDate(page.updatedAt),
+    );
+  }
+
+  const urls = [...entries].map(([url, lastModified]) => sitemapUrl(url, lastModified)).join("");
 
   return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+}
+
+function sitemapUrl(url: string, lastModified?: string) {
+  const lastModifiedXml = lastModified ? `<lastmod>${escapeXml(lastModified)}</lastmod>` : "";
+  return `<url><loc>${escapeXml(url)}</loc>${lastModifiedXml}</url>`;
+}
+
+function latestSitemapDate(pages: readonly PublicKnowledgePage[]) {
+  return pages
+    .flatMap((page) => {
+      const date = sitemapDate(page.updatedAt);
+      return date ? [date] : [];
+    })
+    .toSorted()
+    .at(-1);
+}
+
+function sitemapDate(value: string) {
+  const date = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 export function buildLlmsTxt(pages: readonly PublicKnowledgePage[] = publicPagesForIndex()) {

@@ -3,6 +3,10 @@ export const publicSurfaceRegistry = {
     family: "accommodations",
     catalogFamilyKey: "accommodations",
     routeSegment: "accommodations",
+    hubPath: "/accommodations",
+    hubTitle: "Where to stay in Siargao",
+    hubDescription:
+      "Compare Siargao accommodation areas and practical stay options using checked public guidance.",
     humanRoutePattern: "/accommodations/[slug]",
     llmMarkdownRoutePattern: "/accommodations/[slug]/llm.md",
     jsonRoutePattern: "/api/public/accommodations/[slug].json",
@@ -13,6 +17,10 @@ export const publicSurfaceRegistry = {
     family: "areas",
     catalogFamilyKey: "areas",
     routeSegment: "areas",
+    hubPath: "/areas",
+    hubTitle: "Siargao areas",
+    hubDescription:
+      "Explore Siargao's visitor areas and the practical tradeoffs that matter when choosing a base.",
     humanRoutePattern: "/areas/[slug]",
     llmMarkdownRoutePattern: "/areas/[slug]/llm.md",
     jsonRoutePattern: "/api/public/areas/[slug].json",
@@ -23,6 +31,10 @@ export const publicSurfaceRegistry = {
     family: "routes",
     catalogFamilyKey: "routes",
     routeSegment: "routes",
+    hubPath: "/routes",
+    hubTitle: "Getting to and around Siargao",
+    hubDescription:
+      "Plan common Siargao arrival and transfer routes with clear caveats for details that can change.",
     humanRoutePattern: "/routes/[slug]",
     llmMarkdownRoutePattern: "/routes/[slug]/llm.md",
     jsonRoutePattern: "/api/public/routes/[slug].json",
@@ -33,6 +45,10 @@ export const publicSurfaceRegistry = {
     family: "operators",
     catalogFamilyKey: "operators",
     routeSegment: "operators",
+    hubPath: "/operators",
+    hubTitle: "Choosing Siargao operators",
+    hubDescription:
+      "Use practical verification guidance when choosing transport and tourism operators in Siargao.",
     humanRoutePattern: "/operators/[slug]",
     llmMarkdownRoutePattern: "/operators/[slug]/llm.md",
     jsonRoutePattern: "/api/public/operators/[slug].json",
@@ -43,6 +59,10 @@ export const publicSurfaceRegistry = {
     family: "risks",
     catalogFamilyKey: "risks",
     routeSegment: "risks",
+    hubPath: "/risks",
+    hubTitle: "Siargao travel risks",
+    hubDescription:
+      "Understand common Siargao planning risks, their limits, and the fallbacks worth arranging.",
     humanRoutePattern: "/risks/[slug]",
     llmMarkdownRoutePattern: "/risks/[slug]/llm.md",
     jsonRoutePattern: "/api/public/risks/[slug].json",
@@ -80,6 +100,10 @@ export function getPublicSurfaceByRouteSegment(routeSegment: string) {
 
 export function buildPublicHumanPath(family: PublicPageFamily, slug: string) {
   return `/${getPublicSurface(family).routeSegment}/${slug}`;
+}
+
+export function buildPublicHubPath(family: PublicPageFamily) {
+  return getPublicSurface(family).hubPath;
 }
 
 export function buildPublicLlmMarkdownPath(family: PublicPageFamily, slug: string) {

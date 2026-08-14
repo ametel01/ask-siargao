@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { publicKnowledgePages } from "@/server/public-pages/public-content";
 import {
   buildPublicCanonicalUrl,
+  buildPublicHubPath,
   buildPublicHumanPath,
   buildPublicJsonApiPath,
   buildPublicLlmMarkdownPath,
@@ -37,6 +38,8 @@ describe("public surface registry", () => {
       expect(surface.family).toBe(family);
       expect(surface.catalogFamilyKey).toBe(family);
       expect(surface.routeSegment).toBe(family);
+      expect(surface.hubPath).toBe(`/${family}`);
+      expect(buildPublicHubPath(family)).toBe(`/${family}`);
       expect(surface.humanRoutePattern).toBe(`/${family}/[slug]`);
       expect(surface.llmMarkdownRoutePattern).toBe(`/${family}/[slug]/llm.md`);
       expect(surface.jsonRoutePattern).toBe(`/api/public/${family}/[slug].json`);
