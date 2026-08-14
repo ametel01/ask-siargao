@@ -34,7 +34,7 @@ export function planningGuideLlmsLines(guides: readonly PlanningGuide[]) {
     "",
     ...guides.map(
       (guide) =>
-        `- ${guide.title}: ${buildCanonicalSiteUrl(planningGuidePath(guide))} (${planningGuideMarkdownPath(guide)})`,
+        `- [${guide.title}](${buildCanonicalSiteUrl(planningGuidePath(guide))}): [LLM-ready Markdown](${buildCanonicalSiteUrl(planningGuideMarkdownPath(guide))}).`,
     ),
   ];
 }

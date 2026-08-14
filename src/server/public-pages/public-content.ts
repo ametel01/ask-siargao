@@ -524,17 +524,22 @@ export function buildLlmsTxt(
   additionalLines: readonly string[] = [],
 ) {
   return [
-    "# Ask Siargao public knowledge",
+    "# Ask Siargao",
     "",
-    "The governed knowledge pages below use only republishable facts with visible evidence, confidence, freshness, source type, canonical URL, and limitations.",
+    "> Practical Siargao travel guidance with governed public evidence and explicit limitations.",
+    "",
+    "The knowledge pages below use only republishable facts with visible evidence, confidence, freshness, source type, canonical URL, and limitations.",
     "",
     "## Indexes",
-    "- /api/public/entities",
-    "- /api/public/evidence",
-    "- /api/public/risk-preview",
+    `- [Public entities](${buildCanonicalSiteUrl("/api/public/entities")}): Published entity records.`,
+    `- [Public evidence](${buildCanonicalSiteUrl("/api/public/evidence")}): Evidence supporting published claims.`,
+    `- [Public risk preview](${buildCanonicalSiteUrl("/api/public/risk-preview")}): Public trip-risk summaries.`,
     "",
     "## Governed knowledge pages",
-    ...pages.map((page) => `- ${page.title}: ${page.canonicalUrl} (${page.llmMarkdownPath})`),
+    ...pages.map(
+      (page) =>
+        `- [${page.title}](${buildCanonicalSiteUrl(page.humanPath)}): [LLM-ready Markdown](${buildCanonicalSiteUrl(page.llmMarkdownPath)}).`,
+    ),
     ...(additionalLines.length > 0 ? ["", ...additionalLines] : []),
     "",
   ].join("\n");

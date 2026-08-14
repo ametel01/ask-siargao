@@ -1833,7 +1833,12 @@ test("renders public human, markdown, JSON, sitemap, and llms surfaces", async (
   await expect(page.getByRole("link", { name: /Example Surf Stay/ })).toBeVisible();
 
   const llms = await page.request.get("/llms.txt");
-  expect(await llms.text()).toContain("/api/public/entities");
+  const llmsText = await llms.text();
+  expect(llmsText.startsWith("# Ask Siargao\n")).toBe(true);
+  expect(llmsText).toContain("[Public entities](https://www.asksiargao.com/api/public/entities)");
+  expect(llmsText).toContain(
+    "[Complete Siargao Travel Guide](https://www.asksiargao.com/guides/complete-siargao-travel-guide)",
+  );
 });
 
 test("tracks a planning guide view through its Reality Check handoff", async ({ page }) => {
