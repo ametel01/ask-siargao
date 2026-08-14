@@ -13,7 +13,8 @@ import {
   ShieldCheck,
   Waves,
 } from "lucide-react";
-import { getImageProps } from "next/image";
+import Image from "next/image";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { buttonVariants } from "@/components/ui/button-variants";
@@ -29,16 +30,6 @@ import { appSurfaceInsetClass, appSurfacePanelClass } from "@/ui/styles/app-surf
 const heroPrompt = "Given today's weather and tide, should we still go to Cloud 9?";
 const landingPrimaryActionClass =
   "landing-primary-action min-h-11 rounded-lg px-4 text-sm font-semibold shadow-cta landing-focus-ring landing-focus-ring-strong focus-visible:outline-offset-3";
-
-const { props: responsiveHeroImageProps } = getImageProps({
-  alt: "",
-  className: "object-cover object-[72%_34%] lg:object-[58%_42%]",
-  fetchPriority: "high",
-  fill: true,
-  loading: "eager",
-  sizes: "(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 100vw",
-  src: "/images/ask-siargao-mobile-hero-bg.png",
-});
 
 const navigationItems = [
   { label: "Example", href: "#example-reality-check" },
@@ -167,13 +158,13 @@ export function LandingPage() {
 function Header() {
   return (
     <header className="flex min-h-16 items-center justify-between gap-4 lg:min-h-[4.75rem]">
-      <a
+      <Link
         aria-label="Ask Siargao home"
         className="min-w-0 rounded-md no-underline landing-focus-ring focus-visible:outline-offset-4"
         href="/"
       >
         <LandingBrand />
-      </a>
+      </Link>
 
       <nav
         aria-label="Landing page"
@@ -366,12 +357,16 @@ function CoastalFrame() {
       aria-label="A coastal view from Siargao"
       className="pointer-events-none absolute -inset-x-5 -top-5 bottom-0 -z-10 overflow-hidden sm:-inset-x-8 md:-inset-x-10 lg:pointer-events-auto lg:relative lg:inset-auto lg:z-auto lg:min-h-[39rem] lg:rounded-[2.25rem] lg:border lg:border-border-on-dark lg:shadow-coastal-frame"
     >
-      {/* biome-ignore lint/performance/noImgElement: getImageProps keeps Next image optimization without hydrating the LCP image. */}
-      <img
-        {...responsiveHeroImageProps}
+      <Image
         alt=""
         aria-hidden="true"
+        className="object-cover object-[72%_34%] lg:object-[58%_42%]"
         data-testid="responsive-hero-image"
+        fetchPriority="high"
+        fill
+        loading="eager"
+        sizes="(min-width: 1536px) 42vw, (min-width: 1024px) 38vw, 100vw"
+        src="/images/ask-siargao-mobile-hero-bg.png"
       />
       <div className="absolute inset-0 bg-[image:var(--gradient-landing-coastal-overlay)] lg:hidden" />
       <div className="absolute inset-0 hidden bg-gradient-to-t from-brand-navy-980/90 via-transparent to-brand-navy-980/10 lg:block" />
@@ -636,13 +631,13 @@ function TripPassPricingSection() {
               Trip Pass terms and refunds
               <ArrowRight aria-hidden="true" size={18} />
             </a>
-            <a
+            <Link
               className="inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
               href="/legal/privacy"
             >
               Privacy notice
               <ArrowRight aria-hidden="true" size={18} />
-            </a>
+            </Link>
           </div>
         </section>
       </div>

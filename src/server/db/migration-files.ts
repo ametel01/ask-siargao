@@ -45,9 +45,12 @@ export function listPendingMigrationNames(
   appliedMigrations: readonly MigrationFile[],
 ) {
   const appliedNames = new Set(appliedMigrations.map((migration) => migration.name));
-  return migrationFiles
-    .filter((migration) => !appliedNames.has(migration.name))
-    .map((migration) => migration.name);
+  return migrationFiles.reduce<string[]>((pendingNames, migration) => {
+    if (!appliedNames.has(migration.name)) {
+      pendingNames.push(migration.name);
+    }
+    return pendingNames;
+  }, []);
 }
 
 export function checksumMigrationSql(sql: string) {

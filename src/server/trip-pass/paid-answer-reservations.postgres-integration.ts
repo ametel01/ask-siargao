@@ -103,11 +103,14 @@ async function runDiagnosticPagination(harness: PostgresHarness) {
       db,
       scope: { passId: target.passId },
     });
+    const missingLocalRefs = snapshot.issues.reduce<string[]>((localRefs, issue) => {
+      if (issue.code === "paid_answer_usage_event_missing") {
+        localRefs.push(issue.localRef);
+      }
+      return localRefs;
+    }, []);
     assertJsonEqual(
-      snapshot.issues
-        .filter((issue) => issue.code === "paid_answer_usage_event_missing")
-        .map((issue) => issue.localRef)
-        .sort(),
+      missingLocalRefs.sort(),
       ["native_page_reservation_0000", "native_page_reservation_0499"],
       "diagnostics must keyset-page every paid-answer reservation exactly once",
     );

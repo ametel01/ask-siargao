@@ -28,9 +28,13 @@ export function PublicKnowledgeHubPage({
   pages: readonly PublicKnowledgePage[];
   surface: PublicSurfaceDefinition;
 }) {
-  const otherSurfaces = publicPageFamilies
-    .map((family) => publicSurfaceRegistry[family])
-    .filter((candidate) => candidate.family !== surface.family);
+  const otherSurfaces: PublicSurfaceDefinition[] = [];
+  for (const family of publicPageFamilies) {
+    const candidate = publicSurfaceRegistry[family];
+    if (candidate.family !== surface.family) {
+      otherSurfaces.push(candidate);
+    }
+  }
 
   return (
     <AppBackdrop>
