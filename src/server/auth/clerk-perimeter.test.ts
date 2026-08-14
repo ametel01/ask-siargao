@@ -35,7 +35,6 @@ describe("Clerk proxy perimeter", () => {
       "/profile",
       "/admin/diagnostics",
       "/api/admin/repairs",
-      "/api/chat",
       "/api/me/profile",
     ]) {
       const auth = protectRecorder();
@@ -44,6 +43,14 @@ describe("Clerk proxy perimeter", () => {
       expect(response.status, pathname).toBe(200);
       expect(auth.protectCalls, pathname).toBe(1);
     }
+  });
+
+  test("allows anonymous chat API requests without Clerk protection", async () => {
+    const auth = protectRecorder();
+    const response = await applyEnabledClerkRoutePolicy(auth, "/api/chat");
+
+    expect(response.status).toBe(200);
+    expect(auth.protectCalls).toBe(0);
   });
 
   test("leaves externally verified webhooks to provider signature handlers", async () => {

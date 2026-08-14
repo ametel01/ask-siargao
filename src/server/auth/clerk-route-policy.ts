@@ -113,7 +113,7 @@ export const clerkRoutePolicyEntries = [
     "protected",
     "MFA-gated Operator Repair Actions",
   ),
-  api("src/app/api/chat/route.ts", "/api/chat", "protected", "authenticated Travel Answer API"),
+  api("src/app/api/chat/route.ts", "/api/chat", "public", "anonymous chat API"),
   api(
     "src/app/api/chat/ratings/route.ts",
     "/api/chat/ratings",
