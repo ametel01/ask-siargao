@@ -207,8 +207,7 @@ function Hero() {
     >
       <div className="grid min-w-0 gap-3">
         <h1 className="m-0 max-w-[12ch] min-w-0 text-balance font-heading text-[clamp(3rem,12.6vw,5.3rem)] leading-[0.92] font-semibold text-text-on-dark tracking-[-0.02em] [overflow-wrap:anywhere] md:max-w-[13ch] md:text-[clamp(5.3rem,10.5vw,7.6rem)] lg:text-[clamp(4.6rem,6.1vw,7.25rem)] 2xl:text-[7.6rem]">
-          Reality-check the island around your{" "}
-          <span className="text-brand-lagoon-300">real constraints</span>
+          Live, local Siargao <span className="text-brand-lagoon-300">travel advice</span>
         </h1>
         <p className="m-0 max-w-[38ch] text-base leading-normal font-semibold text-text-on-dark-muted md:text-xl lg:max-w-[40ch] lg:text-lg xl:text-xl">
           Bring a hotel, itinerary, surf session, immediate plan, or disruption. Ask Siargao checks

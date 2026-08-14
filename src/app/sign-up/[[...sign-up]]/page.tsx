@@ -1,11 +1,17 @@
 import { SignUp } from "@clerk/nextjs";
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { ClerkProviderBoundary } from "@/features/auth/ClerkProviderBoundary";
 import { clerkAppearance } from "@/features/auth/clerk-appearance";
 import { isClerkConfigured } from "@/features/auth/clerk-config";
+import { buildNoIndexPageMetadata } from "@/server/seo/metadata";
 import { AppBackdrop, appNightPanelClass, BrandLockup } from "@/ui/components/ask-siargao";
+
+export const metadata: Metadata = buildNoIndexPageMetadata({
+  title: "Sign Up | Ask Siargao",
+});
 
 export default function SignUpPage() {
   if (!isClerkConfigured) {

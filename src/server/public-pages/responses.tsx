@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 
 import { PublicKnowledgeHubPage } from "@/features/public-pages/PublicKnowledgeHubPage";
 import { PublicKnowledgePage } from "@/features/public-pages/PublicKnowledgePage";
@@ -10,19 +11,35 @@ import {
   buildPublicPageJson,
   buildPublicPageMarkdown,
   normalizeJsonSlug,
+  type PublicKnowledgePage as PublicKnowledgePageData,
 } from "@/server/public-pages/public-content";
 import type { PublicSurfaceDefinition } from "@/server/public-pages/public-surface-registry";
 import { rateLimitedJson, rateLimitRequest } from "@/server/security/rate-limit";
+import { buildIndexablePageMetadata } from "@/server/seo/metadata";
 
 const PUBLIC_INDEX_PAGE_LIMIT = 1_000;
 
 export function publicKnowledgeHubMetadata(surface: PublicSurfaceDefinition): Metadata {
-  return {
+  return buildIndexablePageMetadata({
     title: `${surface.hubTitle} | Ask Siargao`,
     description: surface.hubDescription,
-    alternates: { canonical: buildCanonicalSiteUrl(surface.hubPath) },
-    robots: { index: true, follow: true },
-  };
+    canonicalUrl: buildCanonicalSiteUrl(surface.hubPath),
+  });
+}
+
+export function publicKnowledgePageMetadata(page: PublicKnowledgePageData): Metadata {
+  return buildIndexablePageMetadata({
+    title: `${page.title} | Ask Siargao`,
+    description: page.summary,
+    canonicalUrl: buildCanonicalSiteUrl(page.humanPath),
+  });
+}
+
+export async function generatePublicKnowledgePageMetadata(
+  surface: PublicSurfaceDefinition,
+  slug: string,
+) {
+  return publicKnowledgePageMetadata(await requirePublicKnowledgePage(surface, slug));
 }
 
 export async function renderPublicKnowledgeHub(surface: PublicSurfaceDefinition) {
@@ -39,14 +56,21 @@ export async function renderPublicKnowledgeHub(surface: PublicSurfaceDefinition)
 }
 
 export async function renderPublicHumanPage(surface: PublicSurfaceDefinition, slug: string) {
-  const family = surface.catalogFamilyKey;
-  const page = await getPublicKnowledgeCatalog().getPage(family, slug);
+  return <PublicKnowledgePage page={await requirePublicKnowledgePage(surface, slug)} />;
+}
+
+const loadPublicKnowledgePage = cache((surface: PublicSurfaceDefinition, slug: string) =>
+  getPublicKnowledgeCatalog().getPage(surface.catalogFamilyKey, slug),
+);
+
+async function requirePublicKnowledgePage(surface: PublicSurfaceDefinition, slug: string) {
+  const page = await loadPublicKnowledgePage(surface, slug);
 
   if (!page) {
     notFound();
   }
 
-  return <PublicKnowledgePage page={page} />;
+  return page;
 }
 
 export async function publicMarkdownResponse(surface: PublicSurfaceDefinition, slug: string) {
