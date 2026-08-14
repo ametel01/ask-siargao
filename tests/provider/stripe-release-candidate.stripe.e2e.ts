@@ -336,6 +336,7 @@ async function createTestModePaymentForCheckout(sessionId: string, paymentMethod
   const paymentIntent = await safeProviderCall("create confirmed test-mode payment", () =>
     stripe.paymentIntents.create({
       amount,
+      automatic_payment_methods: { allow_redirects: "never", enabled: true },
       currency,
       payment_method: paymentMethod,
       confirm: true,

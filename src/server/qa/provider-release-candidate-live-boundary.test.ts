@@ -74,6 +74,9 @@ test("Stripe automation uses supported server-side test payments instead of host
   expect(serverPayment).toContain("stripe.paymentIntents.create");
   expect(serverPayment).toContain("payment_method: paymentMethod");
   expect(serverPayment).toContain("confirm: true");
+  expect(serverPayment).toContain(
+    'automatic_payment_methods: { allow_redirects: "never", enabled: true }',
+  );
   expect(serverPayment).toContain('paymentIntent.status === "succeeded"');
   expect(serverPayment).toContain("stripe.checkout.sessions.expire(sessionId)");
   expect(serverPayment).toContain("const amount = checkout.amount_total");
