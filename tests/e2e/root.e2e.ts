@@ -182,6 +182,41 @@ test("applies the documented landing typography roles", async ({ page }) => {
   await expect(evidenceSummary).toHaveCSS("font-weight", "800");
 });
 
+test("keeps planning guides in primary navigation on mobile and desktop", async ({ page }) => {
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 1440, height: 1000 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+
+    const guidesLink = page.locator("header").first().getByRole("link", {
+      exact: true,
+      name: "Guides",
+    });
+    await expect(guidesLink).toBeVisible();
+    await expect(guidesLink).toHaveAttribute("href", "/guides");
+  }
+
+  await page.locator("header").first().getByRole("link", { exact: true, name: "Guides" }).click();
+  await expect(page).toHaveURL(/\/guides$/);
+  await expect(
+    page.getByRole("heading", { name: "Plan the island. Then check reality." }),
+  ).toBeVisible();
+
+  for (const guideTitle of [
+    "Complete Siargao Travel Guide",
+    "Siargao First-Timer Guide",
+    "3-Day Siargao Itinerary",
+    "5-Day Siargao Itinerary",
+    "7-Day Siargao Itinerary",
+    "Best Time to Visit Siargao",
+    "Siargao by Month",
+  ]) {
+    await expect(page.getByRole("link", { exact: true, name: guideTitle })).toBeVisible();
+  }
+});
+
 test("exposes real desktop navigation in keyboard reading order", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
@@ -221,6 +256,7 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
       link: navigation.getByRole("link", { name: "Trip Pass" }),
       rgb: [142, 230, 216],
     },
+    { link: page.getByRole("link", { exact: true, name: "Guides" }), rgb: [142, 230, 216] },
     { link: page.getByRole("link", { name: "Ask in chat" }), rgb: [142, 230, 216] },
     {
       link: page

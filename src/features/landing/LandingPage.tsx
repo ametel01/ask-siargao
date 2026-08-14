@@ -190,15 +190,25 @@ function Header() {
         ))}
       </nav>
 
-      <LandingActionLink
-        className="min-h-12 shrink-0 rounded-xl border border-border-on-dark bg-surface-night-card px-4 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-5"
-        href="/chat"
-        variant="outline"
-      >
-        <MessageCircle aria-hidden="true" size={19} />
-        <span className="hidden sm:inline">Ask in chat</span>
-        <span className="sm:hidden">Chat</span>
-      </LandingActionLink>
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        <LandingActionLink
+          className="min-h-12 rounded-xl border border-border-on-dark bg-surface-night-card px-3 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-4"
+          href="/guides"
+          variant="outline"
+        >
+          <Compass aria-hidden="true" size={19} />
+          Guides
+        </LandingActionLink>
+        <LandingActionLink
+          className="min-h-12 rounded-xl border border-border-on-dark bg-surface-night-card px-3 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-5"
+          href="/chat"
+          variant="outline"
+        >
+          <MessageCircle aria-hidden="true" size={19} />
+          <span className="hidden sm:inline">Ask in chat</span>
+          <span className="sm:hidden">Chat</span>
+        </LandingActionLink>
+      </div>
     </header>
   );
 }
@@ -218,7 +228,7 @@ function LandingBrand() {
           width={58}
         />
       </span>
-      <span className="min-w-0 font-heading text-2xl leading-none font-semibold whitespace-nowrap text-text-on-dark sm:text-3xl lg:text-4xl">
+      <span className="hidden min-w-0 font-heading text-2xl leading-none font-semibold whitespace-nowrap text-text-on-dark sm:inline sm:text-3xl lg:text-4xl">
         Ask Siargao
       </span>
     </span>
