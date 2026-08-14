@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import Script from "next/script";
 import type { ReactNode } from "react";
 
 import { buttonVariants } from "@/components/ui/button-variants";
@@ -505,7 +506,7 @@ function TripPassPricingSection() {
       className="grid min-w-0 gap-6 border-border-on-dark border-t px-0 pt-8 pb-10 md:gap-8 md:pt-10 lg:grid-cols-[minmax(18rem,0.62fr)_minmax(0,1.38fr)] lg:items-start lg:pb-14"
       id="trip-pass"
     >
-      <script defer src="/scripts/trip-pass-pricing-telemetry.js" />
+      <Script src="/scripts/trip-pass-pricing-telemetry.js" strategy="afterInteractive" />
       <div className="grid min-w-0 gap-4 lg:sticky lg:top-6">
         <h2
           className="m-0 max-w-[12ch] text-balance font-heading text-[clamp(2.35rem,8vw,4.1rem)] leading-[0.98] font-semibold text-text-on-dark"

@@ -19,6 +19,12 @@ test("uses a homepage H1 aligned with the page title", () => {
   expect(html).toContain(">travel advice</span>");
 });
 
+test("loads Trip Pass pricing telemetry through Next Script", () => {
+  const html = renderToStaticMarkup(<LandingPage />);
+
+  expect(html).not.toContain('<script defer="" src="/scripts/trip-pass-pricing-telemetry.js"');
+});
+
 test("makes every eligible tourism page reachable from home through HTML links", () => {
   const documents = new Map<string, string>([["/", renderToStaticMarkup(<LandingPage />)]]);
   documents.set("/guides", renderToStaticMarkup(<PlanningGuidesHubPage />));

@@ -52,6 +52,26 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   );
 });
 
+test("loads Trip Pass pricing telemetry without a React script warning", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") {
+      consoleErrors.push(message.text());
+    }
+  });
+  const scriptResponse = page.waitForResponse((response) => {
+    return new URL(response.url()).pathname === "/scripts/trip-pass-pricing-telemetry.js";
+  });
+
+  await page.goto("/");
+  await page.locator("#trip-pass").scrollIntoViewIfNeeded();
+
+  expect((await scriptResponse).status()).toBe(200);
+  expect(consoleErrors).not.toContain(
+    expect.stringContaining("Encountered a script tag while rendering React component"),
+  );
+});
+
 test("keeps Clerk client chunks off the unconfigured public landing route", async ({ page }) => {
   await page.goto("/");
 
