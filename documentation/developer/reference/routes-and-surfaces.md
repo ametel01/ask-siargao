@@ -141,8 +141,10 @@ issued affected share URLs resolve through the existing generic unavailable/not-
 
 Each public page family is generated from the same repository-backed `PublicKnowledgePage` governed
 facts. The local demo repository is built from persisted-page-shaped fixtures. Production reads the
-same shape only from governed public page and evidence rows; missing production content remains
-unavailable and is outside the initial Free Controlled Beta exposure scope.
+same shape from governed public page and evidence rows first. When that query succeeds but has no
+eligible pages, production serves a five-page code-backed baseline from the product-maintained Ask
+Siargao local guide. Database errors still fail closed, and production never serves the synthetic
+demo fixture catalog.
 The code source of truth for current families and path derivation is `src/server/public-pages/public-surface-registry.ts`; update that registry before changing this table.
 
 | Family | Human Route | LLM Markdown Route | JSON Route |

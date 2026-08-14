@@ -487,6 +487,31 @@ const publicTourismDirectoryAdapter: ProviderAdapterContract = {
   freshnessWindowDays: 30,
 };
 
+const curatedAskSiargaoGuideAdapter: ProviderAdapterContract = {
+  id: "adapter_curated_ask_siargao_guide",
+  kind: "local_partner",
+  profile: {
+    id: "source_curated_ask_siargao_guide",
+    sourceName: "Ask Siargao curated local guide",
+    sourceType: "local_verified",
+    accessMethod: "partner",
+    allowedUse: "public_republish",
+    rateLimit: "product-maintained content only",
+    freshnessWindowDays: 180,
+    authorityLevel: 3,
+    storesRawAllowed: false,
+    publishesRawAllowed: false,
+    requiresPartnerApproval: false,
+    knownStaleRisk: "medium",
+    knownAiOrSeoContentRisk: "low",
+    notes:
+      "Stable product-maintained Siargao planning knowledge; live schedules, prices, availability, and safety status still require current checks.",
+  },
+  retryPolicy: { maxAttempts: 0, backoffMs: 0 },
+  rateLimit: "product-maintained content only",
+  freshnessWindowDays: 180,
+};
+
 const userSubmittedEvidenceAdapter: ProviderAdapterContract = {
   id: "adapter_user_submitted_evidence",
   kind: "user_submitted",
@@ -555,6 +580,7 @@ export function createDefaultSourceRegistry() {
     nightlifeBroadTravelBlogAdapter.profile,
     nightlifePrivateSocialGroupAdapter.profile,
     publicTourismDirectoryAdapter.profile,
+    curatedAskSiargaoGuideAdapter.profile,
     userSubmittedEvidenceAdapter.profile,
     disallowedScrapeAdapter.profile,
   ]);

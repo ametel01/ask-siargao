@@ -1,5 +1,6 @@
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { createDatabasePublicKnowledgeCatalog } from "@/server/public-pages/database-public-catalog";
+import { productionBaselinePublicKnowledgePages } from "@/server/public-pages/production-baseline";
 import {
   createFixturePublicPageRepository,
   evaluatePublicPageEligibility,
@@ -73,6 +74,25 @@ export function createResilientPublicKnowledgeCatalog(input: {
   };
 }
 
+function createCatalogWithEmptyFallback(input: {
+  primary: PublicKnowledgeCatalog;
+  fallback: PublicKnowledgeCatalog;
+}): PublicKnowledgeCatalog {
+  return {
+    async getPage(family, slug) {
+      return (await input.primary.getPage(family, slug)) ?? input.fallback.getPage(family, slug);
+    },
+    async listPages(options) {
+      const pages = await input.primary.listPages(options);
+      return pages.length > 0 ? pages : input.fallback.listPages(options);
+    },
+    async listEligiblePages(options) {
+      const pages = await input.primary.listEligiblePages(options);
+      return pages.length > 0 ? pages : input.fallback.listEligiblePages(options);
+    },
+  };
+}
+
 export function getPublicKnowledgeCatalog() {
   if (defaultCatalog) {
     return defaultCatalog;
@@ -96,9 +116,12 @@ export function createRuntimePublicKnowledgeCatalog({
     if (!databaseUrl && !primary) {
       return unavailablePublicKnowledgeCatalog();
     }
-    return (
-      primary ?? createDatabasePublicKnowledgeCatalog({ client: getDefaultDatabaseQueryClient() })
-    );
+    return createCatalogWithEmptyFallback({
+      primary:
+        primary ??
+        createDatabasePublicKnowledgeCatalog({ client: getDefaultDatabaseQueryClient() }),
+      fallback: createProductionBaselinePublicKnowledgeCatalog(),
+    });
   }
 
   return databaseUrl || primary
@@ -108,6 +131,12 @@ export function createRuntimePublicKnowledgeCatalog({
           createDatabasePublicKnowledgeCatalog({ client: getDefaultDatabaseQueryClient() }),
       })
     : createFixturePublicKnowledgeCatalog();
+}
+
+function createProductionBaselinePublicKnowledgeCatalog() {
+  return createFixturePublicKnowledgeCatalog(
+    createFixturePublicPageRepository(productionBaselinePublicKnowledgePages),
+  );
 }
 
 export function resetPublicKnowledgeCatalogForTests(catalog: PublicKnowledgeCatalog | null = null) {

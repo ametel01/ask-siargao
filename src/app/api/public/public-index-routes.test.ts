@@ -5,6 +5,7 @@ import { GET as evidenceGet } from "@/app/api/public/evidence/route";
 import { GET as riskPreviewGet } from "@/app/api/public/risk-preview/route";
 import {
   createFixturePublicKnowledgeCatalog,
+  createRuntimePublicKnowledgeCatalog,
   resetPublicKnowledgeCatalogForTests,
 } from "@/server/public-pages/public-catalog";
 import { resetRateLimitStoreForTests } from "@/server/security/rate-limit";
@@ -42,6 +43,40 @@ describe("public knowledge index routes", () => {
     expect(JSON.stringify(riskPreview)).toContain("late-arrival-transfer-risk");
     expect(JSON.stringify(entities)).not.toContain("paid report");
     expect(JSON.stringify(evidence)).not.toContain("audit_");
+  });
+
+  test("serves a governed baseline when the production database catalog is empty", async () => {
+    const emptyPrimary = {
+      async getPage() {
+        return undefined;
+      },
+      async listPages() {
+        return [];
+      },
+      async listEligiblePages() {
+        return [];
+      },
+    };
+    resetPublicKnowledgeCatalogForTests(
+      createRuntimePublicKnowledgeCatalog({
+        databaseUrl: "postgres://configured.example/ask_siargao",
+        env: { NODE_ENV: "production" },
+        primary: emptyPrimary,
+      }),
+    );
+
+    const response = await entitiesGet(new Request("https://siargao.test/api/public/entities"));
+    const body = (await response.json()) as { entities: Array<{ title: string }> };
+
+    expect(response.status).toBe(200);
+    expect(body.entities.map((entity) => entity.title)).toEqual([
+      "Staying in General Luna",
+      "General Luna",
+      "Surigao City to Dapa",
+      "Choosing a Siargao transfer operator",
+      "Late-arrival transfer risk",
+    ]);
+    expect(JSON.stringify(body)).not.toContain("Example Surf Stay");
   });
 
   test("keeps the public_api rate-limit 429 headers and shape on index routes", async () => {

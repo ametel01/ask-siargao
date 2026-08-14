@@ -328,7 +328,8 @@ identified from commit `5ab8673` are closed in the current working tree:
 - destructive privacy mutations share a same-origin guard;
 - production PostgreSQL requires `verify-full`, and production Redis requires `rediss://`;
 - durable Google Places chat logs contain query length, not raw traveler search text;
-- production public knowledge fails closed instead of serving fixture-backed content;
+- production public knowledge fails closed on database errors and uses only a governed curated
+  baseline when the database query succeeds with no eligible rows, never synthetic demo fixtures;
 - Clerk webhook bodies are bounded before signature verification;
 - database grants cover every table created by the migration inventory, including operational state;
 - a durable scanner sends every page-worthy state family through the bounded Sentry delivery path;

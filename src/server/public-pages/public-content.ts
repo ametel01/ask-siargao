@@ -76,7 +76,7 @@ const publicEntityMatchStates = new Set(["confident", "probable"]);
 const publicVisibilityStates = new Set<PublicVisibilityState>(["eligible", "published"]);
 
 export const publicKnowledgePages: PublicKnowledgePage[] = [
-  createPersistedPublicPage({
+  createPublicKnowledgePage({
     publicPageId: "public_page_example_surf_stay",
     evidenceBundleId: "public_bundle_example_surf_stay",
     family: "accommodations",
@@ -103,7 +103,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
       },
     ],
   }),
-  createPersistedPublicPage({
+  createPublicKnowledgePage({
     publicPageId: "public_page_general_luna",
     evidenceBundleId: "public_bundle_general_luna",
     family: "areas",
@@ -131,7 +131,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
       },
     ],
   }),
-  createPersistedPublicPage({
+  createPublicKnowledgePage({
     publicPageId: "public_page_surigao_to_dapa",
     evidenceBundleId: "public_bundle_surigao_to_dapa",
     family: "routes",
@@ -157,7 +157,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
       },
     ],
   }),
-  createPersistedPublicPage({
+  createPublicKnowledgePage({
     publicPageId: "public_page_licensed_van_transfer",
     evidenceBundleId: "public_bundle_licensed_van_transfer",
     family: "operators",
@@ -186,7 +186,7 @@ export const publicKnowledgePages: PublicKnowledgePage[] = [
       },
     ],
   }),
-  createPersistedPublicPage({
+  createPublicKnowledgePage({
     publicPageId: "public_page_late_arrival_transfer_risk",
     evidenceBundleId: "public_bundle_late_arrival_transfer_risk",
     family: "risks",
@@ -481,7 +481,7 @@ export function normalizeJsonSlug(value: string) {
   return value.endsWith(".json") ? value.slice(0, -5) : value;
 }
 
-function createPersistedPublicPage(
+export function createPublicKnowledgePage(
   input: Omit<
     PublicKnowledgePage,
     | "evidenceBundle"
@@ -493,10 +493,10 @@ function createPersistedPublicPage(
     | "indexingStatus"
     | "updatedAt"
     | "generationSourceFactIds"
-  > & { evidenceBundleId: string },
+  > & { evidenceBundleId: string; updatedAt?: string },
 ): PublicKnowledgePage {
   const humanPath = buildPublicHumanPath(input.family, input.slug);
-  const { evidenceBundleId, ...pageInput } = input;
+  const { evidenceBundleId, updatedAt, ...pageInput } = input;
   const page = {
     ...pageInput,
     evidenceBundle: {
@@ -511,7 +511,7 @@ function createPersistedPublicPage(
     jsonApiPath: buildPublicJsonApiPath(input.family, input.slug),
     visibility: "eligible" as const,
     indexingStatus: "index" as const,
-    updatedAt: "2026-06-23T00:00:00.000Z",
+    updatedAt: updatedAt ?? "2026-06-23T00:00:00.000Z",
     generationSourceFactIds: input.facts.map((fact) => fact.id),
   };
 

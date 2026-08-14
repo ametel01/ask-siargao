@@ -7,7 +7,7 @@ import {
 } from "@/server/public-pages/public-catalog";
 
 describe("public knowledge catalog fallback", () => {
-  test("never serves synthetic fixture content in production", async () => {
+  test("serves only the governed baseline when the production catalog is empty", async () => {
     const emptyPrimary = {
       async getPage() {
         return undefined;
@@ -25,7 +25,22 @@ describe("public knowledge catalog fallback", () => {
       primary: emptyPrimary,
     });
 
-    expect(await catalog.listEligiblePages()).toEqual([]);
+    const pages = await catalog.listEligiblePages();
+
+    expect(pages.map((page) => page.slug)).toEqual([
+      "general-luna-stays",
+      "general-luna",
+      "surigao-city-to-dapa",
+      "siargao-transfer-operator-checks",
+      "late-arrival-transfer-risk",
+    ]);
+    expect(
+      pages.every((page) =>
+        page.facts.every((fact) => fact.sourceProfileId === "source_curated_ask_siargao_guide"),
+      ),
+    ).toBe(true);
+    expect(await catalog.getPage("areas", "general-luna")).toBeDefined();
+    expect(await catalog.getPage("routes", "surigao-city-to-dapa")).toBeDefined();
     expect(await catalog.getPage("accommodations", "example-surf-stay")).toBeUndefined();
   });
 
@@ -35,6 +50,26 @@ describe("public knowledge catalog fallback", () => {
     });
 
     await expect(catalog.listEligiblePages()).rejects.toBeDefined();
+  });
+
+  test("does not hide a production database catalog failure behind the baseline", async () => {
+    const catalog = createRuntimePublicKnowledgeCatalog({
+      databaseUrl: "postgres://configured.example/ask_siargao",
+      env: { NODE_ENV: "production" },
+      primary: {
+        async getPage() {
+          throw new Error("primary unavailable");
+        },
+        async listPages() {
+          throw new Error("primary unavailable");
+        },
+        async listEligiblePages() {
+          throw new Error("primary unavailable");
+        },
+      },
+    });
+
+    await expect(catalog.listEligiblePages()).rejects.toThrow("primary unavailable");
   });
 
   test("falls back to fixture pages when the primary catalog cannot list pages", async () => {

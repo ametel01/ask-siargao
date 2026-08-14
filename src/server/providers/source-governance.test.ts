@@ -111,6 +111,10 @@ describe("source registry and fact governance", () => {
     expect(canPublishFactPublicly(weatherFact, "medium")).toBe(true);
     expect(canPublishFactPublicly(officialFact, "high")).toBe(false);
     expect(registry.decide("source_public_tourism_directory").publicRepublishAllowed).toBe(true);
+    expect(registry.decide("source_curated_ask_siargao_guide")).toMatchObject({
+      canStoreRaw: false,
+      publicRepublishAllowed: true,
+    });
     expect(registry.decide("source_google_places")).toMatchObject({
       canFetch: true,
       canStoreRaw: false,
