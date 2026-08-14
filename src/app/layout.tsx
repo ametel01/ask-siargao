@@ -1,25 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import localFont from "next/font/local";
 import type { ReactNode } from "react";
 
+import "@fontsource-variable/cormorant-garamond/wght.css";
+import "@fontsource-variable/nunito-sans/wght.css";
 import { SkipToMainContent } from "@/components/SkipToMainContent";
 import "@/theme/global.css";
-
-const cormorantGaramond = localFont({
-  display: "swap",
-  fallback: ["Iowan Old Style", "Georgia", "Times New Roman"],
-  src: "../../node_modules/@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-normal.woff2",
-  variable: "--font-cormorant-garamond",
-  weight: "300 700",
-});
-
-const nunitoSans = localFont({
-  display: "swap",
-  fallback: ["Avenir Next", "Segoe UI", "Arial"],
-  src: "../../node_modules/@fontsource-variable/nunito-sans/files/nunito-sans-latin-wght-normal.woff2",
-  variable: "--font-nunito-sans",
-  weight: "200 1000",
-});
 
 export const metadata: Metadata = {
   applicationName: "Ask Siargao",
@@ -39,7 +24,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html className={`${cormorantGaramond.variable} ${nunitoSans.variable}`} lang="en">
+    <html lang="en">
       <body>
         <SkipToMainContent />
         {children}
