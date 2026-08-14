@@ -1950,6 +1950,7 @@ test("tracks a planning guide view through its Reality Check handoff", async ({ 
   const viewJourneyIds = events
     .filter((event) => event.name === "planning_guide_viewed")
     .map((event) => event.journeyId);
+  expect(viewJourneyIds).toHaveLength(1);
   expect(viewJourneyIds).toContain(clickEvent?.journeyId);
   expect(JSON.stringify(events)).not.toContain("Adapt this guide");
 });

@@ -237,13 +237,6 @@ summary::-webkit-details-marker {
   [data-slot="button"]:active {
     transform: none;
   }
-
-  [data-sonner-toaster][data-sonner-toaster],
-  [data-sonner-toast][data-sonner-toast],
-  [data-sonner-toast][data-sonner-toast] * {
-    animation: none;
-    transition-duration: 0ms;
-  }
 }
 
 @theme inline {

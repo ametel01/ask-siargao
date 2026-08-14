@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import useSWRMutation from "swr/mutation";
 
 import type { PlanningGuide } from "@/server/guides/planning-guides";
 
@@ -26,6 +27,16 @@ type PlanningGuideTelemetryEvent =
     };
 
 export function PlanningGuideTelemetry({ guideSlug }: { guideSlug: PlanningGuide["slug"] }) {
+  const journeyRef = useRef<{
+    guideSlug: PlanningGuide["slug"];
+    id: string;
+    viewSent: boolean;
+  } | null>(null);
+  const { trigger: sendTelemetry } = useSWRMutation(
+    "/api/observability/events",
+    postPlanningGuideTelemetry,
+  );
+
   useEffect(() => {
     if (navigator.doNotTrack === "1") {
       return;
@@ -36,13 +47,24 @@ export function PlanningGuideTelemetry({ guideSlug }: { guideSlug: PlanningGuide
       return;
     }
 
-    const journeyId = crypto.randomUUID();
-    sendPlanningGuideTelemetry({
-      guideSlug,
-      journeyId,
-      name: "planning_guide_viewed",
-      surface: "planning_guide",
-    });
+    const journey =
+      journeyRef.current?.guideSlug === guideSlug
+        ? journeyRef.current
+        : { guideSlug, id: crypto.randomUUID(), viewSent: false };
+    journeyRef.current = journey;
+
+    if (!journey.viewSent) {
+      journey.viewSent = true;
+      void sendTelemetry(
+        {
+          guideSlug,
+          journeyId: journey.id,
+          name: "planning_guide_viewed",
+          surface: "planning_guide",
+        },
+        { throwOnError: false },
+      );
+    }
 
     const handleClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) {
@@ -60,29 +82,39 @@ export function PlanningGuideTelemetry({ guideSlug }: { guideSlug: PlanningGuide
         return;
       }
 
-      sendPlanningGuideTelemetry({
-        action,
-        guideSlug,
-        journeyId,
-        name: "planning_guide_reality_check_clicked",
-        surface,
-      });
+      void sendTelemetry(
+        {
+          action,
+          guideSlug,
+          journeyId: journey.id,
+          name: "planning_guide_reality_check_clicked",
+          surface,
+        },
+        { throwOnError: false },
+      );
     };
 
     guideRoot.addEventListener("click", handleClick);
     return () => guideRoot.removeEventListener("click", handleClick);
-  }, [guideSlug]);
+  }, [guideSlug, sendTelemetry]);
 
   return null;
 }
 
-function sendPlanningGuideTelemetry(event: PlanningGuideTelemetryEvent) {
-  void fetch("/api/observability/events", {
+async function postPlanningGuideTelemetry(
+  url: string,
+  { arg: event }: { arg: PlanningGuideTelemetryEvent },
+) {
+  const response = await fetch(url, {
     body: JSON.stringify(event),
     headers: { "content-type": "application/json" },
     keepalive: true,
     method: "POST",
-  }).catch(() => undefined);
+  });
+
+  if (!response.ok) {
+    throw new Error("Planning guide telemetry could not be recorded.");
+  }
 }
 
 function isRealityCheckAction(value: string | undefined): value is PlanningGuideRealityCheckAction {

@@ -1863,48 +1863,38 @@ function useChatWorkspaceController({
   };
 }
 
-function ChatWorkspaceView({
-  chatThreads,
-  handlePromptSubmit,
-  historyStatus,
-  inputValue,
-  isSending,
-  locationState,
-  messages,
-  modelProviderConsent,
-  openChatThread,
-  archiveSelectedThread,
-  closeThreadActionDialog,
-  deleteSelectedThread,
-  openThreadActionDialog,
-  rateAssistantMessage,
-  removeSavedItem,
-  requestLocation,
-  renameSelectedThread,
-  saveItineraryPlan,
-  saveRecommendationCard,
-  savedItemIds,
-  savedPlanSharing,
-  savedTripState,
-  savedTripStatus,
-  selectedSavedItem,
-  selectedSavedItemId,
-  selectedSavedItemStatus,
-  selectedThreadId,
-  selectedThreadTitle,
-  selectedThreadUnavailable,
-  setInputValue,
-  startNewChat,
-  stopWaitingForAssistant,
-  threadActionState,
-  turnOffLocation,
-  tripPassAccount,
-  tripPassStatus,
-  tripContext,
-  tripDataSource,
-  updateTripContext,
-}: ChatWorkspaceController) {
-  const hasMessages = messages.length > 0;
+function ChatWorkspaceView(controller: ChatWorkspaceController) {
+  const {
+    chatThreads,
+    handlePromptSubmit,
+    historyStatus,
+    inputValue,
+    isSending,
+    locationState,
+    messages,
+    modelProviderConsent,
+    openChatThread,
+    archiveSelectedThread,
+    closeThreadActionDialog,
+    deleteSelectedThread,
+    openThreadActionDialog,
+    requestLocation,
+    renameSelectedThread,
+    savedPlanSharing,
+    savedTripState,
+    savedTripStatus,
+    selectedThreadId,
+    selectedThreadTitle,
+    setInputValue,
+    startNewChat,
+    threadActionState,
+    turnOffLocation,
+    tripPassAccount,
+    tripPassStatus,
+    tripContext,
+    tripDataSource,
+    updateTripContext,
+  } = controller;
   const useCompactHeader = useCompactChatHeaderViewport();
   const showMobileTripContext = useMobileTripContextViewport();
   const usePhoneNavigation = usePhoneChatNavigationViewport();
@@ -2055,102 +2045,12 @@ function ChatWorkspaceView({
             ref={chatScrollAreaRef}
             tabIndex={-1}
           >
-            <div className="mx-auto grid min-h-full max-w-3xl content-start gap-6 pb-6 md:max-w-5xl md:gap-4">
-              {savedTripStatus === "loading" ? (
-                <p
-                  className="m-0 text-sm font-bold text-text-muted"
-                  data-testid="saved-trip-status"
-                >
-                  Loading your saved planning.
-                </p>
-              ) : null}
-              {savedTripStatus === "error" ? (
-                <p
-                  className="m-0 text-sm font-bold text-risk-high-foreground"
-                  data-testid="saved-trip-status"
-                >
-                  Saved planning is unavailable right now. Try refreshing.
-                </p>
-              ) : null}
-              {savedTripState.items.length ? (
-                <SavedPlanTray
-                  copyStatus={savedPlanSharing.copyStatus}
-                  excludedShareItemIds={savedPlanSharing.excludedShareItemIds}
-                  items={savedTripState.items}
-                  onCopyShareLink={savedPlanSharing.copyShareLink}
-                  onCreateShareLink={() => {
-                    void savedPlanSharing.createShareLink();
-                  }}
-                  onRemoveItem={removeSavedItem}
-                  onToggleShareItem={savedPlanSharing.toggleItem}
-                  selectedItemCount={savedPlanSharing.selectedShareItems.length}
-                  selectedSavedItemId={selectedSavedItemId}
-                  shareStatus={savedPlanSharing.shareStatus}
-                  shareUrl={savedPlanSharing.shareUrl}
-                />
-              ) : null}
-              <SelectedSavedItemStatus
-                item={selectedSavedItem}
-                selectedItemId={selectedSavedItemId}
-                status={selectedSavedItemStatus}
-              />
-              {selectedThreadUnavailable ? (
-                <section
-                  aria-label="Selected chat unavailable"
-                  className="rounded-lg border border-border-default bg-white p-4"
-                  data-testid="selected-thread-status"
-                >
-                  <h2 className="m-0 text-base font-semibold text-text-strong">Chat unavailable</h2>
-                  <p className="m-0 mt-1 text-sm font-bold text-text-muted">
-                    This chat was not found for the current signed-in account.
-                  </p>
-                </section>
-              ) : null}
-              {hasMessages ? (
-                <>
-                  <p className="m-0 text-center text-sm font-semibold text-text-muted md:hidden">
-                    Today
-                  </p>
-                  <div
-                    className="grid gap-8 md:gap-4"
-                    role="log"
-                    aria-label="Conversation messages"
-                  >
-                    {messages.map((message) => (
-                      <ChatMessage
-                        disabled={isSending}
-                        key={message.id}
-                        message={message}
-                        onEditPrompt={editQuestion}
-                        onRateAssistantMessage={(messageId, rating) => {
-                          void rateAssistantMessage(messageId, rating);
-                        }}
-                        onRetryPrompt={handlePromptSubmit}
-                        onSaveItineraryPlan={saveItineraryPlan}
-                        onSaveRecommendationCard={saveRecommendationCard}
-                        onRemoveSavedItem={removeSavedItem}
-                        onStopWaiting={stopWaitingForAssistant}
-                        onSubmitPrompt={handlePromptSubmit}
-                        recoveryConditions={liveConditions}
-                        savedItemIds={savedItemIds}
-                      />
-                    ))}
-                  </div>
-                  {!isSending && lastMessage?.status === "complete" ? (
-                    <FollowUpPromptDisclosure
-                      onSubmitPrompt={handlePromptSubmit}
-                      prompts={suggestedPrompts}
-                    />
-                  ) : null}
-                </>
-              ) : (
-                <ChatEmptyState
-                  disabled={isSending}
-                  onSubmitPrompt={handlePromptSubmit}
-                  prompts={suggestedPrompts}
-                />
-              )}
-            </div>
+            <ChatMessageFeed
+              controller={controller}
+              editQuestion={editQuestion}
+              liveConditions={liveConditions}
+              suggestedPrompts={suggestedPrompts}
+            />
           </section>
 
           {showScrollToLatest ? (
@@ -2187,6 +2087,127 @@ function ChatWorkspaceView({
 
       <ModelProviderConsentDialog {...modelProviderConsent} />
     </main>
+  );
+}
+
+function ChatMessageFeed({
+  controller: {
+    handlePromptSubmit,
+    isSending,
+    messages,
+    rateAssistantMessage,
+    removeSavedItem,
+    saveItineraryPlan,
+    saveRecommendationCard,
+    savedItemIds,
+    savedPlanSharing,
+    savedTripState,
+    savedTripStatus,
+    selectedSavedItem,
+    selectedSavedItemId,
+    selectedSavedItemStatus,
+    selectedThreadUnavailable,
+    stopWaitingForAssistant,
+  },
+  editQuestion,
+  liveConditions,
+  suggestedPrompts,
+}: {
+  controller: ChatWorkspaceController;
+  editQuestion: (prompt: string) => void;
+  liveConditions: LiveConditionsController;
+  suggestedPrompts: ReturnType<typeof buildSuggestedPrompts>;
+}) {
+  const lastMessage = messages.at(-1);
+
+  return (
+    <div className="mx-auto grid min-h-full max-w-3xl content-start gap-6 pb-6 md:max-w-5xl md:gap-4">
+      {savedTripStatus === "loading" ? (
+        <p className="m-0 text-sm font-bold text-text-muted" data-testid="saved-trip-status">
+          Loading your saved planning.
+        </p>
+      ) : null}
+      {savedTripStatus === "error" ? (
+        <p
+          className="m-0 text-sm font-bold text-risk-high-foreground"
+          data-testid="saved-trip-status"
+        >
+          Saved planning is unavailable right now. Try refreshing.
+        </p>
+      ) : null}
+      {savedTripState.items.length ? (
+        <SavedPlanTray
+          copyStatus={savedPlanSharing.copyStatus}
+          excludedShareItemIds={savedPlanSharing.excludedShareItemIds}
+          items={savedTripState.items}
+          onCopyShareLink={savedPlanSharing.copyShareLink}
+          onCreateShareLink={() => {
+            void savedPlanSharing.createShareLink();
+          }}
+          onRemoveItem={removeSavedItem}
+          onToggleShareItem={savedPlanSharing.toggleItem}
+          selectedItemCount={savedPlanSharing.selectedShareItems.length}
+          selectedSavedItemId={selectedSavedItemId}
+          shareStatus={savedPlanSharing.shareStatus}
+          shareUrl={savedPlanSharing.shareUrl}
+        />
+      ) : null}
+      <SelectedSavedItemStatus
+        item={selectedSavedItem}
+        selectedItemId={selectedSavedItemId}
+        status={selectedSavedItemStatus}
+      />
+      {selectedThreadUnavailable ? (
+        <section
+          aria-label="Selected chat unavailable"
+          className="rounded-lg border border-border-default bg-white p-4"
+          data-testid="selected-thread-status"
+        >
+          <h2 className="m-0 text-base font-semibold text-text-strong">Chat unavailable</h2>
+          <p className="m-0 mt-1 text-sm font-bold text-text-muted">
+            This chat was not found for the current signed-in account.
+          </p>
+        </section>
+      ) : null}
+      {messages.length > 0 ? (
+        <>
+          <p className="m-0 text-center text-sm font-semibold text-text-muted md:hidden">Today</p>
+          <div className="grid gap-8 md:gap-4" role="log" aria-label="Conversation messages">
+            {messages.map((message) => (
+              <ChatMessage
+                disabled={isSending}
+                key={message.id}
+                message={message}
+                onEditPrompt={editQuestion}
+                onRateAssistantMessage={(messageId, rating) => {
+                  void rateAssistantMessage(messageId, rating);
+                }}
+                onRetryPrompt={handlePromptSubmit}
+                onSaveItineraryPlan={saveItineraryPlan}
+                onSaveRecommendationCard={saveRecommendationCard}
+                onRemoveSavedItem={removeSavedItem}
+                onStopWaiting={stopWaitingForAssistant}
+                onSubmitPrompt={handlePromptSubmit}
+                recoveryConditions={liveConditions}
+                savedItemIds={savedItemIds}
+              />
+            ))}
+          </div>
+          {!isSending && lastMessage?.status === "complete" ? (
+            <FollowUpPromptDisclosure
+              onSubmitPrompt={handlePromptSubmit}
+              prompts={suggestedPrompts}
+            />
+          ) : null}
+        </>
+      ) : (
+        <ChatEmptyState
+          disabled={isSending}
+          onSubmitPrompt={handlePromptSubmit}
+          prompts={suggestedPrompts}
+        />
+      )}
+    </div>
   );
 }
 

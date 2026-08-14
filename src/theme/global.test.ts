@@ -32,7 +32,6 @@ describe("reduced motion policy", () => {
 
   test("keeps targeted immediate alternatives for spatial and looping motion", () => {
     expect(css).toContain('[data-slot="button"]:active');
-    expect(css).toContain("[data-sonner-toast][data-sonner-toast]");
     expect(css).toContain('[data-answer-arrival-motion="decision-strip-sequence"]');
   });
 });
