@@ -36,6 +36,11 @@ const timeFormatter = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   timeZone: timezone,
 });
+const hourFormatter = new Intl.DateTimeFormat("en", {
+  hour: "2-digit",
+  hour12: false,
+  timeZone: timezone,
+});
 
 export function buildPacioosTideQueryUrl({
   dateRange,
@@ -84,8 +89,9 @@ export async function buildPacioosTideSnapshot(input: {
     throw new Error("PacIOOS tide model returned no usable grid rows.");
   }
   const targetDates = targetDatesForRange(input.dateRange, fetchedAt);
+  const targetDateSet = new Set(targetDates);
   const events = extractTideEvents(rows).filter((event) =>
-    targetDates.includes(dateKey(new Date(event.timestamp * 1000))),
+    targetDateSet.has(dateKey(new Date(event.timestamp * 1000))),
   );
   const days = targetDates.map<TideForecastDay>((date) => ({
     date,
@@ -202,13 +208,7 @@ function recommendModeledTideWindows(days: readonly TideForecastDay[]) {
     if (event.type !== "high") {
       continue;
     }
-    const localHour = Number(
-      new Intl.DateTimeFormat("en", {
-        hour: "2-digit",
-        hour12: false,
-        timeZone: timezone,
-      }).format(new Date(event.timestamp * 1000)),
-    );
+    const localHour = Number(hourFormatter.format(new Date(event.timestamp * 1000)));
     if (localHour < 5 || localHour >= 18) {
       continue;
     }
