@@ -3,6 +3,7 @@ import type {
   AgentRuntimeRequest,
   AgentToolCallAudit,
   AgentToolResult,
+  AskSiargaoAgentToolName,
   DecisionSummary,
   RecommendationCard,
   RecommendationCardKind,
@@ -20,24 +21,24 @@ import {
   type ValidatedRealityCheck,
 } from "@/server/chat/reality-check";
 
-export type RequiredEvidencePlan = {
+type RequiredEvidencePlan = {
   requiredToolCalls: readonly RequiredEvidenceToolCall[];
   allowedCardKinds?: readonly RecommendationCardKind[];
   allowedPlaceNames?: readonly string[];
 };
 
-export type RequiredEvidenceRepair = {
+type RequiredEvidenceRepair = {
   functionCalls: readonly RequiredEvidenceRepairFunctionCall[];
   instruction: string;
 };
 
-export type RequiredEvidenceRepairFunctionCall = {
+type RequiredEvidenceRepairFunctionCall = {
   callId: string;
   name: string;
   arguments: Record<string, unknown>;
 };
 
-export type RequiredEvidenceExecutionOptions<TOutput> = {
+type RequiredEvidenceExecutionOptions<TOutput> = {
   plan: RequiredEvidencePlan;
   functionCalls: readonly RequiredEvidenceRepairFunctionCall[];
   toolResults: readonly AgentToolResult[];
@@ -50,18 +51,17 @@ export type RequiredEvidenceExecutionOptions<TOutput> = {
   now?: () => Date;
 };
 
-export type RequiredEvidenceAdmissibleEvidence = {
+type RequiredEvidenceAdmissibleEvidence = {
   toolResults: readonly AgentToolResult[];
   allowedCardKinds?: readonly RecommendationCardKind[];
   allowedCardIds?: readonly string[];
 };
 
-export type RequiredEvidenceExecutionResult<TOutput> = {
+type RequiredEvidenceExecutionResult<TOutput> = {
   outputs: readonly TOutput[];
-  admissibleEvidence: RequiredEvidenceAdmissibleEvidence;
 };
 
-export type RequiredEvidencePolicy = {
+type RequiredEvidencePolicy = {
   requiredToolNames: readonly RequiredEvidenceToolCall["name"][];
   execute<TOutput>(
     options: Omit<RequiredEvidenceExecutionOptions<TOutput>, "plan">,
@@ -84,10 +84,10 @@ export type RequiredEvidencePolicy = {
 };
 
 export type EvidenceLifecycle = {
-  requiredToolNames: readonly RequiredEvidenceToolCall["name"][];
+  requiredToolNames: readonly AskSiargaoAgentToolName[];
   execute<TOutput>(
     options: Omit<RequiredEvidenceExecutionOptions<TOutput>, "plan">,
-  ): Promise<RequiredEvidenceExecutionResult<TOutput>>;
+  ): Promise<EvidenceLifecycleExecutionResult<TOutput>>;
   repairTools(input: {
     toolCalls: readonly AgentToolCallAudit[];
     toolResults: readonly AgentToolResult[];
@@ -104,7 +104,7 @@ export type EvidenceLifecycle = {
   }): EvidenceLifecycleFinalization;
 };
 
-export type EvidenceLifecycleToolRepair = {
+type EvidenceLifecycleToolRepair = {
   type: "tool";
   functionCalls: readonly RequiredEvidenceRepairFunctionCall[];
   instruction: string;
@@ -112,14 +112,14 @@ export type EvidenceLifecycleToolRepair = {
   payloadMode: "all" | "single";
 };
 
-export type EvidenceLifecycleRetryRepair = {
+type EvidenceLifecycleRetryRepair = {
   type: "retry";
   instruction: string;
   payload: unknown;
   payloadKey: "validationRepairRealityCheck" | "validationRepairRequiredEvidence";
 };
 
-export type EvidenceLifecycleFinalization = {
+type EvidenceLifecycleFinalization = {
   allowedCardIds: readonly string[] | undefined;
   allowedCardKinds: readonly RecommendationCardKind[] | undefined;
   allowedItineraryIds: readonly string[] | undefined;
@@ -128,6 +128,10 @@ export type EvidenceLifecycleFinalization = {
   finalPayload: AgentFinalPayload | undefined;
   realityCheck: ValidatedRealityCheck | undefined;
   satisfiesRequiredEvidence: boolean;
+};
+
+type EvidenceLifecycleExecutionResult<TOutput> = {
+  outputs: readonly TOutput[];
 };
 
 type EvidenceLifecycleRealityCheckOutcome = {
@@ -148,35 +152,35 @@ type RequiredEvidenceToolCallBase = {
   purpose: string;
 };
 
-export type RequiredEvidenceToolCall =
+type RequiredEvidenceToolCall =
   | RequiredWebResearchEvidenceToolCall
   | RequiredPlaceEvidenceToolCall
   | RequiredWeatherEvidenceToolCall
   | RequiredNightlifeEventEvidenceToolCall
   | RequiredLocalFactsEvidenceToolCall;
 
-export type RequiredWebResearchEvidenceToolCall = RequiredEvidenceToolCallBase & {
+type RequiredWebResearchEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "research_web";
 };
 
-export type RequiredPlaceEvidenceToolCall = RequiredEvidenceToolCallBase & {
+type RequiredPlaceEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "search_places";
   requiresOpenNow: boolean;
 };
 
-export type RequiredWeatherEvidenceToolCall = RequiredEvidenceToolCallBase & {
+type RequiredWeatherEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "get_weather_forecast";
 };
 
-export type RequiredNightlifeEventEvidenceToolCall = RequiredEvidenceToolCallBase & {
+type RequiredNightlifeEventEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "search_nightlife_events";
 };
 
-export type RequiredLocalFactsEvidenceToolCall = RequiredEvidenceToolCallBase & {
+type RequiredLocalFactsEvidenceToolCall = RequiredEvidenceToolCallBase & {
   name: "query_local_facts";
 };
 
-export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): RequiredEvidencePlan {
+function buildRequiredEvidencePlan(request: AgentRuntimeRequest): RequiredEvidencePlan {
   const latestContent = latestUserContent(request);
   const accommodationContext = inspectRealityCheckRequest(request).accommodation;
   if (accommodationContext) {
@@ -192,7 +196,7 @@ export function buildRequiredEvidencePlan(request: AgentRuntimeRequest): Require
   return { requiredToolCalls: [] };
 }
 
-export function buildRequiredEvidencePolicy(request: AgentRuntimeRequest): RequiredEvidencePolicy {
+function buildRequiredEvidencePolicy(request: AgentRuntimeRequest): RequiredEvidencePolicy {
   const plan = buildRequiredEvidencePlan(request);
   return {
     requiredToolNames: [...new Set(plan.requiredToolCalls.map((call) => call.name))],
@@ -451,7 +455,6 @@ async function executeEvidenceLifecycle<TOutput>({
   });
   return {
     outputs: [...upstreamOutputs, ...downstream.outputs],
-    admissibleEvidence: downstream.admissibleEvidence,
   };
 }
 
@@ -529,7 +532,7 @@ function currentConditionDependencyPlan(input: {
   };
 }
 
-export async function executeRequiredEvidence<TOutput>({
+async function executeRequiredEvidence<TOutput>({
   plan,
   functionCalls,
   toolResults,
@@ -549,10 +552,6 @@ export async function executeRequiredEvidence<TOutput>({
   });
   return {
     outputs,
-    admissibleEvidence: admissibleRequiredEvidence(plan, [
-      ...toolResults,
-      ...outputs.map(resultOf),
-    ]),
   };
 }
 
@@ -656,7 +655,7 @@ function buildAccommodationRealityCheckEvidencePlan(
   };
 }
 
-export function missingRequiredEvidenceToolCalls(
+function missingRequiredEvidenceToolCalls(
   plan: RequiredEvidencePlan,
   toolCalls: readonly AgentToolCallAudit[],
   toolResults: readonly AgentToolResult[] = [],
@@ -672,7 +671,7 @@ export function missingRequiredEvidenceToolCalls(
   );
 }
 
-export function buildRequiredEvidenceRepair({
+function buildRequiredEvidenceRepair({
   plan,
   toolCalls,
   toolResults = [],
@@ -696,7 +695,7 @@ export function buildRequiredEvidenceRepair({
   };
 }
 
-export function finalPayloadSatisfiesRequiredEvidence(
+function finalPayloadSatisfiesRequiredEvidence(
   plan: RequiredEvidencePlan,
   finalPayload: AgentFinalPayload | undefined,
   toolCalls: readonly AgentToolCallAudit[],
@@ -757,7 +756,7 @@ function requiredEvidenceRepairInstruction(missingToolCalls: readonly RequiredEv
   return `Validation repair: required evidence was missing for this answer.${purposeClause} Use these automatically executed required-evidence outputs before the final answer. If a required provider check succeeded, use its checked evidence and select only matching public artifacts. If a required provider check was unavailable or insufficient, keep the answer caveated and avoid checked/live claims from that provider.`;
 }
 
-export function requiredEvidencePlaceCardIds(
+function requiredEvidencePlaceCardIds(
   plan: RequiredEvidencePlan,
   toolResults: readonly AgentToolResult[],
 ) {
@@ -847,7 +846,7 @@ function researchWebResultIsAvailable(result: AgentToolResult) {
   );
 }
 
-export function selectedNightlifeEventVenueNames(
+function selectedNightlifeEventVenueNames(
   toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
 ) {
   const routeVenueNames = uniqueText(
@@ -870,7 +869,7 @@ export function selectedNightlifeEventVenueNames(
   );
 }
 
-export function selectedResearchEntityNames(
+function selectedResearchEntityNames(
   toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
 ) {
   return uniqueText(
@@ -1572,7 +1571,7 @@ function dependencyHasTerminalEvidence(
   });
 }
 
-export function nightlifePlacesEnrichmentIsUnavailable(
+function nightlifePlacesEnrichmentIsUnavailable(
   requiredCall: RequiredEvidenceToolCall,
   plan: RequiredEvidencePlan,
   toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
@@ -1585,7 +1584,7 @@ export function nightlifePlacesEnrichmentIsUnavailable(
   );
 }
 
-export function researchPlacesEnrichmentIsUnavailable(
+function researchPlacesEnrichmentIsUnavailable(
   requiredCall: RequiredEvidenceToolCall,
   plan: RequiredEvidencePlan,
   toolResults: readonly Pick<AgentToolResult, "name" | "status" | "data">[],
