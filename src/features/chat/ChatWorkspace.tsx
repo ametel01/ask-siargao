@@ -120,7 +120,6 @@ import {
 import {
   createResponseWaitLifecycle,
   isResponseWaitAbort,
-  type ResponseWaitLifecycleController,
   type ResponseWaitMessageStatus,
   responseStoppedStatusText,
   responseWaitStatusText,
@@ -670,12 +669,7 @@ function useChatWorkspaceController({
     syncSavedTripItemsMutation,
   );
   const hasSyncedAuthenticatedSavedTrip = useRef(false);
-  const responseLifecycleRef = useRef<ResponseWaitLifecycleController<ChatResponseBody> | null>(
-    null,
-  );
-  if (!responseLifecycleRef.current) {
-    responseLifecycleRef.current = createResponseWaitLifecycle<ChatResponseBody>();
-  }
+  const [responseLifecycle] = useState(() => createResponseWaitLifecycle<ChatResponseBody>());
   const activeLocationCaptureRef = useRef<{
     controller: AbortController;
     requestId: number;
@@ -698,9 +692,9 @@ function useChatWorkspaceController({
   );
 
   const invalidateActiveResponseRequest = useCallback(() => {
-    responseLifecycleRef.current?.invalidate();
+    responseLifecycle.invalidate();
     setIsSending(false);
-  }, []);
+  }, [responseLifecycle]);
 
   useEffect(() => {
     if (!requiresBrowserModelProviderConsent()) {
@@ -754,14 +748,14 @@ function useChatWorkspaceController({
 
   const stopActiveResponseForThreadSwitch = useCallback(() => {
     invalidatePendingChatSubmission();
-    const activeRequest = responseLifecycleRef.current?.getActiveRequest();
+    const activeRequest = responseLifecycle.getActiveRequest();
     if (!activeRequest) {
       return;
     }
 
-    responseLifecycleRef.current?.stop(activeRequest.requestId);
+    responseLifecycle.stop(activeRequest.requestId);
     setIsSending(false);
-  }, [invalidatePendingChatSubmission]);
+  }, [invalidatePendingChatSubmission, responseLifecycle]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -776,9 +770,9 @@ function useChatWorkspaceController({
       threadLoadGenerationRef.current += 1;
       activeThreadLoadRef.current?.controller.abort();
       activeThreadLoadRef.current = null;
-      responseLifecycleRef.current?.invalidate();
+      responseLifecycle.invalidate();
     };
-  }, []);
+  }, [responseLifecycle]);
 
   useEffect(() => {
     if (
@@ -1471,7 +1465,7 @@ function useChatWorkspaceController({
           dispatchLocationState({ type: "consume_request" });
         }
 
-        await responseLifecycleRef.current?.start(
+        await responseLifecycle.start(
           { assistantMessageId: pendingAssistantId, prompt: trimmedPrompt },
           async (request, onProgress) => {
             const response = await fetch("/api/chat", {
@@ -1564,21 +1558,22 @@ function useChatWorkspaceController({
       refreshChatThreads,
       selectedThreadId,
       tripDataSource,
+      responseLifecycle,
     ],
   );
 
   const stopWaitingForAssistant = useCallback(
     (assistantMessageId: string) => {
       invalidatePendingChatSubmission();
-      const activeRequest = responseLifecycleRef.current?.getActiveRequest();
+      const activeRequest = responseLifecycle.getActiveRequest();
       if (!activeRequest || activeRequest.assistantMessageId !== assistantMessageId) {
         return;
       }
 
-      responseLifecycleRef.current?.stop(activeRequest.requestId);
+      responseLifecycle.stop(activeRequest.requestId);
       setIsSending(false);
     },
-    [invalidatePendingChatSubmission],
+    [invalidatePendingChatSubmission, responseLifecycle],
   );
 
   const saveRecommendationCard = useCallback(
