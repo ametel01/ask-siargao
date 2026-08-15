@@ -45,32 +45,12 @@ export async function runOperationalCron(
   if (!sentry) {
     throw new Error("sentry_configuration_unavailable");
   }
-  const enqueued = await enqueueDueOperationalTasks(
-    { limitPerType: 25, taskTypes: ["account_closure"] },
-    db,
-  );
-  const worker = await runOperationalWorker(
-    { batchSize: 25, leaseSeconds: 60, taskTypes: ["account_closure"] },
-    {
-      db,
-      handlers: createProductionOperationalTaskHandlers({ db }),
-      onRepeatedFailure: async ({ attempts, taskKey }) => {
-        await deliverOperationalAlertOnce(
-          {
-            alertKey: `worker:${taskKey}:tier:${attempts >= 5 ? "high" : "warning"}`,
-            errorCode: "operational_worker_repeated_failure",
-            impact: attempts >= 5 ? "high" : "warning",
-            operation: "account_closure",
-          },
-          { db, sink: sentry },
-        );
-      },
-    },
-  );
-  const [alerts, schedules] = await Promise.all([
+  const { enqueued, worker } = await enqueueAndRunOperationalWorker({ db, sentry });
+  const alertsAndSchedules = Promise.all([
     deliverPendingPageWorthyAlerts({ db, sink: sentry }),
     evaluateOperationalSchedules({ db, now: dependencies.now }),
   ]);
+  const [alerts, schedules] = await alertsAndSchedules;
   const scheduleAlerts = await Promise.all(
     schedules.issues.map((issue) =>
       deliverOperationalAlertOnce(
@@ -89,6 +69,41 @@ export async function runOperationalCron(
     enqueued,
     schedules,
     worker,
+  };
+}
+
+async function enqueueAndRunOperationalWorker({
+  db,
+  sentry,
+}: {
+  db: DatabaseQueryClient;
+  sentry: SentryOperationalSink;
+}) {
+  const enqueued = await enqueueDueOperationalTasks(
+    { limitPerType: 25, taskTypes: ["account_closure"] },
+    db,
+  );
+  return {
+    enqueued,
+    // The worker must start after enqueueing so it can claim this cycle's tasks.
+    worker: await runOperationalWorker(
+      { batchSize: 25, leaseSeconds: 60, taskTypes: ["account_closure"] },
+      {
+        db,
+        handlers: createProductionOperationalTaskHandlers({ db }),
+        onRepeatedFailure: async ({ attempts, taskKey }) => {
+          await deliverOperationalAlertOnce(
+            {
+              alertKey: `worker:${taskKey}:tier:${attempts >= 5 ? "high" : "warning"}`,
+              errorCode: "operational_worker_repeated_failure",
+              impact: attempts >= 5 ? "high" : "warning",
+              operation: "account_closure",
+            },
+            { db, sink: sentry },
+          );
+        },
+      },
+    ),
   };
 }
 

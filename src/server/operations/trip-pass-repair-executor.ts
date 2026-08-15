@@ -98,8 +98,11 @@ function grantMissingTripPassAction(
         },
         db,
       );
-      const after = await loadOrderGrantState(finding.local_entity_ref, db);
-      return { ...after, result: result.status };
+      // The state read must follow the grant transaction's commit.
+      return {
+        ...(await loadOrderGrantState(finding.local_entity_ref, db)),
+        result: result.status,
+      };
     },
   });
 }
