@@ -8,23 +8,170 @@ export type ResponseWaitRequest = {
   requestId: string;
 };
 
-export type ResponseWaitLifecycle =
-  | { phase: "idle" }
-  | {
-      phase: "pending" | "failed" | "stopped";
-      assistantMessageId: string;
-      prompt: string;
-      requestId: string;
+export type ResponseWaitMessageStatus = "pending" | "complete" | "error" | "stopped";
+
+export type ResponseWaitMessage = {
+  answerArrivalMotion?: unknown;
+  retryPrompt?: string;
+  status?: ResponseWaitMessageStatus;
+  text: string;
+  timestamp: string;
+};
+
+export type ResponseWaitLifecycleNotification<T> =
+  | { type: "started"; request: ResponseWaitRequest }
+  | { type: "progress"; request: ResponseWaitRequest; message: string }
+  | { type: "completed"; request: ResponseWaitRequest; result: T }
+  | { type: "failed"; request: ResponseWaitRequest; error: unknown }
+  | { type: "stopped"; request: ResponseWaitRequest };
+
+export type ResponseWaitLifecycleExecutor<T> = (
+  request: ResponseWaitRequest,
+  onProgress: (message: string) => void,
+) => Promise<T>;
+
+export type ResponseWaitLifecycleController<T> = {
+  getActiveRequest: () => ResponseWaitRequest | null;
+  invalidate: () => void;
+  start: (
+    input: Omit<ResponseWaitRequest, "controller" | "requestId">,
+    execute: ResponseWaitLifecycleExecutor<T>,
+    notify: (event: ResponseWaitLifecycleNotification<T>) => void,
+  ) => Promise<void>;
+  stop: (requestId?: string) => boolean;
+};
+
+export function transitionResponseWaitMessage<TMessage extends ResponseWaitMessage, TResult>(
+  message: TMessage,
+  event: ResponseWaitLifecycleNotification<TResult>,
+  options: {
+    errorText: (error: unknown) => string;
+    projectResult: (message: TMessage, result: TResult) => Partial<TMessage>;
+    stoppedText: string;
+    timestamp: () => string;
+  },
+): TMessage {
+  if (event.type === "progress") {
+    return message.status === "pending" ? { ...message, text: event.message } : message;
+  }
+  if (event.type === "completed") {
+    return {
+      ...message,
+      ...options.projectResult(message, event.result),
+      retryPrompt: event.request.prompt,
+      status: "complete",
+      timestamp: options.timestamp(),
     };
+  }
+  if (event.type === "failed") {
+    return {
+      ...message,
+      answerArrivalMotion: undefined,
+      retryPrompt: event.request.prompt,
+      status: "error",
+      text: options.errorText(event.error),
+      timestamp: options.timestamp(),
+    };
+  }
+  if (event.type === "stopped") {
+    return {
+      ...message,
+      answerArrivalMotion: undefined,
+      retryPrompt: event.request.prompt,
+      status: "stopped",
+      text: options.stoppedText,
+      timestamp: options.timestamp(),
+    };
+  }
+  return message;
+}
 
-export type ResponseWaitLifecycleEvent =
-  | { type: "start"; request: Omit<ResponseWaitRequest, "controller"> }
-  | { type: "complete"; requestId: string }
-  | { type: "fail"; requestId: string }
-  | { type: "stop"; requestId: string }
-  | { type: "invalidate"; requestId?: string };
+export function createResponseWaitLifecycle<T>(options?: {
+  createRequestId?: () => string;
+}): ResponseWaitLifecycleController<T> {
+  let activeRequest: ResponseWaitRequest | null = null;
+  let activeNotify: ((event: ResponseWaitLifecycleNotification<T>) => void) | null = null;
 
-export function createResponseWaitRequest({
+  function getActiveRequest() {
+    return activeRequest;
+  }
+
+  function invalidate() {
+    activeRequest = invalidateResponseWaitRequest(activeRequest);
+    activeNotify = null;
+  }
+
+  function stop(requestId = activeRequest?.requestId) {
+    if (!activeRequest || !requestId || activeRequest.requestId !== requestId) {
+      return false;
+    }
+
+    const stoppedRequest = activeRequest;
+    activeRequest = stopResponseWaitRequest(activeRequest, requestId);
+    activeNotify?.({ type: "stopped", request: stoppedRequest });
+    activeNotify = null;
+    return true;
+  }
+
+  function start(
+    input: Omit<ResponseWaitRequest, "controller" | "requestId">,
+    execute: ResponseWaitLifecycleExecutor<T>,
+    notify: (event: ResponseWaitLifecycleNotification<T>) => void,
+  ) {
+    const replacedRequest = activeRequest;
+    const replacedNotify = activeNotify;
+    invalidate();
+    if (replacedRequest) {
+      replacedNotify?.({ type: "stopped", request: replacedRequest });
+    }
+    const request = createResponseWaitRequest({
+      ...input,
+      createRequestId: options?.createRequestId,
+    });
+    activeRequest = request;
+    activeNotify = notify;
+    notify({ type: "started", request });
+
+    let execution: Promise<T>;
+    try {
+      execution = execute(request, (message) => {
+        if (isCurrentResponseWaitRequest(activeRequest, request.requestId)) {
+          notify({ type: "progress", request, message });
+        }
+      });
+    } catch (error) {
+      execution = Promise.reject(error);
+    }
+
+    return execution.then(
+      (result) => {
+        if (!isCurrentResponseWaitRequest(activeRequest, request.requestId)) {
+          return;
+        }
+
+        activeRequest = null;
+        activeNotify = null;
+        notify({ type: "completed", request, result });
+      },
+      (error: unknown) => {
+        if (
+          !isCurrentResponseWaitRequest(activeRequest, request.requestId) ||
+          isResponseWaitAbort(error)
+        ) {
+          return;
+        }
+
+        activeRequest = null;
+        activeNotify = null;
+        notify({ type: "failed", request, error });
+      },
+    );
+  }
+
+  return { getActiveRequest, invalidate, start, stop };
+}
+
+function createResponseWaitRequest({
   assistantMessageId,
   controller = new AbortController(),
   createRequestId = createResponseWaitRequestId,
@@ -43,21 +190,14 @@ export function createResponseWaitRequest({
   };
 }
 
-export function isCurrentResponseWaitRequest(
+function isCurrentResponseWaitRequest(
   activeRequest: ResponseWaitRequest | null,
   requestId: string,
 ): activeRequest is ResponseWaitRequest {
   return activeRequest?.requestId === requestId;
 }
 
-export function settleResponseWaitRequest(
-  activeRequest: ResponseWaitRequest | null,
-  requestId: string,
-): ResponseWaitRequest | null {
-  return isCurrentResponseWaitRequest(activeRequest, requestId) ? null : activeRequest;
-}
-
-export function stopResponseWaitRequest(
+function stopResponseWaitRequest(
   activeRequest: ResponseWaitRequest | null,
   requestId: string,
 ): ResponseWaitRequest | null {
@@ -69,7 +209,7 @@ export function stopResponseWaitRequest(
   return null;
 }
 
-export function invalidateResponseWaitRequest(
+function invalidateResponseWaitRequest(
   activeRequest: ResponseWaitRequest | null,
 ): ResponseWaitRequest | null {
   if (activeRequest) {
@@ -78,7 +218,7 @@ export function invalidateResponseWaitRequest(
   return null;
 }
 
-export function abortResponseWaitRequest(activeRequest: ResponseWaitRequest) {
+function abortResponseWaitRequest(activeRequest: ResponseWaitRequest) {
   if (!activeRequest.controller.signal.aborted) {
     activeRequest.controller.abort();
   }
@@ -88,33 +228,6 @@ export function isResponseWaitAbort(error: unknown) {
   return error instanceof DOMException
     ? error.name === "AbortError"
     : error instanceof Error && error.name === "AbortError";
-}
-
-export function reduceResponseWaitLifecycle(
-  state: ResponseWaitLifecycle,
-  event: ResponseWaitLifecycleEvent,
-): ResponseWaitLifecycle {
-  switch (event.type) {
-    case "start":
-      return { ...event.request, phase: "pending" };
-    case "complete":
-      return state.phase === "pending" && state.requestId === event.requestId
-        ? { phase: "idle" }
-        : state;
-    case "fail":
-      return state.phase === "pending" && state.requestId === event.requestId
-        ? { ...state, phase: "failed" }
-        : state;
-    case "stop":
-      return state.phase === "pending" && state.requestId === event.requestId
-        ? { ...state, phase: "stopped" }
-        : state;
-    case "invalidate":
-      return event.requestId === undefined ||
-        (state.phase !== "idle" && state.requestId === event.requestId)
-        ? { phase: "idle" }
-        : state;
-  }
 }
 
 function createResponseWaitRequestId() {

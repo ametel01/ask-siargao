@@ -118,15 +118,13 @@ import {
   type RecommendationCardPresentation,
 } from "@/features/chat/recommendation-presentation";
 import {
-  createResponseWaitRequest,
-  invalidateResponseWaitRequest,
-  isCurrentResponseWaitRequest,
+  createResponseWaitLifecycle,
   isResponseWaitAbort,
-  type ResponseWaitRequest,
+  type ResponseWaitLifecycleController,
+  type ResponseWaitMessageStatus,
   responseStoppedStatusText,
   responseWaitStatusText,
-  settleResponseWaitRequest,
-  stopResponseWaitRequest,
+  transitionResponseWaitMessage,
 } from "@/features/chat/response-wait-state";
 import type {
   ArtifactDecisionMetadata,
@@ -218,6 +216,15 @@ type ChatResponseErrorBody = {
   reason?: string;
   message?: string;
 };
+type ChatResponseBody = ChatResponseErrorBody & {
+  cards?: RecommendationCardArtifact[];
+  actions?: ChatActionArtifact[];
+  itineraries?: ItineraryPlanArtifact[];
+  decisionSummaries?: DecisionSummaryArtifact[];
+  sources?: ChatSourceArtifact[];
+  threadId?: string;
+  assistantMessageId?: string;
+};
 
 const chatErrorMessage = "Ask Siargao could not finish this answer. Your question is still here.";
 const shareErrorMessage = "Share link could not be created. Your saved items are still here.";
@@ -241,7 +248,7 @@ type InteractiveChatMessage = {
   role: "user" | "assistant";
   text: string;
   timestamp: string;
-  status?: "pending" | "complete" | "error" | "stopped";
+  status?: ResponseWaitMessageStatus;
   rating?: ChatResponseRatingValue | null;
   ratingStatus?: "saving";
   retryPrompt?: string;
@@ -663,7 +670,12 @@ function useChatWorkspaceController({
     syncSavedTripItemsMutation,
   );
   const hasSyncedAuthenticatedSavedTrip = useRef(false);
-  const activeResponseRequestRef = useRef<ResponseWaitRequest | null>(null);
+  const responseLifecycleRef = useRef<ResponseWaitLifecycleController<ChatResponseBody> | null>(
+    null,
+  );
+  if (!responseLifecycleRef.current) {
+    responseLifecycleRef.current = createResponseWaitLifecycle<ChatResponseBody>();
+  }
   const activeLocationCaptureRef = useRef<{
     controller: AbortController;
     requestId: number;
@@ -686,9 +698,7 @@ function useChatWorkspaceController({
   );
 
   const invalidateActiveResponseRequest = useCallback(() => {
-    activeResponseRequestRef.current = invalidateResponseWaitRequest(
-      activeResponseRequestRef.current,
-    );
+    responseLifecycleRef.current?.invalidate();
     setIsSending(false);
   }, []);
 
@@ -744,29 +754,13 @@ function useChatWorkspaceController({
 
   const stopActiveResponseForThreadSwitch = useCallback(() => {
     invalidatePendingChatSubmission();
-    const activeRequest = activeResponseRequestRef.current;
+    const activeRequest = responseLifecycleRef.current?.getActiveRequest();
     if (!activeRequest) {
       return;
     }
 
-    activeResponseRequestRef.current = stopResponseWaitRequest(
-      activeRequest,
-      activeRequest.requestId,
-    );
+    responseLifecycleRef.current?.stop(activeRequest.requestId);
     setIsSending(false);
-    setMessages((currentMessages) =>
-      currentMessages.map((message) =>
-        message.id === activeRequest.assistantMessageId && message.status === "pending"
-          ? {
-              ...message,
-              text: responseStoppedStatusText,
-              timestamp: formatTimestamp(),
-              status: "stopped",
-              retryPrompt: activeRequest.prompt,
-            }
-          : message,
-      ),
-    );
   }, [invalidatePendingChatSubmission]);
 
   useEffect(() => {
@@ -782,9 +776,7 @@ function useChatWorkspaceController({
       threadLoadGenerationRef.current += 1;
       activeThreadLoadRef.current?.controller.abort();
       activeThreadLoadRef.current = null;
-      activeResponseRequestRef.current = invalidateResponseWaitRequest(
-        activeResponseRequestRef.current,
-      );
+      responseLifecycleRef.current?.invalidate();
     };
   }, []);
 
@@ -1458,10 +1450,6 @@ function useChatWorkspaceController({
           status: "complete",
         };
         const pendingAssistantId = createMessageId("assistant");
-        const responseRequest = createResponseWaitRequest({
-          assistantMessageId: pendingAssistantId,
-          prompt: trimmedPrompt,
-        });
         const pendingAssistant: InteractiveChatMessage = {
           id: pendingAssistantId,
           role: "assistant",
@@ -1477,153 +1465,89 @@ function useChatWorkspaceController({
           tripDataSource,
         );
 
-        activeResponseRequestRef.current = responseRequest;
         setInputValue("");
         setMessages((currentMessages) => [...currentMessages, userMessage, pendingAssistant]);
         if (requestBody.clientContext?.geolocation?.consentScope === "single_request") {
           dispatchLocationState({ type: "consume_request" });
         }
 
-        try {
-          type ChatResponseBody = {
-            message?: string;
-            cards?: RecommendationCardArtifact[];
-            actions?: ChatActionArtifact[];
-            itineraries?: ItineraryPlanArtifact[];
-            decisionSummaries?: DecisionSummaryArtifact[];
-            sources?: ChatSourceArtifact[];
-            threadId?: string;
-            assistantMessageId?: string;
-            error?: string;
-            reason?: string;
-          };
-          const response = await fetch("/api/chat", {
-            method: "POST",
-            headers: {
-              accept: "application/x-ndjson",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-            signal: responseRequest.controller.signal,
-          });
-          if (!response.ok) {
-            const errorBody = (await response.json().catch(() => ({}))) as ChatResponseBody;
-            throw new Error(chatResponseErrorMessage(response.status, errorBody));
-          }
-          let responseStatus = response.status;
-          let body: ChatResponseBody;
-          const streamedResponse = isChatStreamResponse(response);
-          if (streamedResponse) {
-            const result = await readChatStreamResponse<ChatResponseBody>(response, (event) => {
-              if (!mountedRef.current) {
-                return;
-              }
-              setMessages((currentMessages) =>
-                currentMessages.map((message) =>
-                  message.id === pendingAssistantId && message.status === "pending"
-                    ? { ...message, text: event.message }
-                    : message,
-                ),
-              );
+        await responseLifecycleRef.current?.start(
+          { assistantMessageId: pendingAssistantId, prompt: trimmedPrompt },
+          async (request, onProgress) => {
+            const response = await fetch("/api/chat", {
+              method: "POST",
+              headers: {
+                accept: "application/x-ndjson",
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(requestBody),
+              signal: request.controller.signal,
             });
-            responseStatus = result.status;
-            body = result.body;
-          } else {
-            body = (await response.json().catch(() => ({}))) as ChatResponseBody;
-          }
-          if (responseStatus < 200 || responseStatus >= 300) {
-            throw new Error(chatResponseErrorMessage(responseStatus, body));
-          }
+            if (!response.ok) {
+              const errorBody = (await response.json().catch(() => ({}))) as ChatResponseBody;
+              throw new Error(chatResponseErrorMessage(response.status, errorBody));
+            }
 
-          const responseMessage = body.message;
-
-          if (
-            !mountedRef.current ||
-            !isCurrentResponseWaitRequest(
-              activeResponseRequestRef.current,
-              responseRequest.requestId,
-            )
-          ) {
-            return;
-          }
-
-          if (!responseMessage) {
-            throw new Error(chatResponseErrorMessage(responseStatus, body));
-          }
-
-          if (body.threadId) {
-            setSelectedThreadId(body.threadId);
-            setSelectedThreadTitle(chatThreadTitleFromPrompt(trimmedPrompt));
-            setSelectedSavedItemId(null);
-            setSelectedSavedItemStatus("idle");
-            writeChatResourceQuery({ threadId: body.threadId }, "replace");
-            void refreshChatThreads();
-          }
-
-          setMessages((currentMessages) =>
-            currentMessages.map((message) =>
-              message.id === pendingAssistantId
-                ? {
-                    ...message,
-                    answerArrivalMotion: createAnswerArrivalMotionActivation({
-                      messageId: pendingAssistantId,
-                      previousStatus: message.status,
-                      nextStatus: "complete",
-                      hasDecisionStrip: Boolean(projectDecisionStrip(body.decisionSummaries)),
-                    }),
-                    messageId: body.assistantMessageId ?? message.messageId,
-                    text: responseMessage,
-                    timestamp: formatTimestamp(),
-                    status: "complete",
-                    retryPrompt: trimmedPrompt,
-                    cards: body.cards,
-                    actions: body.actions,
-                    itineraries: body.itineraries,
-                    decisionSummaries: body.decisionSummaries,
-                    sources: body.sources,
-                  }
-                : message,
-            ),
-          );
-        } catch (error) {
-          if (
-            !mountedRef.current ||
-            !isCurrentResponseWaitRequest(
-              activeResponseRequestRef.current,
-              responseRequest.requestId,
-            ) ||
-            isResponseWaitAbort(error)
-          ) {
-            return;
-          }
-
-          setMessages((currentMessages) =>
-            currentMessages.map((message) =>
-              message.id === pendingAssistantId
-                ? {
-                    ...message,
-                    answerArrivalMotion: undefined,
-                    text: error instanceof Error ? error.message : chatErrorMessage,
-                    timestamp: formatTimestamp(),
-                    status: "error",
-                    retryPrompt: trimmedPrompt,
-                  }
-                : message,
-            ),
-          );
-        } finally {
-          if (
-            isCurrentResponseWaitRequest(
-              activeResponseRequestRef.current,
-              responseRequest.requestId,
-            )
-          ) {
-            activeResponseRequestRef.current = settleResponseWaitRequest(
-              activeResponseRequestRef.current,
-              responseRequest.requestId,
+            let responseStatus = response.status;
+            let body: ChatResponseBody;
+            if (isChatStreamResponse(response)) {
+              const result = await readChatStreamResponse<ChatResponseBody>(response, (event) => {
+                onProgress(event.message);
+              });
+              responseStatus = result.status;
+              body = result.body;
+            } else {
+              body = (await response.json().catch(() => ({}))) as ChatResponseBody;
+            }
+            if (responseStatus < 200 || responseStatus >= 300 || !body.message) {
+              throw new Error(chatResponseErrorMessage(responseStatus, body));
+            }
+            return body;
+          },
+          (event) => {
+            if (!mountedRef.current) {
+              return;
+            }
+            if (event.type === "completed") {
+              const body = event.result;
+              if (body.threadId) {
+                setSelectedThreadId(body.threadId);
+                setSelectedThreadTitle(chatThreadTitleFromPrompt(trimmedPrompt));
+                setSelectedSavedItemId(null);
+                setSelectedSavedItemStatus("idle");
+                writeChatResourceQuery({ threadId: body.threadId }, "replace");
+                void refreshChatThreads();
+              }
+            }
+            setMessages((currentMessages) =>
+              currentMessages.map((message) =>
+                message.id === pendingAssistantId
+                  ? transitionResponseWaitMessage(message, event, {
+                      errorText: (error) =>
+                        error instanceof Error ? error.message : chatErrorMessage,
+                      projectResult: (currentMessage, result) => ({
+                        answerArrivalMotion: createAnswerArrivalMotionActivation({
+                          messageId: pendingAssistantId,
+                          previousStatus: currentMessage.status,
+                          nextStatus: "complete",
+                          hasDecisionStrip: Boolean(projectDecisionStrip(result.decisionSummaries)),
+                        }),
+                        cards: result.cards,
+                        actions: result.actions,
+                        itineraries: result.itineraries,
+                        decisionSummaries: result.decisionSummaries,
+                        messageId: result.assistantMessageId ?? currentMessage.messageId,
+                        sources: result.sources,
+                        text: result.message ?? chatErrorMessage,
+                      }),
+                      stoppedText: responseStoppedStatusText,
+                      timestamp: formatTimestamp,
+                    })
+                  : message,
+              ),
             );
-          }
-        }
+          },
+        );
       } finally {
         if (pendingChatSubmissionRef.current?.generation === submission.generation) {
           pendingChatSubmissionRef.current = null;
@@ -1646,30 +1570,13 @@ function useChatWorkspaceController({
   const stopWaitingForAssistant = useCallback(
     (assistantMessageId: string) => {
       invalidatePendingChatSubmission();
-      const activeRequest = activeResponseRequestRef.current;
+      const activeRequest = responseLifecycleRef.current?.getActiveRequest();
       if (!activeRequest || activeRequest.assistantMessageId !== assistantMessageId) {
         return;
       }
 
-      activeResponseRequestRef.current = stopResponseWaitRequest(
-        activeRequest,
-        activeRequest.requestId,
-      );
+      responseLifecycleRef.current?.stop(activeRequest.requestId);
       setIsSending(false);
-      setMessages((currentMessages) =>
-        currentMessages.map((message) =>
-          message.id === assistantMessageId && message.status === "pending"
-            ? {
-                ...message,
-                answerArrivalMotion: undefined,
-                text: responseStoppedStatusText,
-                timestamp: formatTimestamp(),
-                status: "stopped",
-                retryPrompt: activeRequest.prompt,
-              }
-            : message,
-        ),
-      );
     },
     [invalidatePendingChatSubmission],
   );
