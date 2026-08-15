@@ -119,8 +119,9 @@ import {
   type OpenMeteoMarineLocation,
   siargaoMarineLocations,
 } from "@/server/providers/open-meteo-marine";
+import { isProductionProviderEnvironment } from "@/server/providers/production-provider-mode";
+import { buildSiargaoTideSnapshot } from "@/server/providers/siargao-tide";
 import {
-  buildTideForecastSnapshot,
   type TideForecastDateRange,
   type TideForecastSnapshot,
   tideForecastLocationForSiargaoLabel,
@@ -1980,7 +1981,7 @@ async function getWeatherForecastToolResult(
     return {
       name: "get_weather_forecast",
       status: "error",
-      text: safeProviderUnavailableText("Open-Meteo weather forecast"),
+      text: safeProviderUnavailableText(weatherProviderName()),
       errorCode: "provider_unavailable",
       sources: [weatherProviderUnavailableSourceSummary(args.location)],
     };
@@ -2030,7 +2031,7 @@ async function getTideForecastToolResult(
     return {
       name: "get_tide_forecast",
       status: "error",
-      text: safeProviderUnavailableText("Tide-Forecast tide data"),
+      text: safeProviderUnavailableText(tideProviderName()),
       errorCode: "provider_unavailable",
       sources: [tideForecastProviderUnavailableSourceSummary(args.location)],
     };
@@ -2090,7 +2091,7 @@ async function getTideForecastSnapshot(
   args: TideForecastArguments,
   dependencies: AgentToolDependencies,
 ): Promise<TideForecastSnapshot> {
-  const buildSnapshot = dependencies.buildTideForecastSnapshot ?? buildTideForecastSnapshot;
+  const buildSnapshot = dependencies.buildTideForecastSnapshot ?? buildSiargaoTideSnapshot;
   const location = tideForecastLocationForSiargaoLabel(args.location);
   return buildSnapshot({
     dateRange: args.date_range as TideForecastDateRange,
@@ -2244,7 +2245,7 @@ function renderWeatherForecastText(snapshot: WeatherSnapshot, args: WeatherForec
   const signals = weatherSignals(snapshot);
   if (snapshot.status !== "live") {
     return [
-      `Open-Meteo weather forecast is unavailable for ${args.location}.`,
+      `${weatherForecastDisplayName(snapshot)} is unavailable for ${args.location}.`,
       snapshot.summary,
       signals.length ? `Signals: ${signals.join("; ")}.` : "",
     ]
@@ -2328,7 +2329,7 @@ function renderTideForecastText(snapshot: TideForecastSnapshot) {
     `Tides: ${tideLines.join(" | ")}.`,
     windowLines.length
       ? `Best daylight surf/tide windows from available tide and sea-period data: ${windowLines.join(" | ")}.`
-      : "No ranked daylight surf/tide window was available from the page data.",
+      : "No ranked daylight tide window was available from the modeled data.",
     `Caveat: ${snapshot.caveats.join(" ")}`,
   ].join(" ");
 }
@@ -2404,20 +2405,27 @@ function marineConditionsSourceSummary(snapshot: MarineConditionsSnapshot): Answ
 }
 
 function tideForecastSourceSummary(snapshot: TideForecastSnapshot): AnswerSourceSummary {
+  const checked =
+    snapshot.sourceProfileId === "source_tide_forecast_dev"
+      ? [
+          `Tide-Forecast ${snapshot.stationName} predicted tide table for ${snapshot.targetDates.join(", ")}`,
+          "predicted high and low tide times",
+          "predicted tide heights",
+          ...(snapshot.seaPeriods.length > 0
+            ? ["embedded Tide-Forecast 3-hour swell and wind periods"]
+            : []),
+        ]
+      : [
+          `${snapshot.sourceName} high and low water times for ${snapshot.targetDates.join(", ")}`,
+          "modeled tide heights",
+        ];
   return {
     label: "tide_forecast_checked",
     sourceName: snapshot.sourceName,
     sourceProfileId: snapshot.sourceProfileId,
     fetchedAt: snapshot.fetchedAt,
     confidence: "low",
-    checked: [
-      `Tide-Forecast ${snapshot.stationName} predicted tide table for ${snapshot.targetDates.join(", ")}`,
-      "predicted high and low tide times",
-      "predicted tide heights",
-      ...(snapshot.seaPeriods.length > 0
-        ? ["embedded Tide-Forecast 3-hour swell and wind periods"]
-        : []),
-    ],
+    checked,
     notChecked: [
       "official tide-gauge measurement",
       "exact Cloud 9 break reading",
@@ -2426,20 +2434,26 @@ function tideForecastSourceSummary(snapshot: TideForecastSnapshot): AnswerSource
       "lifeguard or swimming safety",
       "official marine warnings",
       "local operator call",
-      "commercial production license",
     ],
   };
 }
 
+function weatherForecastDisplayName(snapshot: WeatherSnapshot) {
+  return snapshot.sourceProfileId === "source_open_meteo"
+    ? "Open-Meteo weather forecast"
+    : "MET Norway weather forecast";
+}
+
 function weatherProviderUnavailableSourceSummary(locationName: string): AnswerSourceSummary {
+  const production = isProductionProviderEnvironment();
   return {
     label: "provider_unavailable",
-    sourceName: "Open-Meteo weather API",
-    sourceProfileId: "source_open_meteo",
+    sourceName: production ? "MET Norway Locationforecast" : "Open-Meteo weather API",
+    sourceProfileId: production ? "source_met_norway" : "source_open_meteo",
     confidence: "low",
     checked: [],
     notChecked: [
-      `Open-Meteo forecast for ${locationName}`,
+      `${production ? "MET Norway" : "Open-Meteo"} forecast for ${locationName}`,
       "surf/swell reports",
       "tides",
       "road flooding",
@@ -2470,21 +2484,33 @@ function marineProviderUnavailableSourceSummary(locationName: string): AnswerSou
 }
 
 function tideForecastProviderUnavailableSourceSummary(locationName: string): AnswerSourceSummary {
+  const production = isProductionProviderEnvironment();
   return {
     label: "provider_unavailable",
-    sourceName: "Tide-Forecast Dapa page",
-    sourceProfileId: "source_tide_forecast_dev",
+    sourceName: production ? "NOAA/PacIOOS Pacific tide model" : "Tide-Forecast Dapa page",
+    sourceProfileId: production ? "source_pacioos_tide" : "source_tide_forecast_dev",
     confidence: "low",
     checked: [],
     notChecked: [
-      `Tide-Forecast predicted tide table for ${locationName}`,
-      "predicted high and low tide times",
-      "predicted tide heights",
-      "embedded sea-condition periods",
+      `Modeled tide data for ${locationName}`,
+      "modeled high and low water times",
+      "modeled tide heights",
       "official tide-gauge measurement",
       "official marine warnings",
     ],
   };
+}
+
+function weatherProviderName() {
+  return isProductionProviderEnvironment()
+    ? "MET Norway weather forecast"
+    : "Open-Meteo weather forecast";
+}
+
+function tideProviderName() {
+  return isProductionProviderEnvironment()
+    ? "NOAA/PacIOOS modeled tide data"
+    : "Tide-Forecast tide data";
 }
 
 function tokenizeMemoryQuery(query: string) {

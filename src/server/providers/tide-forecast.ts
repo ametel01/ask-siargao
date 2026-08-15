@@ -77,8 +77,8 @@ export type TideForecastRecommendedWindow = {
 
 export type TideForecastSnapshot = {
   status: "live";
-  sourceName: "Tide-Forecast Dapa page";
-  sourceProfileId: typeof tideForecastSourceProfileId;
+  sourceName: "Tide-Forecast Dapa page" | "NOAA/PacIOOS Pacific tide model";
+  sourceProfileId: typeof tideForecastSourceProfileId | "source_pacioos_tide";
   stationName: string;
   stationUrl: string;
   stationLatitude: number | null;

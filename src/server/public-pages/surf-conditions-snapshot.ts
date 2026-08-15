@@ -1,5 +1,5 @@
+import { buildSiargaoTideSnapshot } from "@/server/providers/siargao-tide";
 import {
-  buildTideForecastSnapshot,
   type TideForecastSnapshot,
   tideForecastLocationForSiargaoLabel,
 } from "@/server/providers/tide-forecast";
@@ -18,7 +18,7 @@ export type SurfConditionLevel = "low" | "medium" | "high";
 export type SurfConditionsSnapshot = {
   status: SurfConditionsStatus;
   locationName: SiargaoPublicForecastLocation;
-  sourceName: "Open-Meteo weather API + Tide-Forecast Dapa page";
+  sourceName: string;
   fetchedAt: string;
   confidence: "low";
   level: SurfConditionLevel;
@@ -36,6 +36,7 @@ export type SurfConditionsSnapshot = {
     precipitationProbability: number | null;
     rainSum: number | null;
     windGust: number | null;
+    windSpeed: number | null;
   };
   tide: {
     status: "live" | "unavailable";
@@ -47,7 +48,7 @@ export type SurfConditionsSnapshot = {
 };
 
 type SurfSnapshotDependencies = {
-  buildTideSnapshot?: typeof buildTideForecastSnapshot;
+  buildTideSnapshot?: typeof buildSiargaoTideSnapshot;
   getWeatherSnapshot?: typeof getLatestSiargaoWeatherSnapshot;
   now?: Date;
 };
@@ -89,7 +90,11 @@ function buildSurfConditionsSnapshot({
   const bestWindow = tideSnapshot?.recommendedWindows[0] ?? null;
   const closestSeaPeriod = tideSnapshot ? closestTideSeaPeriod(tideSnapshot, now) : null;
   const nextTideEvent = tideSnapshot ? closestUpcomingTideEvent(tideSnapshot, now) : null;
-  const windKmh = bestWindow?.windSpeedKmh ?? closestSeaPeriod?.windSpeedKmh ?? null;
+  const windKmh =
+    bestWindow?.windSpeedKmh ??
+    closestSeaPeriod?.windSpeedKmh ??
+    weatherSnapshot?.today.windSpeed ??
+    null;
   const swellMeters = bestWindow?.swellHeightMeters ?? closestSeaPeriod?.swellHeightMeters ?? null;
   const swellPeriodSeconds =
     bestWindow?.swellPeriodSeconds ?? closestSeaPeriod?.swellPeriodSeconds ?? null;
@@ -129,7 +134,9 @@ function buildSurfConditionsSnapshot({
   return {
     status,
     locationName: location,
-    sourceName: "Open-Meteo weather API + Tide-Forecast Dapa page",
+    sourceName: `${weatherSnapshot?.sourceName ?? "Weather provider"} + ${
+      tideSnapshot?.sourceName ?? "modeled tide provider"
+    }`,
     fetchedAt: now.toISOString(),
     confidence: "low",
     level,
@@ -151,16 +158,17 @@ function buildSurfConditionsSnapshot({
       precipitationProbability: weatherSnapshot?.today.precipitationProbability ?? null,
       rainSum: weatherSnapshot?.today.rainSum ?? weatherSnapshot?.today.precipitationSum ?? null,
       windGust: weatherSnapshot?.today.windGust ?? null,
+      windSpeed: weatherSnapshot?.today.windSpeed ?? null,
     },
     tide: {
       status: tideLive ? "live" : "unavailable",
-      stationName: tideSnapshot?.stationName ?? "Dapa tide station",
+      stationName: tideSnapshot?.stationName ?? "Siargao modeled tide grid",
       nextEvent: nextTideEvent
         ? `${nextTideEvent.type ?? "tide"} ${nextTideEvent.time} ${nextTideEvent.heightMeters}m`
         : null,
       bestWindow: bestWindow ? `${bestWindow.localLabel}: ${bestWindow.reason}` : null,
     },
-    caveats: surfCaveats({ tideLive, weatherLive }),
+    caveats: surfCaveats({ tideSnapshot, weatherSnapshot }),
   };
 }
 
@@ -183,7 +191,7 @@ async function fetchTideSnapshot(
   dependencies: SurfSnapshotDependencies,
 ) {
   try {
-    const buildSnapshot = dependencies.buildTideSnapshot ?? buildTideForecastSnapshot;
+    const buildSnapshot = dependencies.buildTideSnapshot ?? buildSiargaoTideSnapshot;
     return await buildSnapshot({
       dateRange: "today",
       fetchedAt: now,
@@ -267,7 +275,7 @@ function surfRecommendation({
   if (!weatherLive || !tideLive || level === "medium") {
     return "Keep it flexible and confirm at the break before paddling out.";
   }
-  return "Reasonable window from weather and Dapa tide data; still confirm locally.";
+  return "Reasonable window from weather and modeled tide data; still confirm locally.";
 }
 
 function closestUpcomingTideEvent(snapshot: TideForecastSnapshot, now: Date) {
@@ -296,14 +304,23 @@ function closestTideSeaPeriod(snapshot: TideForecastSnapshot, now: Date) {
   }, null);
 }
 
-function surfCaveats({ tideLive, weatherLive }: { tideLive: boolean; weatherLive: boolean }) {
+function surfCaveats({
+  tideSnapshot,
+  weatherSnapshot,
+}: {
+  tideSnapshot: TideForecastSnapshot | null;
+  weatherSnapshot: WeatherSnapshot | null;
+}) {
+  const tideLive = Boolean(tideSnapshot);
+  const weatherLive = weatherSnapshot?.status === "live";
   return [
-    "Surf conditions are inferred from Open-Meteo weather and Tide-Forecast Dapa station page data.",
+    `Surf conditions are inferred from ${weatherSnapshot?.sourceName ?? "weather data"} and ${
+      tideSnapshot?.sourceName ?? "modeled tide data"
+    }.`,
     "This is not an official surf report, tide-gauge reading, lifeguard check, local operator call, or safety clearance.",
-    tideLive
-      ? "Dapa is used as the nearby tide-station proxy for Cloud 9 and General Luna surf timing."
-      : "Dapa tide-station page data could not be checked.",
-    weatherLive ? undefined : "Open-Meteo weather could not be checked.",
+    ...(tideSnapshot?.caveats ?? []),
+    tideLive ? undefined : "Modeled tide data could not be checked.",
+    weatherLive ? undefined : "Weather forecast data could not be checked.",
   ].filter((caveat): caveat is string => Boolean(caveat));
 }
 

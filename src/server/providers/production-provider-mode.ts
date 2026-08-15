@@ -9,8 +9,9 @@ export function readOpenMeteoApiMode(env: ProviderEnvironment = process.env): Op
     throw new Error("OPEN_METEO_API_MODE must be one of: off, noncommercial.");
   }
   const mode =
-    (rawMode as OpenMeteoApiMode | undefined) ?? (isProduction(env) ? "off" : "noncommercial");
-  if (isProduction(env) && mode !== "off") {
+    (rawMode as OpenMeteoApiMode | undefined) ??
+    (isProductionProviderEnvironment(env) ? "off" : "noncommercial");
+  if (isProductionProviderEnvironment(env) && mode !== "off") {
     throw new Error(
       "OPEN_METEO_API_MODE must be off in production until a commercial API adapter is configured.",
     );
@@ -24,8 +25,9 @@ export function readTideForecastMode(env: ProviderEnvironment = process.env): Ti
     throw new Error("TIDE_FORECAST_MODE must be one of: off, development.");
   }
   const mode =
-    (rawMode as TideForecastMode | undefined) ?? (isProduction(env) ? "off" : "development");
-  if (isProduction(env) && mode !== "off") {
+    (rawMode as TideForecastMode | undefined) ??
+    (isProductionProviderEnvironment(env) ? "off" : "development");
+  if (isProductionProviderEnvironment(env) && mode !== "off") {
     throw new Error(
       "TIDE_FORECAST_MODE must be off in production until a commercial license and adapter are configured.",
     );
@@ -52,7 +54,7 @@ export function requireTideForecastEnabled(env: ProviderEnvironment = process.en
   }
 }
 
-function isProduction(env: ProviderEnvironment) {
+export function isProductionProviderEnvironment(env: ProviderEnvironment = process.env) {
   if (env.VERCEL_ENV) {
     return env.VERCEL_ENV === "production";
   }

@@ -25,6 +25,7 @@ const surfSnapshot: SurfConditionsSnapshot = {
     precipitationProbability: 45,
     rainSum: 6,
     windGust: 35,
+    windSpeed: 10,
   },
   tide: {
     status: "live",

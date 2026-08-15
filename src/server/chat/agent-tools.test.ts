@@ -2676,6 +2676,39 @@ not-json
     expect(data.metrics).toEqual([]);
   });
 
+  test("attributes production-style MET Norway weather without inventing probability or gust", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_met_norway_weather",
+        name: "get_weather_forecast",
+        arguments: { location: "Cloud 9", date_range: "today" },
+      },
+      {
+        getLatestSiargaoWeatherSnapshot: async () => ({
+          ...liveWeatherSnapshot("Cloud 9"),
+          sourceName: "MET Norway Locationforecast",
+          sourceProfileId: "source_met_norway",
+          today: {
+            ...liveWeatherSnapshot("Cloud 9").today,
+            precipitationProbability: null,
+            windGust: null,
+            windSpeed: 16.2,
+          },
+        }),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("MET Norway Locationforecast forecast for Cloud 9");
+    expect(result.sources[0]).toMatchObject({
+      label: "weather_checked",
+      sourceName: "MET Norway Locationforecast",
+      sourceProfileId: "source_met_norway",
+    });
+    expect(result.text).toContain("precipitation probability unavailable");
+    expect(result.text).toContain("wind gust unavailable");
+  });
+
   test("includes seven-day weather metrics when requested", async () => {
     const result = await executeAgentTool(
       {
@@ -2822,6 +2855,42 @@ not-json
       localLabel: "5:00 AM-8:00 AM",
       nearestTideType: "high",
     });
+  });
+
+  test("attributes production-style NOAA/PacIOOS tide evidence with coarse-grid limits", async () => {
+    const result = await executeAgentTool(
+      {
+        requestId: "agent_request_pacioos_tide",
+        name: "get_tide_forecast",
+        arguments: { location: "Cloud 9", date_range: "today" },
+      },
+      {
+        buildTideForecastSnapshot: async (input) => ({
+          ...liveTideForecastSnapshot(input.requestedLocation, input.dateRange),
+          sourceName: "NOAA/PacIOOS Pacific tide model",
+          sourceProfileId: "source_pacioos_tide",
+          stationName: "PacIOOS Pacific tide grid (10°N, 126°E)",
+          stationLatitude: 10,
+          stationLongitude: 126,
+          seaPeriods: [],
+          caveats: [
+            "The nearest model point is on a coarse 2-degree grid.",
+            "This is not an official tide gauge or a safety clearance.",
+          ],
+        }),
+      },
+    );
+
+    expect(result.status).toBe("success");
+    expect(result.text).toContain("NOAA/PacIOOS Pacific tide model predicted tide data");
+    expect(result.text).toContain("coarse 2-degree grid");
+    expect(result.sources[0]).toMatchObject({
+      label: "tide_forecast_checked",
+      sourceName: "NOAA/PacIOOS Pacific tide model",
+      sourceProfileId: "source_pacioos_tide",
+      checked: [expect.stringContaining("high and low water times"), "modeled tide heights"],
+    });
+    expect(JSON.stringify(result.sources[0])).not.toContain("swell");
   });
 
   test("returns a weather-backed condition judgment tool output", async () => {
