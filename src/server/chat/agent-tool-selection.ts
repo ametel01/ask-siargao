@@ -3,7 +3,6 @@ import type { AgentResponseToolDefinition } from "@/server/chat/agent-tool-catal
 import { conditionToolNamesForAgentTurn } from "@/server/chat/condition-tools";
 import { interpretPlaceIntent } from "@/server/chat/place-intent";
 import { inspectRealityCheckRequest } from "@/server/chat/reality-check";
-import type { RequiredEvidenceToolCall } from "@/server/chat/required-evidence";
 
 const memoryTools = ["load_agent_memory_file", "search_agent_memory"] as const;
 const placesTools = ["search_places", "get_place_details", "search_local_guide"] as const;
@@ -16,7 +15,7 @@ const localFactsTools = [
 export function selectAgentResponseTools(
   tools: readonly AgentResponseToolDefinition[],
   request: AgentRuntimeRequest,
-  requiredEvidenceToolNames: readonly RequiredEvidenceToolCall["name"][],
+  requiredEvidenceToolNames: readonly AskSiargaoAgentToolName[],
 ) {
   const selected = new Set<AskSiargaoAgentToolName>(memoryTools);
   const latestUserTurn =
