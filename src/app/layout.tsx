@@ -8,7 +8,7 @@ import "@/theme/global.css";
 const cormorantGaramond = localFont({
   display: "swap",
   fallback: ["Iowan Old Style", "Georgia", "Times New Roman"],
-  src: "../../node_modules/@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-normal.woff2",
+  src: "../../public/fonts/cormorant-garamond-latin-wght-normal.woff2",
   variable: "--font-cormorant-garamond",
   weight: "300 700",
 });
@@ -16,7 +16,7 @@ const cormorantGaramond = localFont({
 const nunitoSans = localFont({
   display: "swap",
   fallback: ["Avenir Next", "Segoe UI", "Arial"],
-  src: "../../node_modules/@fontsource-variable/nunito-sans/files/nunito-sans-latin-wght-normal.woff2",
+  src: "../../public/fonts/nunito-sans-latin-wght-normal.woff2",
   variable: "--font-nunito-sans",
   weight: "200 1000",
 });
