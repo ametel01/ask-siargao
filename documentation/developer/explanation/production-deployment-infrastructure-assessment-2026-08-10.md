@@ -290,9 +290,10 @@ The free product requires:
 - PostHog Cloud for product analytics only.
 
 OpenAI is additionally required when OpenAI fallback, audit generation, hosted agent-memory file
-search, or hosted web research is enabled. Web research must remain disabled for the Free Controlled
-Beta until externally derived content has the required untrusted-content boundary and adversarial
-prompt-injection coverage.
+search, or hosted web research is enabled. Hosted web research may be enabled only behind its
+separate provider and security-boundary flags. The implemented boundary uses bounded structured
+extraction, HTTP(S)-only sources, a downstream `untrusted_external_data` envelope, and adversarial
+provider and agent-loop coverage; deployments must preserve those controls.
 
 Before production data flows, a production vendor register must cover Vercel, PlanetScale, Redis
 Cloud, Clerk, Sentry, PostHog, DeepSeek, Google, and every conditionally enabled provider. For each

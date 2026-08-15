@@ -173,9 +173,17 @@ The tool should return evidence and entities, not final prose. The model still w
 answer from tool output.
 
 Implementation note: the first production adapter is `src/server/providers/web-search.ts`, enabled
-only when `WEB_RESEARCH_PROVIDER=openai` is configured. It uses the OpenAI Responses hosted
-`web_search` tool to return structured source summaries that are then scored by
-`src/server/chat/web-research.ts`.
+only when `WEB_RESEARCH_PROVIDER=openai` and `WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE=true` are
+configured. It uses the OpenAI Responses hosted `web_search` tool to return structured source
+summaries that are then scored by `src/server/chat/web-research.ts`.
+
+Every hosted-search page is an untrusted input. The extraction prompt explicitly rejects webpage
+instructions, the adapter accepts only bounded HTTP(S) URLs and bounded normalized text fields,
+and the answer model receives web findings only inside a JSON `untrustedWebEvidence` object marked
+`untrusted_external_data`. Higher-priority agent instructions prohibit following role changes,
+commands, secret requests, or tool directives found anywhere in that object. Provider and agent-loop
+tests use adversarial source titles, summaries, claims, and JSON-shaped injection strings to verify
+that attacker-controlled fields cannot become trusted top-level instructions.
 
 ### Add A Research Planner
 

@@ -2,6 +2,7 @@ import { requireClerkDeploymentConfig } from "@/server/auth/clerk-deployment-con
 import { requireValidProductionModelCostCircuit } from "@/server/chat/cost-circuits";
 import { requireValidChatModelDeployment } from "@/server/llm/chat-model-provider";
 import { requireValidForecastProviderDeployment } from "@/server/providers/production-provider-mode";
+import { requireValidWebResearchDeployment } from "@/server/providers/web-search";
 import { requireValidTripPassCheckoutMode } from "@/server/trip-pass/catalog";
 
 try {
@@ -9,9 +10,10 @@ try {
   requireValidProductionModelCostCircuit();
   const chatProvider = requireValidChatModelDeployment();
   const forecastProviders = requireValidForecastProviderDeployment();
+  const webResearch = requireValidWebResearchDeployment();
   const checkoutMode = requireValidTripPassCheckoutMode();
   console.log(
-    `Deployment configuration valid: Clerk ${config.context}/${config.mode}; chat ${chatProvider}; Open-Meteo ${forecastProviders.openMeteo}; Tide-Forecast ${forecastProviders.tideForecast}; Trip Pass checkout ${checkoutMode}.`,
+    `Deployment configuration valid: Clerk ${config.context}/${config.mode}; chat ${chatProvider}; Open-Meteo ${forecastProviders.openMeteo}; Tide-Forecast ${forecastProviders.tideForecast}; public-web research ${webResearch}; Trip Pass checkout ${checkoutMode}.`,
   );
 } catch (error) {
   console.error("Invalid deployment configuration.");

@@ -89,10 +89,11 @@ deployed scheduler operation, protected provider QA, bounded reconciliation, ref
 backup Recovery Evidence, and money/access correctness. General Paid Availability additionally
 requires successful canary evidence and demonstrated operational capacity.
 
-Web research is part of the all-lane security baseline whenever it is enabled. Until externally
-derived content is structurally marked as untrusted and covered by adversarial prompt-injection
-tests, the Free Controlled Beta must keep web research disabled and use approved structured
-providers instead.
+Web research is part of the all-lane security baseline whenever it is enabled. The hosted-search
+adapter now bounds externally derived fields, rejects non-HTTP(S) source URLs, and passes findings
+to the answer model only in a structurally marked `untrusted_external_data` envelope. Adversarial
+provider and agent-loop tests cover instruction-like and JSON-shaped source content. Keep the
+separate provider and security-boundary environment gates fail-closed in every environment.
 
 ## Launch blockers
 

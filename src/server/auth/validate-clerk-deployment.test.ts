@@ -60,6 +60,32 @@ describe("Clerk deployment validation command", () => {
     expect(result.stdout).toContain("production/enabled");
   });
 
+  test("passes a complete bounded production public-web configuration", async () => {
+    const result = await runValidationCommand({
+      ...completeProductionEnv,
+      WEB_RESEARCH_PROVIDER: "openai",
+      WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE: "true",
+      OPENAI_DAILY_USD_LIMIT: "10",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("public-web research openai");
+    expect(result.stdout).not.toContain("sk-openai-never-print");
+  });
+
+  test("fails incomplete production public-web configuration before startup", async () => {
+    const result = await runValidationCommand({
+      ...completeProductionEnv,
+      WEB_RESEARCH_PROVIDER: "openai",
+      WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE: "false",
+      OPENAI_DAILY_USD_LIMIT: "10",
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE");
+    expect(result.stderr).not.toContain("sk-openai-never-print");
+  });
+
   test("passes when Vercel selects the root project domain for a www canonical origin", async () => {
     const canonicalOrigin = "https://www.asksiargao.com";
     const result = await runValidationCommand({
