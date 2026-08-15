@@ -102,15 +102,19 @@ Covered request classes include current/date-specific:
 
 When `research_web` succeeds, final payload validation requires the answer to cite the research tool
 call and mention the selected finding/entity. When it returns insufficient or provider-unavailable
-evidence, final payload validation rejects weather-only, memory-only, and broad Places fallback
-answers. The accepted failure shape is a clear statement that current public evidence could not be
-verified, with no place cards.
+evidence, final payload validation rejects weather-only and memory-only fallback answers.
+Restaurant, cafe, and food recommendations may use successful matching Google Places results as a
+bounded metadata-based fallback; all other covered requests use the clear current-evidence failure
+shape with no place cards.
 
-For research-covered place recommendations, Google Places is entity enrichment only. The runtime
-rewrites broad Places calls to the entities selected by `research_web`, and public card filtering
-keeps only matching Places cards. Places may still be the primary tool for stable nearby/open-now
-service discovery prompts that do not require `research_web`, such as pharmacy, coffee open now, or
-restaurants near a named place.
+For research-covered place recommendations with successful web evidence, Google Places is entity
+enrichment only. The runtime rewrites broad Places calls to the entities selected by
+`research_web`, and public card filtering keeps only matching Places cards. If web research is
+terminally unavailable for a restaurant, cafe, or food recommendation, matching Places results may
+instead be ranked explicitly by returned ratings, review counts, business/opening status, and area.
+That fallback cannot support menu, price, table-availability, event, closure, disruption, safety, or
+independent editorial-quality claims. Places may also be the primary tool for stable nearby/open-now
+service discovery prompts that do not require `research_web`, such as pharmacy or coffee open now.
 
 Production web research is opt-in. Set `WEB_RESEARCH_PROVIDER=openai` and `OPENAI_API_KEY` to enable
 the OpenAI Responses hosted `web_search` adapter in `src/server/providers/web-search.ts`.

@@ -225,6 +225,45 @@ describe("Google Places chat cache", () => {
     await db.close();
   });
 
+  test("returns usable live results when cache persistence fails", async () => {
+    const db = await openGooglePlacesChatCacheTestDatabase();
+    const logs: TestLog[] = [];
+    await db.query("delete from source_profiles where id = $1", [
+      googlePlacesDiscoverySourceProfileId,
+    ]);
+    const adapter = createCachedGooglePlacesChatContextAdapter({
+      db,
+      liveAdapter: async ({ fetchedAt, search }) =>
+        googlePlacesContext({ fetchedAt, placeCount: 8, search }),
+      logger: createTestLogger(logs),
+    });
+
+    const context = await adapter({
+      fetchedAt: "2026-08-15T10:32:50.575Z",
+      search: {
+        ...generalLunaRestaurantSearch,
+        textQuery: "pizza restaurants in General Luna Siargao",
+      },
+    });
+
+    expect(context.status).toBe("available");
+    expect(context.freshness).toBe("live");
+    expect(context.places).toHaveLength(8);
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        message: "Google Places chat live lookup cache persistence failed.",
+        payload: expect.objectContaining({
+          failedPlaceCount: 8,
+          persistedPlaceCount: 0,
+          providerStatus: "available",
+        }),
+      }),
+    );
+
+    await db.close();
+  });
+
   test("treats stale cached rows as a miss and refreshes from live Google", async () => {
     const db = await openGooglePlacesChatCacheTestDatabase();
     let liveCalls = 0;
@@ -395,28 +434,6 @@ function createTestLogger(logs: TestLog[], bindings: Record<string, unknown> = {
 async function openGooglePlacesChatCacheTestDatabase() {
   const db = new PGlite();
   await runInitialMigration(db);
-  await db.query(`
-    insert into providers (id, slug, name, provider_type)
-    values ('provider_google_places', 'google-places', 'Google Places', 'places_api')
-  `);
-  await db.query(
-    `
-      insert into source_profiles (
-        id,
-        provider_id,
-        source_name,
-        source_type,
-        access_method,
-        allowed_use,
-        freshness_window_days,
-        authority_level,
-        stores_raw_allowed,
-        publishes_raw_allowed
-      )
-      values ($1, 'provider_google_places', 'Google Places', 'provider_api', 'api', 'citation_only', 7, 60, false, false)
-    `,
-    [googlePlacesDiscoverySourceProfileId],
-  );
   return db;
 }
 

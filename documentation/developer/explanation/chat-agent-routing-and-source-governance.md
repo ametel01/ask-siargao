@@ -48,6 +48,12 @@ Provider-unavailable results stay in the tool transcript. A failed `research_web
 `search_places` call does not become a terminal hard-coded route answer, and it does not erase
 successful evidence from another provider.
 
+For restaurant, cafe, and food recommendations, successful matching Google Places evidence remains
+usable when public web research is unavailable. The answer may rank only by returned structured
+metadata such as ratings, review counts, business/opening status, and area, and must identify that
+basis. It cannot turn the fallback into claims about current menus, prices, table availability,
+events, closures, disruptions, safety, or independent editorial quality.
+
 The model should answer from successful evidence when it exists and turn missing checks into
 practical caveats only when they matter. If no provider can verify the requested current fact, the
 answer must avoid checked or live claims and give a bounded next step such as confirming locally,

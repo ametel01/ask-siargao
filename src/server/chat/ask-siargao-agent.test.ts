@@ -93,6 +93,9 @@ describe("Ask Siargao Responses tool-loop runtime", () => {
       "Every final answer must be written by the AI from loaded memory and tool output",
     );
     expect(String(client.requests[0]?.instructions)).toContain(
+      "rank the matching results by the returned Google Places metadata",
+    );
+    expect(String(client.requests[0]?.instructions)).toContain(
       "Return final answers as normal traveler-facing Markdown/plain text",
     );
     expect(String(client.requests[0]?.instructions)).not.toContain("Return final answers as JSON");

@@ -240,12 +240,12 @@ describe("Google Places enrichment persistence", () => {
 async function openEnrichmentTestDatabase({ seedSourceProfile }: { seedSourceProfile: boolean }) {
   const db = new PGlite();
   await runInitialMigration(db);
-  await db.query(`
-    insert into providers (id, slug, name, provider_type)
-    values ('provider_google_places', 'google-places', 'Google Places', 'places_api')
-  `);
 
-  if (seedSourceProfile) {
+  if (!seedSourceProfile) {
+    await db.query(`delete from source_profiles where id = $1`, [
+      googlePlacesDiscoverySourceProfileId,
+    ]);
+  } else {
     await db.query(
       `
         insert into source_profiles (
@@ -261,6 +261,7 @@ async function openEnrichmentTestDatabase({ seedSourceProfile }: { seedSourcePro
           publishes_raw_allowed
         )
         values ($1, 'provider_google_places', 'Google Places', 'licensed_api', 'api', 'citation_only', 30, 3, false, false)
+        on conflict (id) do nothing
       `,
       [googlePlacesDiscoverySourceProfileId],
     );

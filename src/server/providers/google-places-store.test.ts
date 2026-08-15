@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 
 import { runInitialMigration } from "@/server/db/test-database";
-import { googlePlacesDiscoverySourceProfileId } from "@/server/providers/google-places-discovery";
 import { createGooglePlacesDetailsCaptureInput } from "@/server/providers/google-places-governed-capture";
 import {
   type GooglePlacesRequestKind,
@@ -344,28 +343,6 @@ describe("Google Places capture store", () => {
 async function openGooglePlacesStoreTestDatabase() {
   const db = new PGlite();
   await runInitialMigration(db);
-  await db.query(`
-    insert into providers (id, slug, name, provider_type)
-    values ('provider_google_places', 'google-places', 'Google Places', 'places_api')
-  `);
-  await db.query(
-    `
-      insert into source_profiles (
-        id,
-        provider_id,
-        source_name,
-        source_type,
-        access_method,
-        allowed_use,
-        freshness_window_days,
-        authority_level,
-        stores_raw_allowed,
-        publishes_raw_allowed
-      )
-      values ($1, 'provider_google_places', 'Google Places', 'provider_api', 'api', 'citation_only', 7, 60, false, false)
-    `,
-    [googlePlacesDiscoverySourceProfileId],
-  );
   return db;
 }
 

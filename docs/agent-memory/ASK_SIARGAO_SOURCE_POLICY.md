@@ -122,8 +122,12 @@ such as "I checked the Dapa tide forecast" or "wave data was modelled."
 
 When `research_web` returns insufficient or unavailable evidence, the public
 answer must say the current public evidence could not be verified. Do not
-replace that with a broad Places card, a weather-only answer, a stable memory
-route, or "locals say" phrasing.
+replace that with a weather-only answer, a stable memory route, or "locals say"
+phrasing. A restaurant, cafe, or food answer may still use successful matching
+Google Places results when it explicitly bases the order on returned metadata
+such as ratings, review counts, business status, and opening signals. That
+bounded fallback must not claim independent editorial quality, current menus,
+prices, table availability, events, closures, disruptions, or safety checks.
 
 For surf-window questions, user-facing source-boundary wording should stay
 brief. Answer the best time first, then add at most one practical caveat when a

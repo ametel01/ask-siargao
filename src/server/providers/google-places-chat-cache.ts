@@ -153,19 +153,35 @@ async function getCachedGooglePlacesChatContext(
 
   const liveContext = await liveAdapter({ fetchedAt, requiresLiveStatus, search, trace });
   const persistStartedAt = Date.now();
-  const writeSummaries = await persistGooglePlacesChatContext(db, liveContext, {
+  const persistence = await persistGooglePlacesChatContext(db, liveContext, {
     logger: scopedLogger,
   });
-  const tableWriteSummary = googlePlacesTableWriteSummary(writeSummaries);
+  const tableWriteSummary = googlePlacesTableWriteSummary(persistence.summaries);
+
+  if (persistence.failedPlaceCount > 0) {
+    scopedLogger.error(
+      {
+        cacheStatus,
+        failedPlaceCount: persistence.failedPlaceCount,
+        googleApiCalled: true,
+        persistedPlaceCount: persistence.summaries.length,
+        providerStatus: liveContext.status,
+        tableWriteSummary,
+        writeDurationMs: Date.now() - persistStartedAt,
+      },
+      "Google Places chat live lookup cache persistence failed.",
+    );
+    return liveContext;
+  }
 
   scopedLogger.info(
     {
       cacheStatus,
       googleApiCalled: true,
-      persistedPlaceIds: writeSummaries.map((summary) => summary.placeId),
-      persistedPlaceCount: liveContext.places.length,
-      persistedSourceRecordIds: writeSummaries.map((summary) => summary.sourceRecordId),
-      persistedSnapshotIds: writeSummaries.flatMap((summary) =>
+      persistedPlaceIds: persistence.summaries.map((summary) => summary.placeId),
+      persistedPlaceCount: persistence.summaries.length,
+      persistedSourceRecordIds: persistence.summaries.map((summary) => summary.sourceRecordId),
+      persistedSnapshotIds: persistence.summaries.flatMap((summary) =>
         summary.snapshotId === undefined ? [] : [summary.snapshotId],
       ),
       providerStatus: liveContext.status,
@@ -288,7 +304,7 @@ async function persistGooglePlacesChatContext(
   context: GooglePlacesChatContext,
   { logger }: PersistGooglePlacesChatContextOptions = {},
 ) {
-  return Promise.all(
+  const results = await Promise.allSettled(
     context.places.map(async (place, resultIndex): Promise<GooglePlaceDetailsWriteSummary> => {
       const capture = createGooglePlacesChatCaptureInput({ context, place, resultIndex });
       const placeLogger = logger?.child(
@@ -356,6 +372,21 @@ async function persistGooglePlacesChatContext(
         throw error;
       }
     }),
+  );
+
+  return results.reduce<{
+    failedPlaceCount: number;
+    summaries: GooglePlaceDetailsWriteSummary[];
+  }>(
+    (persistence, result) => {
+      if (result.status === "fulfilled") {
+        persistence.summaries.push(result.value);
+      } else {
+        persistence.failedPlaceCount += 1;
+      }
+      return persistence;
+    },
+    { failedPlaceCount: 0, summaries: [] },
   );
 }
 
