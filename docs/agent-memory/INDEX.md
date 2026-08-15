@@ -23,10 +23,13 @@ policy and local-reference context only; live/current facts still require tools.
   topic.
 - If no memory file covers the topic, say the knowledge is not available from Ask
   Siargao memory and use governed tools only where appropriate.
-- For current/date-specific recommendations, schedules, prices, availability,
-  closures, disruptions, advisories, and current comparisons, use `research_web`
+- For current/date-specific schedules, prices, availability, closures,
+  disruptions, advisories, events, and current comparisons, use `research_web`
   before accepting a final answer. Memory is not a substitute for public web
-  research.
+  research. For restaurant, cafe, or food recommendations, try `research_web`
+  first when current editorial evidence matters; if it is unavailable or
+  insufficient, a successful `search_places` result may still support a clearly
+  Google-metadata-based ranking with menu and table-availability caveats.
 
 ## Files
 

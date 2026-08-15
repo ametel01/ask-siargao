@@ -141,6 +141,49 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0021_operational_schedule_sentinel.sql");
     expect(migrationNames).toContain("0022_operational_schedule_sentinel_authorization.sql");
     expect(migrationNames).toContain("0023_agent_turn_recovery_status.sql");
+    expect(migrationNames).toContain("0024_google_places_source_profile.sql");
+  });
+
+  test("repairs the Google Places source profile on an existing unseeded database", async () => {
+    await resetTestDatabase();
+    const db = await openTestDatabase();
+    const migrationFiles = await loadMigrationFiles();
+    const profileMigrationName = "0024_google_places_source_profile.sql";
+    const setupMigration = requiredMigrationFile(migrationFiles, "0000_initial_schema.sql");
+    const profileMigration = requiredMigrationFile(migrationFiles, profileMigrationName);
+
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), [setupMigration]);
+
+    const before = await db.query<{ count: string }>(
+      "select count(*)::text as count from source_profiles where id = 'source_google_places'",
+    );
+    expect(before.rows[0]?.count).toBe("0");
+
+    await runLedgerBackedMigrations(createPgliteMigrationDatabase(db), [
+      setupMigration,
+      profileMigration,
+    ]);
+
+    const profile = await db.query<{
+      allowed_use: string;
+      provider_id: string;
+      source_type: string;
+    }>(
+      `
+        select provider_id, source_type, allowed_use
+        from source_profiles
+        where id = 'source_google_places'
+      `,
+    );
+    expect(profile.rows).toEqual([
+      {
+        allowed_use: "citation_only",
+        provider_id: "provider_google_places",
+        source_type: "licensed_api",
+      },
+    ]);
+
+    await db.close();
   });
 
   test("creates required core tables and accepts taxonomy seed rows", async () => {
@@ -334,6 +377,7 @@ describe("Step 3 database migration", () => {
       "0021_operational_schedule_sentinel.sql",
       "0022_operational_schedule_sentinel_authorization.sql",
       "0023_agent_turn_recovery_status.sql",
+      "0024_google_places_source_profile.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -420,6 +464,7 @@ describe("Step 3 database migration", () => {
       "0021_operational_schedule_sentinel.sql",
       "0022_operational_schedule_sentinel_authorization.sql",
       "0023_agent_turn_recovery_status.sql",
+      "0024_google_places_source_profile.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -492,6 +537,7 @@ describe("Step 3 database migration", () => {
       "0021_operational_schedule_sentinel.sql",
       "0022_operational_schedule_sentinel_authorization.sql",
       "0023_agent_turn_recovery_status.sql",
+      "0024_google_places_source_profile.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -615,6 +661,7 @@ describe("Step 3 database migration", () => {
       "0021_operational_schedule_sentinel.sql",
       "0022_operational_schedule_sentinel_authorization.sql",
       "0023_agent_turn_recovery_status.sql",
+      "0024_google_places_source_profile.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -3256,4 +3303,12 @@ function guardSavedTripItemsPrimaryKeyRewrite(database: MigrationDatabase): Migr
       );
     },
   };
+}
+
+function requiredMigrationFile(migrationFiles: readonly MigrationFile[], name: string) {
+  const migrationFile = migrationFiles.find((candidate) => candidate.name === name);
+  if (!migrationFile) {
+    throw new Error(`Required migration ${name} was not discovered.`);
+  }
+  return migrationFile;
 }

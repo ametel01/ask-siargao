@@ -32,7 +32,11 @@ Not the move: ... when research found negative evidence.
 ```
 
 Then add Google Places map/opening details only for entities selected by public
-web research. Do not lead from a broad Places list.
+web research. If web research is unavailable or insufficient for a restaurant,
+cafe, or food request, a successful matching Places result may instead support
+a compact metadata-based ranking. Say that the ranking uses returned Google
+ratings, review counts, business/opening status, or area; do not present it as
+an independent editorial verdict.
 
 If live place data is available, use it for map cards, opening signals, ratings,
 and links. If live place data is unavailable, give bounded local guidance and
@@ -135,7 +139,8 @@ sections by habit.
 ## Current Evidence Failure Shape
 
 When a request requires current public web research and `research_web` is
-insufficient or unavailable, answer in this shape:
+insufficient or unavailable, and no bounded dining Places fallback applies,
+answer in this shape:
 
 ```text
 I could not verify current public web evidence for [specific request/date], so I
@@ -145,8 +150,9 @@ What I can still say: [stable, clearly caveated local context if useful].
 Best next check: [official page, operator, venue, hotel/host, or retry later].
 ```
 
-Do not answer from weather alone, memory alone, generic model knowledge, or
-broad Google Places cards when current evidence failed.
+Do not answer from weather alone, memory alone, or generic model knowledge when
+current evidence failed. For the bounded restaurant, cafe, or food exception,
+use only successful matching Places evidence and name its metadata ranking basis.
 
 ## Bad Answer Smells
 
@@ -157,7 +163,8 @@ broad Google Places cards when current evidence failed.
 - Weather or tide details without saying how they change the decision.
 - Current recommendations that ignore successful public web research findings.
 - Current recommendations that hide an insufficient/unavailable web check behind
-  weather-only, memory-only, or broad Places fallback prose.
+  weather-only or memory-only prose, or that present a Places metadata fallback
+  as independent editorial research.
 - Far-away island-wide options before local options for a local request.
 - Turning every answer into an itinerary.
 - Burying the recommendation under caveats instead of making a concrete local

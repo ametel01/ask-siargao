@@ -109,7 +109,7 @@ const sourcePolicyDescriptions: SourcePolicyDescription[] = [
       "Use as a terminal research_web state when search/fetch succeeds but the sources are too weak, stale, broad, or contradictory to answer as verified.",
     caveats: [
       "This is not positive evidence.",
-      "Do not unlock broad Places, weather, or memory-only fallback answers when current public research was required.",
+      "Do not unlock weather or memory-only fallback answers when current public research was required. Successful matching Google Places results may support only the bounded restaurant, cafe, or food metadata-ranking fallback.",
       "Render as not checked or a transparent caveat, not as a checked source claim.",
     ],
   },
