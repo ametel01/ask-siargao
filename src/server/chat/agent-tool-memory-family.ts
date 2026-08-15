@@ -1,8 +1,14 @@
 import { z } from "zod";
-import type { AgentMemorySnapshot } from "@/server/chat/agent-memory";
-import { requiredAgentMemoryManifest } from "@/server/chat/agent-memory";
+import {
+  type AgentMemoryReferenceFile,
+  type AgentMemorySnapshot,
+  loadAgentMemorySnapshot,
+  requiredAgentMemoryManifest,
+} from "@/server/chat/agent-memory";
+import type { AgentToolResult } from "@/server/chat/agent-runtime";
 import {
   type AgentToolDefinition,
+  type AgentToolDependencies,
   type AgentToolFamily,
   defineTool,
   type ToolHandler,
@@ -37,7 +43,14 @@ export type MemoryToolHandlers = {
   loadAgentMemoryFile: ToolHandler<LoadAgentMemoryFileArguments>;
 };
 
-export function createMemoryToolFamily(handlers: MemoryToolHandlers): AgentToolFamily {
+export function createMemoryToolFamily(
+  handlers: MemoryToolHandlers = {
+    loadAgentMemoryFile: (args, _request, dependencies) =>
+      loadAgentMemoryFileToolResult(args, dependencies),
+    searchAgentMemory: (args, _request, dependencies) =>
+      searchAgentMemoryToolResult(args, dependencies),
+  },
+): AgentToolFamily {
   return {
     id: "memory",
     toolNames: ["load_agent_memory_file"],
@@ -139,4 +152,155 @@ export function memoryToolDefinitionForSnapshot(
 function memoryReferenceDocumentNames(memorySnapshot: AgentMemorySnapshot) {
   const names = memorySnapshot.referenceFiles.map((file) => file.fileName);
   return names.length > 0 ? names : agentMemoryReferenceDocumentNames;
+}
+
+export function searchAgentMemoryToolResult(
+  args: SearchAgentMemoryArguments,
+  dependencies: AgentToolDependencies,
+): AgentToolResult {
+  const snapshot = dependencies.memorySnapshot ?? loadAgentMemorySnapshot();
+  const maxResults = args.max_results ?? 3;
+  const selectedDocuments = new Set(args.documents ?? []);
+  const referenceFiles =
+    selectedDocuments.size > 0
+      ? snapshot.referenceFiles.filter((file) => selectedDocuments.has(file.fileName))
+      : snapshot.referenceFiles;
+  const terms = tokenizeMemoryQuery(args.query);
+  const results = referenceFiles
+    .flatMap((file) => {
+      const score = scoreMemoryFile(file.content, file.title, terms);
+      if (score <= 0 && terms.length > 0) {
+        return [];
+      }
+      return [
+        {
+          fileName: file.fileName,
+          title: file.title,
+          excerpt: findMemoryExcerpt(file.content, terms),
+          score,
+        },
+      ];
+    })
+    .sort((left, right) => right.score - left.score || left.fileName.localeCompare(right.fileName))
+    .slice(0, maxResults);
+
+  return {
+    name: "search_agent_memory",
+    status: "success",
+    text:
+      results.length > 0
+        ? renderAgentMemorySearchText(results)
+        : "No Ask Siargao agent memory reference matched the query.",
+    data: {
+      status: "available",
+      memoryVersionId: snapshot.versionId,
+      results,
+      caveat: "Agent memory retrieval is policy/reference context only and is not live evidence.",
+    },
+    sources: [],
+  };
+}
+
+export function loadAgentMemoryFileToolResult(
+  args: LoadAgentMemoryFileArguments,
+  dependencies: AgentToolDependencies,
+): AgentToolResult {
+  const snapshot = dependencies.memorySnapshot ?? loadAgentMemorySnapshot();
+  const selectedDocuments = new Set(args.documents);
+  const files = snapshot.referenceFiles.filter((file) => selectedDocuments.has(file.fileName));
+  const missingDocuments = args.documents.filter(
+    (fileName) => !files.some((file) => file.fileName === fileName),
+  );
+
+  return {
+    name: "load_agent_memory_file",
+    status: missingDocuments.length > 0 ? "error" : "success",
+    text:
+      missingDocuments.length > 0
+        ? `Ask Siargao agent memory file(s) were not available: ${missingDocuments.join(", ")}.`
+        : renderLoadedAgentMemoryFilesText(files),
+    ...(missingDocuments.length > 0 ? { errorCode: "not_found" } : {}),
+    data: {
+      status: missingDocuments.length > 0 ? "missing" : "available",
+      memoryVersionId: snapshot.versionId,
+      loadedMemoryFileNames: files.map((file) => file.fileName),
+      files: files.map((file) => ({
+        fileName: file.fileName,
+        title: file.title,
+        role: file.role,
+        content: file.content,
+      })),
+      caveat: "Agent memory retrieval is policy/reference context only and is not live evidence.",
+    },
+    sources: [],
+  };
+}
+
+function renderLoadedAgentMemoryFilesText(files: readonly AgentMemoryReferenceFile[]) {
+  return [
+    `Loaded Ask Siargao agent memory file(s): ${files.map((file) => file.fileName).join(", ")}.`,
+    ...files.map((file) => `\n# ${file.fileName}\n${file.content.trim()}`),
+    "Memory retrieval is policy/reference context only, not live evidence.",
+  ].join("\n");
+}
+
+function tokenizeMemoryQuery(query: string) {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .flatMap((term) => {
+      const normalizedTerm = term.trim();
+      return normalizedTerm.length > 2 ? [normalizedTerm] : [];
+    });
+}
+
+function scoreMemoryFile(content: string, title: string, terms: readonly string[]) {
+  const haystack = `${title}\n${content}`.toLowerCase();
+  return terms.reduce((score, term) => score + countOccurrences(haystack, term), 0);
+}
+
+function countOccurrences(content: string, term: string) {
+  let count = 0;
+  let index = content.indexOf(term);
+  while (index !== -1) {
+    count += 1;
+    index = content.indexOf(term, index + term.length);
+  }
+  return count;
+}
+
+function findMemoryExcerpt(content: string, terms: readonly string[]) {
+  const paragraphs = content.split(/\n{2,}/).flatMap((paragraph) => {
+    const normalizedParagraph = normalizeMemoryText(paragraph.replace(/^#+\s*/gm, ""));
+    return normalizedParagraph ? [normalizedParagraph] : [];
+  });
+  const term = terms.find((candidate) =>
+    paragraphs.some((paragraph) => paragraph.toLowerCase().includes(candidate)),
+  );
+  const paragraph =
+    paragraphs.find((candidate) => term && candidate.toLowerCase().includes(term)) ??
+    paragraphs[0] ??
+    "";
+  return truncateMemoryExcerpt(paragraph);
+}
+
+function renderAgentMemorySearchText(
+  results: readonly { fileName: string; title: string; excerpt: string }[],
+) {
+  return [
+    "Ask Siargao agent memory reference matches:",
+    ...results.map((result) => `- ${result.fileName}: ${result.excerpt}`),
+    "Memory retrieval is policy/reference context only, not live evidence.",
+  ].join("\n");
+}
+
+function normalizeMemoryText(content: string) {
+  return content.replaceAll(/\s+/g, " ").trim();
+}
+
+function truncateMemoryExcerpt(excerpt: string) {
+  if (excerpt.length <= 360) {
+    return excerpt;
+  }
+  return `${excerpt.slice(0, 357).trimEnd()}...`;
 }

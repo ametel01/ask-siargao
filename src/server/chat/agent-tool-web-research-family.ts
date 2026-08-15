@@ -1,12 +1,19 @@
 import { z } from "zod";
-import type { AgentToolExecutionRequest } from "@/server/chat/agent-runtime";
+import type { AgentToolExecutionRequest, AgentToolResult } from "@/server/chat/agent-runtime";
 import {
+  type AgentToolDependencies,
   type AgentToolFamily,
   defineTool,
   type ToolHandler,
 } from "@/server/chat/agent-tool-catalogue";
 import { isRecord, optionalNullable } from "@/server/chat/agent-tool-utils";
+import type { AnswerSourceSummary, AnswerTrustLabel } from "@/server/chat/answer-source-summary";
 import {
+  buildWebResearchQueries,
+  type ResearchFinding,
+  type ResearchWebRequest,
+  type ResearchWebResultData,
+  runWebResearch,
   webResearchDateContexts,
   webResearchFreshnessLevels,
   webResearchIntents,
@@ -33,7 +40,9 @@ export type WebResearchToolHandlers = {
   researchWeb: ToolHandler<ResearchWebArguments>;
 };
 
-export function createWebResearchToolFamily(handlers: WebResearchToolHandlers): AgentToolFamily {
+export function createWebResearchToolFamily(
+  handlers: WebResearchToolHandlers = { researchWeb: researchWebToolResult },
+): AgentToolFamily {
   return {
     id: "public_web_research",
     toolNames: ["research_web"],
@@ -267,4 +276,223 @@ function normalizeWebResearchSourceType(value: string) {
     default:
       return normalized;
   }
+}
+
+export async function researchWebToolResult(
+  args: ResearchWebArguments,
+  request: AgentToolExecutionRequest,
+  dependencies: AgentToolDependencies,
+): Promise<AgentToolResult> {
+  const researchRequest = researchWebRequestFromArguments(args);
+  const searchedQueries = buildWebResearchQueries(researchRequest);
+  const provider = dependencies.webResearchProvider;
+
+  if (!provider) {
+    const result = runWebResearch(researchRequest, [], {
+      now: dependencies.now?.(),
+      providerUnavailable: true,
+    });
+    return researchWebProviderUnavailableToolResult(result, {
+      reason: "not_configured",
+      provider: "web_research",
+      message:
+        "WEB_RESEARCH_PROVIDER is not configured as openai or OPENAI_API_KEY is unavailable.",
+    });
+  }
+
+  try {
+    const providerResults = await provider(researchRequest, {
+      requestId: request.requestId,
+      searchedQueries,
+    });
+    const result = runWebResearch(researchRequest, providerResults, {
+      now: dependencies.now?.(),
+    });
+
+    return {
+      name: "research_web",
+      status: "success",
+      text: renderResearchWebText(result),
+      data: result,
+      sources: researchWebSourceSummaries(result),
+    };
+  } catch (error) {
+    const providerFailure = summarizeWebResearchProviderFailure(error);
+    const result = runWebResearch(researchRequest, [], {
+      now: dependencies.now?.(),
+      providerUnavailable: true,
+    });
+    return {
+      name: "research_web",
+      status: "error",
+      text:
+        typeof providerFailure.message === "string"
+          ? `Public web research provider unavailable: ${providerFailure.message}`
+          : "Public web research provider unavailable.",
+      logData: { providerFailure },
+      data: result,
+      errorCode: "provider_unavailable",
+      sources: researchWebProviderUnavailableSources(result),
+    };
+  }
+}
+
+function researchWebProviderUnavailableToolResult(
+  result: ResearchWebResultData,
+  providerFailure?: Record<string, unknown>,
+): AgentToolResult {
+  return {
+    name: "research_web",
+    status: "error",
+    text: renderResearchWebText(result),
+    ...(providerFailure ? { logData: { providerFailure } } : {}),
+    data: result,
+    errorCode: "provider_unavailable",
+    sources: researchWebProviderUnavailableSources(result),
+  };
+}
+
+function summarizeWebResearchProviderFailure(error: unknown): Record<string, unknown> {
+  const record = isRecord(error) ? error : {};
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+
+  return {
+    reason: "provider_exception",
+    provider: "openai_web_search",
+    ...(error instanceof Error ? { name: error.name } : {}),
+    ...(typeof record.status === "number" ? { status: record.status } : {}),
+    ...stringLogField("code", record.code),
+    ...stringLogField("type", record.type),
+    ...stringLogField("param", record.param),
+    ...stringLogField("requestId", record.request_id ?? record.requestId),
+    ...(message ? { message: sanitizeProviderFailureText(message) } : {}),
+  };
+}
+
+function stringLogField(name: string, value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    return {};
+  }
+  return { [name]: sanitizeProviderFailureText(value) };
+}
+
+function sanitizeProviderFailureText(value: string) {
+  return value
+    .replaceAll(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "sk-[redacted]")
+    .replaceAll(/\bBearer\s+[A-Za-z0-9._-]{12,}\b/gi, "Bearer [redacted]")
+    .replaceAll(/\b(api[_-]?key|token|secret)(\s*[=:]\s*)[^\s,;]+/gi, "$1$2[redacted]")
+    .slice(0, 500);
+}
+
+function researchWebRequestFromArguments(args: ResearchWebArguments): ResearchWebRequest {
+  return {
+    query: args.query,
+    intent: args.intent,
+    ...(args.location ? { location: args.location } : {}),
+    ...(args.localDate ? { localDate: args.localDate } : {}),
+    ...(args.dateContext ? { dateContext: args.dateContext } : {}),
+    ...(args.sourceTypes ? { sourceTypes: args.sourceTypes } : {}),
+    ...(args.requiredFreshness ? { requiredFreshness: args.requiredFreshness } : {}),
+    ...(args.maxSources ? { maxSources: args.maxSources } : {}),
+  };
+}
+
+function renderResearchWebText(result: ResearchWebResultData) {
+  const lines = [
+    `Public web research status: ${result.status}.`,
+    `Normalized query: ${result.normalizedQuery}.`,
+    `Searched queries: ${result.searchedQueries.join(" | ")}.`,
+  ];
+
+  if (result.findings.length > 0) {
+    lines.push("Findings:");
+    lines.push(
+      ...result.findings.map(
+        (finding, index) =>
+          `${index + 1}. ${finding.claim} (${finding.answerRole}; ${finding.confidence} confidence; ${finding.sourceType}; ${finding.sourceTitle}; ${finding.sourceUrl}).`,
+      ),
+    );
+  } else {
+    lines.push("Findings: none.");
+  }
+
+  if (result.entities.length > 0) {
+    lines.push(
+      `Selected entities: ${result.entities
+        .map((entity) =>
+          [
+            entity.name,
+            entity.kind,
+            entity.area,
+            entity.needsPlacesEnrichment ? "needs Places enrichment" : undefined,
+          ]
+            .filter(Boolean)
+            .join(" / "),
+        )
+        .join("; ")}.`,
+    );
+  }
+
+  if (result.notChecked.length > 0) {
+    lines.push(`Not checked: ${result.notChecked.join("; ")}.`);
+  }
+
+  return lines.join("\n");
+}
+
+function researchWebSourceSummaries(result: ResearchWebResultData): AnswerSourceSummary[] {
+  if (result.status === "provider_unavailable") {
+    return researchWebProviderUnavailableSources(result);
+  }
+  if (result.status === "insufficient") {
+    return [
+      {
+        label: "insufficient_web_evidence",
+        sourceName: "Public web research",
+        sourceProfileId: "source_web_research",
+        confidence: "low",
+        checked: [],
+        notChecked: [...result.notChecked],
+      },
+    ];
+  }
+
+  return result.findings.map((finding) => ({
+    label: researchWebLabelForFinding(finding),
+    sourceName: finding.sourceTitle,
+    sourceProfileId: `source_web_${finding.sourceType}`,
+    ...(finding.publishedOrUpdatedAt ? { fetchedAt: finding.publishedOrUpdatedAt } : {}),
+    confidence: finding.confidence,
+    checked: [finding.claim],
+    notChecked: [...result.notChecked],
+  }));
+}
+
+function researchWebProviderUnavailableSources(
+  result: ResearchWebResultData,
+): AnswerSourceSummary[] {
+  return [
+    {
+      label: "provider_unavailable",
+      sourceName: "Public web research provider",
+      sourceProfileId: "source_web_research",
+      confidence: "low",
+      checked: [],
+      notChecked: [...result.notChecked],
+    },
+  ];
+}
+
+function researchWebLabelForFinding(finding: ResearchFinding): AnswerTrustLabel {
+  if (finding.sourceType === "official" || finding.sourceType === "government") {
+    return "official_checked";
+  }
+  if (finding.sourceType === "local_directory") {
+    return "directory_checked";
+  }
+  if (finding.sourceType === "community" || finding.sourceType === "social") {
+    return "community_signal";
+  }
+  return "web_researched";
 }

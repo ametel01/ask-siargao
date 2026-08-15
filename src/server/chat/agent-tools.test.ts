@@ -857,6 +857,30 @@ describe("agent tools", () => {
 
     const registeredNames = agentToolFamilies.flatMap((family) => Object.keys(family.tools));
     expect(new Set(registeredNames).size).toBe(registeredNames.length);
+    for (const family of agentToolFamilies) {
+      for (const [name, tool] of Object.entries(family.tools)) {
+        expect(typeof tool?.execute, `${family.id}.${name} handler`).toBe("function");
+      }
+    }
+  });
+
+  test("families execute their own default handlers without catalogue wiring", async () => {
+    const localFamily = agentToolFamilies.find((family) => family.id === "local_knowledge");
+    const schemaTool = localFamily?.tools.describe_database_schema;
+
+    expect(schemaTool).toBeDefined();
+    const result = await schemaTool?.execute(
+      {},
+      {
+        requestId: "agent_request_family_handler",
+        name: "describe_database_schema",
+        arguments: {},
+      },
+      {},
+    );
+
+    expect(result?.status).toBe("success");
+    expect(result?.text).toContain("Approved local data surfaces");
   });
 
   test("accepts nullable optional fields required by strict Responses schemas", async () => {
