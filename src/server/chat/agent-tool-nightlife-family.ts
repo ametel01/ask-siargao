@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { AgentToolResult } from "@/server/chat/agent-runtime";
+import type { AgentToolDependencies } from "@/server/chat/agent-tool-catalogue";
 
 import {
   type AgentToolFamily,
@@ -6,7 +8,11 @@ import {
   type ToolHandler,
 } from "@/server/chat/agent-tool-catalogue";
 import { optionalNullable } from "@/server/chat/agent-tool-utils";
-import { nightlifeEventInterestValues } from "@/server/chat/nightlife-events";
+import {
+  nightlifeEventInterestValues,
+  renderNightlifeEventsText,
+  searchNightlifeEvents,
+} from "@/server/chat/nightlife-events";
 
 const searchNightlifeEventsSchema = z.strictObject({
   location: z.enum(["General Luna"]),
@@ -20,7 +26,12 @@ export type NightlifeToolHandlers = {
   searchNightlifeEvents: ToolHandler<SearchNightlifeEventsArguments>;
 };
 
-export function createNightlifeToolFamily(handlers: NightlifeToolHandlers): AgentToolFamily {
+export function createNightlifeToolFamily(
+  handlers: NightlifeToolHandlers = {
+    searchNightlifeEvents: (args, _request, dependencies) =>
+      searchNightlifeEventsToolResult(args, dependencies),
+  },
+): AgentToolFamily {
   return {
     id: "nightlife_events",
     toolNames: ["search_nightlife_events"],
@@ -63,5 +74,40 @@ export function createNightlifeToolFamily(handlers: NightlifeToolHandlers): Agen
         execute: handlers.searchNightlifeEvents,
       }),
     },
+  };
+}
+
+function searchNightlifeEventsToolResult(
+  args: SearchNightlifeEventsArguments,
+  dependencies: AgentToolDependencies,
+): AgentToolResult {
+  const result = searchNightlifeEvents({
+    location: args.location,
+    date: args.date,
+    ...(args.interests ? { interests: args.interests } : {}),
+    now: dependencies.now?.() ?? new Date(),
+  });
+
+  return {
+    name: "search_nightlife_events",
+    status: "success",
+    text: renderNightlifeEventsText(result),
+    data: {
+      status: result.status,
+      location: result.location,
+      requestedDate: result.requestedDate,
+      localDate: result.localDate,
+      dayOfWeek: result.dayOfWeek,
+      candidates: result.candidates,
+      route: result.route,
+      boundaries: {
+        checked: result.sources.flatMap((source) => source.checked),
+        notChecked: [...new Set(result.sources.flatMap((source) => source.notChecked))],
+      },
+      refreshDecision: result.refreshDecision,
+      nextStep:
+        "Use Google Places only after this event lookup to enrich selected venue identity, map links, address, business status, opening-hour signal, ratings, and review counts.",
+    },
+    sources: result.sources,
   };
 }

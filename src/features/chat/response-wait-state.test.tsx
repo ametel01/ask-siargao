@@ -3,106 +3,175 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { PendingAssistantWaitState } from "@/features/chat/PendingAssistantWaitState";
 import {
-  createResponseWaitRequest,
-  invalidateResponseWaitRequest,
-  isCurrentResponseWaitRequest,
-  reduceResponseWaitLifecycle,
+  createResponseWaitLifecycle,
   responseStoppedStatusText,
   responseWaitStatusText,
-  settleResponseWaitRequest,
-  stopResponseWaitRequest,
+  transitionResponseWaitMessage,
 } from "@/features/chat/response-wait-state";
 
 describe("response wait state lifecycle", () => {
-  test("allows only the current pending request to complete and clear ownership", () => {
-    const request = createResponseWaitRequest({
-      assistantMessageId: "assistant_pending",
-      createRequestId: () => "request_current",
-      prompt: "Where should we eat?",
+  test("owns progress and completion for one response without accepting stale completion", async () => {
+    const events: string[] = [];
+    let emitLateProgress: (() => void) | undefined;
+    let releaseFirst: (() => void) | undefined;
+    const lifecycle = createResponseWaitLifecycle<{ message: string }>({
+      createRequestId: (() => {
+        let count = 0;
+        return () => `request_${++count}`;
+      })(),
     });
 
-    expect(isCurrentResponseWaitRequest(request, "request_current")).toBe(true);
-    expect(settleResponseWaitRequest(request, "request_old")).toBe(request);
-    expect(settleResponseWaitRequest(request, "request_current")).toBeNull();
-  });
-
-  test("keeps late first responses from clearing a newer retry", () => {
-    const first = createResponseWaitRequest({
-      assistantMessageId: "assistant_first",
-      createRequestId: () => "request_first",
-      prompt: "Plan a beach day.",
-    });
-    const retry = createResponseWaitRequest({
-      assistantMessageId: "assistant_retry",
-      createRequestId: () => "request_retry",
-      prompt: "Plan a beach day.",
-    });
-
-    expect(settleResponseWaitRequest(retry, first.requestId)).toBe(retry);
-    expect(settleResponseWaitRequest(retry, retry.requestId)).toBeNull();
-  });
-
-  test("aborts and releases controller resources on stop, invalidation, and unmount cleanup", () => {
-    const stopped = createResponseWaitRequest({
-      assistantMessageId: "assistant_stop",
-      createRequestId: () => "request_stop",
-      prompt: "Will it rain?",
-    });
-
-    expect(stopResponseWaitRequest(stopped, "request_stop")).toBeNull();
-    expect(stopped.controller.signal.aborted).toBe(true);
-    expect(stopResponseWaitRequest(null, "request_stop")).toBeNull();
-
-    const invalidated = createResponseWaitRequest({
-      assistantMessageId: "assistant_unmount",
-      createRequestId: () => "request_unmount",
-      prompt: "What about tomorrow?",
-    });
-
-    expect(invalidateResponseWaitRequest(invalidated)).toBeNull();
-    expect(invalidated.controller.signal.aborted).toBe(true);
-  });
-
-  test("models failed and stopped retry lifecycles without accepting stale events", () => {
-    const pending = reduceResponseWaitLifecycle(
-      { phase: "idle" },
-      {
-        type: "start",
-        request: {
-          assistantMessageId: "assistant_pending",
-          prompt: "Find a rainy day plan.",
-          requestId: "request_pending",
-        },
+    const first = lifecycle.start(
+      { assistantMessageId: "assistant_first", prompt: "First question" },
+      (request, onProgress) => {
+        emitLateProgress = () => onProgress("Late first progress");
+        return new Promise<{ message: string }>((resolve) => {
+          releaseFirst = () => resolve({ message: "First answer" });
+          expect(request.controller.signal.aborted).toBe(false);
+        });
+      },
+      (event) => {
+        events.push(event.type === "progress" ? event.message : event.type);
       },
     );
-
-    expect(
-      reduceResponseWaitLifecycle(pending, { type: "complete", requestId: "request_old" }),
-    ).toBe(pending);
-
-    const failed = reduceResponseWaitLifecycle(pending, {
-      type: "fail",
-      requestId: "request_pending",
-    });
-    expect(failed).toMatchObject({ phase: "failed", prompt: "Find a rainy day plan." });
-
-    const retry = reduceResponseWaitLifecycle(failed, {
-      type: "start",
-      request: {
-        assistantMessageId: "assistant_retry",
-        prompt: "Find a rainy day plan.",
-        requestId: "request_retry",
+    const second = lifecycle.start(
+      { assistantMessageId: "assistant_second", prompt: "Second question" },
+      async () => ({ message: "Second answer" }),
+      (event) => {
+        events.push(event.type === "completed" ? event.result.message : event.type);
       },
+    );
+    emitLateProgress?.();
+    releaseFirst?.();
+
+    await Promise.all([first, second]);
+
+    expect(events).toEqual(["started", "stopped", "started", "Second answer"]);
+    expect(lifecycle.getActiveRequest()).toBeNull();
+  });
+
+  test("turns an explicit stop into a terminal lifecycle event and aborts transport", async () => {
+    const events: string[] = [];
+    let release: (() => void) | undefined;
+    let observedSignal: AbortSignal | undefined;
+    const lifecycle = createResponseWaitLifecycle<{ message: string }>();
+    const completion = lifecycle.start(
+      { assistantMessageId: "assistant_stop", prompt: "Stop this" },
+      (request) => {
+        observedSignal = request.controller.signal;
+        return new Promise<{ message: string }>((resolve) => {
+          release = () => resolve({ message: "late answer" });
+        });
+      },
+      (event) => events.push(event.type),
+    );
+
+    expect(lifecycle.stop()).toBe(true);
+    release?.();
+    await completion;
+
+    expect(observedSignal?.aborted).toBe(true);
+    expect(events).toEqual(["started", "stopped"]);
+    expect(lifecycle.getActiveRequest()).toBeNull();
+  });
+
+  test("emits failures while keeping aborts silent", async () => {
+    const failureEvents: string[] = [];
+    const lifecycle = createResponseWaitLifecycle<{ message: string }>();
+
+    await lifecycle.start(
+      { assistantMessageId: "assistant_failure", prompt: "Fail this" },
+      async () => {
+        throw new Error("network unavailable");
+      },
+      (event) => failureEvents.push(event.type),
+    );
+
+    expect(failureEvents).toEqual(["started", "failed"]);
+  });
+
+  test("invalidates an unmounted response without publishing a terminal message", async () => {
+    const events: string[] = [];
+    let release: (() => void) | undefined;
+    let observedSignal: AbortSignal | undefined;
+    const lifecycle = createResponseWaitLifecycle<{ message: string }>();
+    const completion = lifecycle.start(
+      { assistantMessageId: "assistant_unmount", prompt: "Unmount this" },
+      (request) => {
+        observedSignal = request.controller.signal;
+        return new Promise<{ message: string }>((resolve) => {
+          release = () => resolve({ message: "late answer" });
+        });
+      },
+      (event) => events.push(event.type),
+    );
+
+    lifecycle.invalidate();
+    release?.();
+    await completion;
+
+    expect(observedSignal?.aborted).toBe(true);
+    expect(events).toEqual(["started"]);
+    expect(lifecycle.getActiveRequest()).toBeNull();
+  });
+
+  test("projects progress, completion, failure, and stop into message transitions", () => {
+    const request = {
+      assistantMessageId: "assistant_transition",
+      controller: new AbortController(),
+      prompt: "Transition this",
+      requestId: "request_transition",
+    };
+    const baseMessage = {
+      id: request.assistantMessageId,
+      role: "assistant" as const,
+      status: "pending" as const,
+      text: responseWaitStatusText,
+      timestamp: "10:00 AM",
+    };
+    const options = {
+      errorText: (error: unknown) => (error instanceof Error ? error.message : "fallback error"),
+      projectResult: () => ({ text: "Fresh answer", answerArrivalMotion: { kind: "arrival" } }),
+      stoppedText: responseStoppedStatusText,
+      timestamp: () => "10:01 AM",
+    };
+
+    expect(
+      transitionResponseWaitMessage(
+        baseMessage,
+        { type: "progress", request, message: "Checking" },
+        options,
+      ),
+    ).toMatchObject({ status: "pending", text: "Checking" });
+    expect(
+      transitionResponseWaitMessage(
+        baseMessage,
+        {
+          type: "completed",
+          request,
+          result: { message: "Fresh answer" },
+        },
+        options,
+      ),
+    ).toMatchObject({ status: "complete", text: "Fresh answer", retryPrompt: "Transition this" });
+    expect(
+      transitionResponseWaitMessage(
+        baseMessage,
+        {
+          type: "failed",
+          request,
+          error: new Error("Network unavailable"),
+        },
+        options,
+      ),
+    ).toMatchObject({
+      status: "error",
+      text: "Network unavailable",
+      retryPrompt: "Transition this",
     });
     expect(
-      reduceResponseWaitLifecycle(retry, { type: "complete", requestId: "request_retry" }),
-    ).toEqual({ phase: "idle" });
-
-    const stopped = reduceResponseWaitLifecycle(pending, {
-      type: "stop",
-      requestId: "request_pending",
-    });
-    expect(stopped).toMatchObject({ phase: "stopped", prompt: "Find a rainy day plan." });
+      transitionResponseWaitMessage(baseMessage, { type: "stopped", request }, options),
+    ).toMatchObject({ status: "stopped", text: responseStoppedStatusText });
   });
 });
 
