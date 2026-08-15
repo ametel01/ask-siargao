@@ -57,6 +57,7 @@
     "test:e2e:clerk:final-boundary": "playwright test --config=playwright.clerk.config.ts --grep='final live boundary'",
     "test:e2e:clerk:verify-deletion": "bun run src/server/qa/verify-clerk-release-candidate-deletion.ts",
     "test:smoke:trip-pass-stripe": "bun run src/server/qa/run-stripe-release-candidate.ts",
+    "test:smoke:production-chat": "bun run src/server/deployment/production-chat-smoke.ts",
     "test:e2e:stripe:final-boundary": "playwright test --config=playwright.stripe.config.ts --grep='final live boundary'",
     "test:e2e:production-perf": "PLAYWRIGHT_PRODUCTION_PERF=1 playwright test",
     "start": "bun run validate:deployment && ./node_modules/.bin/next start",
