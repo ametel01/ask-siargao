@@ -87,6 +87,12 @@ async function createSmokeRequest() {
   const normalizedOrigin = new URL(origin).origin;
   return async (path: string, init?: RequestInit) => {
     const response = await fetch(`${normalizedOrigin}${path}`, init);
+    if (!response.ok) {
+      return {
+        status: response.status,
+        body: await response.json().catch(() => null),
+      };
+    }
     return {
       status: response.status,
       body: await response.json().catch(() => null),
