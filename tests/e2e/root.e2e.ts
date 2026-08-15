@@ -33,7 +33,7 @@ test("renders the Ask Siargao landing shell", async ({ page }) => {
   await expect(page.getByText("Can check places when asked")).toBeVisible();
   await expect(page.getByText("Checked on request")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "One clear Siargao travel pass" })).toBeVisible();
-  await expect(page.getByText("$9.99")).toBeVisible();
+  await expect(page.locator("#trip-pass").getByText("$9.99", { exact: true })).toBeVisible();
   await expect(page.getByText("150 Siargao travel answers for 14 days")).toBeVisible();
   await expect(page.getByRole("link", { name: "Read terms" })).toHaveAttribute(
     "href",
@@ -155,8 +155,8 @@ test("keeps every primary landing action on one contrast-stable color role", asy
   const primaryActions = [
     page.getByRole("link", { name: "Try this example" }),
     page.getByRole("link", { name: "Start 10 free answers" }),
-    page.getByRole("link", { name: "Get Trip Pass in settings" }).first(),
-    page.getByRole("link", { name: "Get Trip Pass in settings" }).last(),
+    page.getByRole("link", { name: "Get the 14-day Trip Pass — $9.99" }).first(),
+    page.getByRole("link", { name: "Get the 14-day Trip Pass — $9.99" }).last(),
   ];
 
   for (const action of primaryActions) {
@@ -190,12 +190,15 @@ test("applies the documented landing typography roles", async ({ page }) => {
     page.getByRole("heading", { name: "Match a surf session" }),
     page.getByRole("heading", { name: "Replace a disrupted plan" }),
     page.getByRole("heading", { name: "Try the decision desk" }),
-    page.getByRole("heading", { name: "14-day Siargao Trip Pass" }),
     page.getByRole("heading", { name: "From a real plan to one workable next move" }),
   ]) {
     await expect(title).toHaveCSS("font-size", "24px");
     await expect(title).toHaveCSS("font-weight", "600");
   }
+  await expect(page.getByRole("heading", { name: "14-day Siargao Trip Pass" })).toHaveCSS(
+    "font-size",
+    "30px",
+  );
 
   const evidenceSummary = page.getByText("What may inform this check", { exact: true });
   await expect(evidenceSummary).toHaveCSS("font-size", "14px");
@@ -209,6 +212,10 @@ test("keeps planning guides in primary navigation on mobile and desktop", async 
   ]) {
     await page.setViewportSize(viewport);
     await page.goto("/");
+
+    await expect(
+      page.locator("header").first().getByText("Ask Siargao", { exact: true }),
+    ).toBeVisible();
 
     const guidesLink = page.locator("header").first().getByRole("link", {
       exact: true,
@@ -247,6 +254,7 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
     ["Example", "#example-reality-check"],
     ["Planning inputs", "#planning-inputs"],
     ["Plan smarter", "#plan-smarter"],
+    ["Trip Pass", "#trip-pass"],
     ["Travel guides", "#travel-guides"],
   ] as const) {
     const link = navigation.getByRole("link", { name: label });
@@ -269,11 +277,11 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
       rgb: [142, 230, 216],
     },
     {
-      link: navigation.getByRole("link", { name: "Travel guides" }),
+      link: navigation.getByRole("link", { name: "Trip Pass" }),
       rgb: [142, 230, 216],
     },
     {
-      link: navigation.getByRole("link", { name: "Trip Pass" }),
+      link: navigation.getByRole("link", { name: "Travel guides" }),
       rgb: [142, 230, 216],
     },
     { link: page.getByRole("link", { exact: true, name: "Guides" }), rgb: [142, 230, 216] },
@@ -286,6 +294,10 @@ test("exposes real desktop navigation in keyboard reading order", async ({ page 
     },
     { link: page.getByRole("link", { name: "Check a stay" }), rgb: [142, 230, 216] },
     { link: page.getByRole("link", { name: "Review a route" }), rgb: [142, 230, 216] },
+    {
+      link: page.getByRole("link", { name: "See full pricing and terms" }),
+      rgb: [142, 230, 216],
+    },
     {
       link: page.getByRole("link", { name: "Run this check" }).nth(0),
       rgb: [10, 111, 103],
@@ -373,6 +385,7 @@ test("landing prompt actions preserve exact chat handoff without submitting", as
 });
 
 for (const viewport of [
+  { name: "compact-320", width: 320, height: 720 },
   { name: "mobile-390", width: 390, height: 844 },
   { name: "tablet-768", width: 768, height: 1024 },
   { name: "desktop-1440", width: 1440, height: 1000 },
@@ -416,7 +429,7 @@ for (const viewport of [
       });
     expect(Number.parseFloat(landingSurfaceChrome.borderRadius)).toBeLessThanOrEqual(20);
     expect(landingSurfaceChrome.boxShadow).not.toContain("48px");
-    if (viewport.width === 390) {
+    if (viewport.width <= 390) {
       const rightMargin = 20;
       const criticalElements = [
         {
@@ -499,13 +512,15 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
       await evidenceDisclosure.evaluate((details) => (details as HTMLDetailsElement).open),
     ).toBe(false);
     await expect(pricing).toContainText(
-      "Checkout opens in signed-in settings when available. Your 14-day pass starts after payment is confirmed.",
+      "Sign in to continue your purchase. Your 14-day Trip Pass activates only after payment is confirmed.",
     );
     await expect(pricing.getByRole("link", { name: "Start 10 free answers" })).toHaveAttribute(
       "href",
       "/chat",
     );
-    const paidActions = pricing.getByRole("link", { name: "Get Trip Pass in settings" });
+    const paidActions = pricing.getByRole("link", {
+      name: "Get the 14-day Trip Pass — $9.99",
+    });
     await expect(paidActions).toHaveCount(2);
     await expect(paidActions.first()).toHaveAttribute(
       "href",
@@ -553,16 +568,15 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
   await expect(page.getByText("verified Stripe payment event")).toBeVisible();
   await expect(page.getByText("Full refunds revoke remaining pass access.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Provider availability" })).toBeVisible();
-  const manageInSettings = page.getByRole("link", { name: "Manage in settings" });
-  await expect(manageInSettings).toHaveAttribute(
-    "href",
-    "/sign-in?redirect_url=%2Fsettings%23pass",
-  );
+  const purchaseAction = page.getByRole("link", {
+    name: "Get the 14-day Trip Pass — $9.99",
+  });
+  await expect(purchaseAction).toHaveAttribute("href", "/sign-in?redirect_url=%2Fsettings%23pass");
   await expect(
     page.getByText(/\bExplorer\b|\bExtended\b|\bunlimited\b|\bguaranteed\b/i),
   ).toHaveCount(0);
 
-  await manageInSettings.click();
+  await purchaseAction.click();
   await expect(page).toHaveURL("/sign-in?redirect_url=%2Fsettings%23pass");
   await expect(page.getByRole("heading", { name: "Sign in unavailable" })).toBeVisible();
 });

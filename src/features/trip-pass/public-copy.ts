@@ -9,11 +9,23 @@ export const tripPassPublicOffer = {
   freeWindowDays: tripPassProductCatalog.freeWindowDays,
   freeAnswerLimit: tripPassProductCatalog.freeMeterLimits.chat_message,
   paidAnswerLimit: tripPassProductCatalog.paidMeterLimits.chat_message,
+  purchaseActionLabel: `Get the ${tripPassProductCatalog.durationDays}-day Trip Pass — ${tripPassProductCatalog.presentation.launchPriceLabel}`,
+  purchaseActivationCopy: `Sign in to continue your purchase. Your ${tripPassProductCatalog.durationDays}-day Trip Pass activates only after payment is confirmed.`,
+  value: {
+    perAnswerLabel: formatUsdUnitPrice(
+      tripPassProductCatalog.amountTotalMinor,
+      tripPassProductCatalog.paidMeterLimits.chat_message,
+    ),
+    perDayLabel: formatUsdUnitPrice(
+      tripPassProductCatalog.amountTotalMinor,
+      tripPassProductCatalog.durationDays,
+    ),
+  },
   links: {
     chat: "/chat",
     legal: "/legal/trip-pass",
+    purchase: "/sign-in?redirect_url=%2Fsettings%23pass",
     pricing: "/#trip-pass",
-    settings: "/sign-in?redirect_url=%2Fsettings%23pass",
   },
 } as const;
 
@@ -47,3 +59,7 @@ export const tripPassPolicyPoints = [
     body: "Account status is owner-scoped. Public analytics and support notes must not include raw prompts, precise coordinates, Stripe secrets, or full provider payloads.",
   },
 ] as const;
+
+function formatUsdUnitPrice(amountTotalMinor: number, unitCount: number) {
+  return `$${(amountTotalMinor / 100 / unitCount).toFixed(2)}`;
+}
