@@ -37,6 +37,7 @@ export type WeatherConditionSnapshot = {
     rainSum: number | null;
     precipitationSum: number | null;
     windGust: number | null;
+    windSpeed?: number | null;
   };
 };
 
@@ -319,10 +320,15 @@ function weatherMetrics(
         " mm",
       ),
     },
-    {
-      label: "Wind gust",
-      value: formatNullableNumber(snapshot?.today.windGust, " km/h"),
-    },
+    snapshot?.today.windGust !== null && snapshot?.today.windGust !== undefined
+      ? {
+          label: "Wind gust",
+          value: formatNullableNumber(snapshot.today.windGust, " km/h"),
+        }
+      : {
+          label: "Wind",
+          value: formatNullableNumber(snapshot?.today.windSpeed, " km/h"),
+        },
   ];
 }
 
@@ -339,14 +345,16 @@ function weatherLevel(snapshot: WeatherConditionSnapshot): "low" | "medium" | "h
   if (
     (snapshot.today.precipitationProbability ?? 0) >= 75 ||
     (rain ?? 0) >= 18 ||
-    (snapshot.today.windGust ?? 0) >= 55
+    (snapshot.today.windGust ?? 0) >= 55 ||
+    (snapshot.today.windSpeed ?? 0) >= 40
   ) {
     return "high";
   }
   if (
     (snapshot.today.precipitationProbability ?? 0) >= 45 ||
     (rain ?? 0) >= 6 ||
-    (snapshot.today.windGust ?? 0) >= 35
+    (snapshot.today.windGust ?? 0) >= 35 ||
+    (snapshot.today.windSpeed ?? 0) >= 25
   ) {
     return "medium";
   }
@@ -361,7 +369,9 @@ function weatherDetails(snapshot: WeatherConditionSnapshot) {
       : `${formatNumber(snapshot.today.precipitationProbability)}% rain chance`,
     rain === null ? undefined : `${formatNumber(rain)} mm rain`,
     snapshot.today.windGust === null
-      ? undefined
+      ? snapshot.today.windSpeed === null || snapshot.today.windSpeed === undefined
+        ? undefined
+        : `${formatNumber(snapshot.today.windSpeed)} km/h wind`
       : `${formatNumber(snapshot.today.windGust)} km/h gusts`,
   ].filter((value): value is string => Boolean(value));
   return details.join(", ");

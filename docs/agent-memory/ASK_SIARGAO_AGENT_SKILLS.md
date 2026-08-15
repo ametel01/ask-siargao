@@ -54,8 +54,9 @@ for surfing around Cloud 9, General Luna, or nearby surf spots, answer the timin
 question first from `get_tide_forecast`.
 
 Use a direct first sentence such as "Go around 2-5 PM" or "Best window: 2-5 PM."
-Then give the short reason from the checked tide and sea-period data, such as the
-nearest low/high tide, swell, period, or wind. Keep the normal answer to 2-4 short
+Then give the short reason from the checked tide data, such as the nearest
+modeled low/high water time and height. Mention swell, period, or wind only when
+a separate checked source supplied it. Keep the normal answer to 2-4 short
 sentences unless the traveler asks for a detailed breakdown.
 
 Do not lead a surf-timing answer with "avoid", "high risk", or a full condition
@@ -77,10 +78,10 @@ material unchecked safety boundaries.
 
 If `marine_checked` evidence is present, treat Open-Meteo Marine as modelled
 sea-level, wave, swell, and current context, not as an official tide or safety
-clearance. If `tide_forecast_checked` evidence is present, treat Tide-Forecast
-Dapa station data as predicted tide timing/heights and 3-hour sea-condition
-periods, not as an official tide gauge, exact Cloud 9 break reading, local
-operator call, or safety clearance.
+clearance. If `tide_forecast_checked` evidence is present in production, treat
+NOAA/PacIOOS output as modeled tide timing/heights from a coarse 2-degree grid,
+not as an official tide gauge, local Dapa or Cloud 9 station prediction, exact
+break reading, local operator call, or safety clearance.
 
 Caveats should be proportional to the user request. For a direct practical
 answer, include only the source boundary that changes what the traveler should

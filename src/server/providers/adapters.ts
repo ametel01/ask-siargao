@@ -101,6 +101,58 @@ const openMeteoMarineAdapter: ProviderAdapterContract = {
   freshnessWindowDays: 1,
 };
 
+const metNorwayAdapter: ProviderAdapterContract = {
+  id: "adapter_met_norway",
+  kind: "weather",
+  profile: {
+    id: "source_met_norway",
+    sourceName: "MET Norway Locationforecast",
+    sourceType: "official",
+    accessMethod: "api",
+    allowedUse: "public_republish",
+    termsUrl: "https://api.met.no/doc/TermsOfService",
+    rateLimit: "conditional-request and cache-aware public API",
+    freshnessWindowDays: 1,
+    authorityLevel: 4,
+    storesRawAllowed: true,
+    publishesRawAllowed: true,
+    requiresPartnerApproval: false,
+    knownStaleRisk: "low",
+    knownAiOrSeoContentRisk: "low",
+    notes:
+      "Global weather forecast from the Norwegian Meteorological Institute. Attribute MET Norway under CC BY 4.0 and send an identifying User-Agent.",
+  },
+  retryPolicy: { maxAttempts: 2, backoffMs: 1_000 },
+  rateLimit: "cache for at least 30 minutes and honor provider response headers",
+  freshnessWindowDays: 1,
+};
+
+const pacioosTideAdapter: ProviderAdapterContract = {
+  id: "adapter_pacioos_tide",
+  kind: "marine",
+  profile: {
+    id: "source_pacioos_tide",
+    sourceName: "NOAA/PacIOOS Pacific tide model",
+    sourceType: "official",
+    accessMethod: "api",
+    allowedUse: "public_republish",
+    termsUrl: "https://catalog.data.gov/dataset/tide-model-barotropic-for-the-pacific-basin",
+    rateLimit: "cache deterministic modeled tide queries for at least one day",
+    freshnessWindowDays: 1,
+    authorityLevel: 3,
+    storesRawAllowed: true,
+    publishesRawAllowed: true,
+    requiresPartnerApproval: false,
+    knownStaleRisk: "medium",
+    knownAiOrSeoContentRisk: "low",
+    notes:
+      "Public-domain Pacific barotropic tide-model output. The 2-degree grid is a coarse planning proxy for Siargao, not a local station, tide gauge, navigation aid, or safety clearance.",
+  },
+  retryPolicy: { maxAttempts: 2, backoffMs: 1_000 },
+  rateLimit: "daily cached deterministic model query",
+  freshnessWindowDays: 1,
+};
+
 const tideForecastDevAdapter: ProviderAdapterContract = {
   id: "adapter_tide_forecast_dev",
   kind: "marine",
@@ -565,6 +617,8 @@ export function createDefaultSourceRegistry() {
     officialTransportAdapter.profile,
     openMeteoAdapter.profile,
     openMeteoMarineAdapter.profile,
+    metNorwayAdapter.profile,
+    pacioosTideAdapter.profile,
     tideForecastDevAdapter.profile,
     googlePlacesAdapter.profile,
     nightlifeOfficialVenueWebsiteAdapter.profile,

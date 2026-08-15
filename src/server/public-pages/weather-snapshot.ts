@@ -2,18 +2,20 @@ import postgres from "postgres";
 
 import type { ConfidenceLabel } from "@/server/audit/enums";
 import { createPostgresConnectionOptions } from "@/server/db/connection-options";
+import { fetchMetNorwayForecast, type MetNorwayForecast } from "@/server/providers/met-norway";
 import {
   buildOpenMeteoIngestionBatch,
   type FetchLike,
   type OpenMeteoForecastLocation,
 } from "@/server/providers/open-meteo";
+import { isProductionProviderEnvironment } from "@/server/providers/production-provider-mode";
 
 export type WeatherSnapshotStatus = "live" | "fallback";
 export type WeatherFreshness = "fresh" | "stale" | "unknown";
 export type WeatherRiskLevel = "low" | "medium" | "high";
 
 export type WeatherRiskMetric = {
-  id: "precipitation_probability" | "rain_sum" | "wind_gust";
+  id: "precipitation_probability" | "rain_sum" | "wind_gust" | "wind_speed";
   label: string;
   value: number;
   unit: "%" | "mm" | "km/h";
@@ -40,7 +42,7 @@ export type WeatherSnapshot = {
   status: WeatherSnapshotStatus;
   locationName: string;
   sourceName: string;
-  sourceProfileId: "source_open_meteo";
+  sourceProfileId: "source_open_meteo" | "source_met_norway";
   fetchedAt: string;
   expiresAt: string | null;
   freshness: WeatherFreshness;
@@ -176,23 +178,47 @@ export const fallbackWeatherSnapshot: WeatherSnapshot = {
   ],
 };
 
+export const metNorwayFallbackWeatherSnapshot: WeatherSnapshot = {
+  ...fallbackWeatherSnapshot,
+  sourceName: "MET Norway Locationforecast",
+  sourceProfileId: "source_met_norway",
+  fetchedAt: "2026-08-15T00:00:00.000Z",
+  evidenceIds: ["ev_met_norway_profile"],
+  summary: "MET Norway is configured, but no usable live forecast is available.",
+  today: {
+    ...fallbackWeatherSnapshot.today,
+    evidenceId: "ev_met_norway_profile",
+  },
+  metrics: fallbackWeatherSnapshot.metrics.map((metric) => ({
+    ...metric,
+    claim: metric.claim.replace("Open-Meteo", "MET Norway"),
+    evidenceId: "ev_met_norway_profile",
+  })),
+};
+
 export async function getLatestSiargaoWeatherSnapshot({
   databaseUrl = process.env.DATABASE_URL,
+  env = process.env,
   fetcher,
   location,
   now = new Date(),
 }: {
   databaseUrl?: string;
+  env?: Record<string, string | undefined>;
   fetcher?: FetchLike;
   location?: OpenMeteoForecastLocation;
   now?: Date;
 } = {}): Promise<WeatherSnapshot> {
+  if (isProductionProviderEnvironment(env)) {
+    return getLiveSiargaoWeatherSnapshot({ env, fetcher, location, now });
+  }
+
   if (!databaseUrl) {
-    return getLiveSiargaoWeatherSnapshot({ fetcher, location, now });
+    return getLiveSiargaoWeatherSnapshot({ env, fetcher, location, now });
   }
 
   if (location) {
-    return getLiveSiargaoWeatherSnapshot({ fetcher, location, now });
+    return getLiveSiargaoWeatherSnapshot({ env, fetcher, location, now });
   }
 
   const sql = postgres(databaseUrl, createPostgresConnectionOptions("cli"));
@@ -231,24 +257,30 @@ export async function getLatestSiargaoWeatherSnapshot({
     const storedSnapshot = buildWeatherSnapshotFromRows(rows, now);
     return storedSnapshot.status === "live"
       ? storedSnapshot
-      : getLiveSiargaoWeatherSnapshot({ fetcher, now });
+      : getLiveSiargaoWeatherSnapshot({ env, fetcher, now });
   } catch {
-    return getLiveSiargaoWeatherSnapshot({ fetcher, now });
+    return getLiveSiargaoWeatherSnapshot({ env, fetcher, now });
   } finally {
     await sql.end({ timeout: 1 });
   }
 }
 
 async function getLiveSiargaoWeatherSnapshot({
+  env = process.env,
   fetcher,
   location,
   now = new Date(),
 }: {
+  env?: Record<string, string | undefined>;
   fetcher?: FetchLike;
   location?: OpenMeteoForecastLocation;
   now?: Date;
 } = {}): Promise<WeatherSnapshot> {
   try {
+    if (isProductionProviderEnvironment(env)) {
+      const forecast = await fetchMetNorwayForecast({ fetchedAt: now, fetcher, location });
+      return weatherSnapshotFromMetNorway(forecast, now);
+    }
     const batch = await buildOpenMeteoIngestionBatch({ fetchedAt: now, fetcher, location });
     const rows: WeatherFactRow[] = batch.facts.map((fact) => {
       const evidence = batch.evidence.find((candidate) => candidate.factId === fact.id);
@@ -271,8 +303,81 @@ async function getLiveSiargaoWeatherSnapshot({
 
     return buildWeatherSnapshotFromRows(rows, now);
   } catch {
-    return fallbackWeatherSnapshot;
+    return isProductionProviderEnvironment(env)
+      ? metNorwayFallbackWeatherSnapshot
+      : fallbackWeatherSnapshot;
   }
+}
+
+function weatherSnapshotFromMetNorway(forecast: MetNorwayForecast, now: Date): WeatherSnapshot {
+  const rainEvidenceId = "ev_met_norway_rain_forecast";
+  const windEvidenceId = "ev_met_norway_wind_forecast";
+  const metrics: WeatherRiskMetric[] = [
+    {
+      id: "rain_sum",
+      label: "Peak daily rain",
+      value: forecast.maxDailyRain.value,
+      unit: "mm",
+      peakDate: forecast.maxDailyRain.date,
+      level: riskLevel(forecast.maxDailyRain.value, {
+        factType: "weather_rain_volume_risk",
+        id: "rain_sum",
+        label: "Peak daily rain",
+        unit: "mm",
+        valueKey: "",
+        dateKey: "",
+        mediumAt: 6,
+        highAt: 18,
+      }),
+      claim: `MET Norway forecasts up to ${forecast.maxDailyRain.value} mm of rain on ${forecast.maxDailyRain.date}.`,
+      evidenceId: rainEvidenceId,
+    },
+    {
+      id: "wind_speed",
+      label: "Peak sustained wind",
+      value: forecast.maxWindSpeed.value,
+      unit: "km/h",
+      peakDate: forecast.maxWindSpeed.date,
+      level:
+        forecast.maxWindSpeed.value >= 40
+          ? "high"
+          : forecast.maxWindSpeed.value >= 25
+            ? "medium"
+            : "low",
+      claim: `MET Norway forecasts sustained wind up to ${forecast.maxWindSpeed.value} km/h on ${forecast.maxWindSpeed.date}.`,
+      evidenceId: windEvidenceId,
+    },
+  ];
+  const evidenceIds = ["ev_met_norway_forecast", rainEvidenceId, windEvidenceId];
+  return {
+    status: "live",
+    locationName: forecast.locationName,
+    sourceName: forecast.sourceName,
+    sourceProfileId: forecast.sourceProfileId,
+    fetchedAt: forecast.fetchedAt,
+    expiresAt: forecast.expiresAt,
+    freshness: new Date(forecast.expiresAt).getTime() > now.getTime() ? "fresh" : "stale",
+    confidence: "medium",
+    citationUrl: forecast.citationUrl,
+    evidenceIds,
+    summary: `${forecast.today.condition}; ${forecast.today.precipitationAmount} mm forecast rain and ${forecast.today.windSpeedKmh} km/h sustained wind today. ${forecast.attribution}`,
+    today: {
+      date: forecast.today.date,
+      weatherCode: null,
+      condition: forecast.today.condition,
+      precipitationProbability: null,
+      precipitationSum: forecast.today.precipitationAmount,
+      rainSum: forecast.today.precipitationAmount,
+      windSpeed: forecast.today.windSpeedKmh,
+      windGust: null,
+      level: todayRiskLevel({
+        rainSum: forecast.today.precipitationAmount,
+        windSpeed: forecast.today.windSpeedKmh,
+      }),
+      evidenceId: "ev_met_norway_forecast",
+    },
+    metrics,
+  };
 }
 
 export function buildWeatherSnapshotFromRows(
@@ -439,15 +544,27 @@ function todayRiskLevel({
   precipitationProbability,
   rainSum,
   windGust,
+  windSpeed,
 }: {
   precipitationProbability?: number;
   rainSum?: number;
   windGust?: number;
+  windSpeed?: number;
 }): WeatherRiskLevel {
-  if ((precipitationProbability ?? 0) >= 75 || (rainSum ?? 0) >= 18 || (windGust ?? 0) >= 55) {
+  if (
+    (precipitationProbability ?? 0) >= 75 ||
+    (rainSum ?? 0) >= 18 ||
+    (windGust ?? 0) >= 55 ||
+    (windSpeed ?? 0) >= 40
+  ) {
     return "high";
   }
-  if ((precipitationProbability ?? 0) >= 45 || (rainSum ?? 0) >= 6 || (windGust ?? 0) >= 35) {
+  if (
+    (precipitationProbability ?? 0) >= 45 ||
+    (rainSum ?? 0) >= 6 ||
+    (windGust ?? 0) >= 35 ||
+    (windSpeed ?? 0) >= 25
+  ) {
     return "medium";
   }
   return "low";

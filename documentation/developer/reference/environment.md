@@ -94,8 +94,8 @@ The app reads these environment variables.
 | `WEB_RESEARCH_PROVIDER` | Server only | Public web research for current chat prompts | Optional. Set to `openai` only after the security boundary is complete. When unset, `research_web` returns explicit `provider_unavailable` evidence instead of using memory, weather, or Places as a fallback. |
 | `WEB_RESEARCH_SECURITY_BOUNDARY_COMPLETE` | Server only | Web-research security gate | Must be exactly `true` as a second, explicit gate before web research can run. Keep `false` for the Free Controlled Beta until untrusted-content isolation and adversarial prompt-injection coverage are complete. |
 | `OPENAI_WEB_SEARCH_MODEL` | Server only | OpenAI hosted web-search extraction model | Optional model override for the web research adapter. Defaults to `gpt-5.4-mini`. Requires `WEB_RESEARCH_PROVIDER=openai` and `OPENAI_API_KEY`. |
-| `OPEN_METEO_API_MODE` | Server only | Open-Meteo weather and marine adapters | Optional enum: `off` or `noncommercial`. Defaults to `noncommercial` outside production and `off` in production. Production startup rejects `noncommercial`; a paid commercial endpoint requires a separate adapter before enablement. |
-| `TIDE_FORECAST_MODE` | Server only | Tide-Forecast Dapa adapter | Optional enum: `off` or `development`. Defaults to `development` outside production and `off` in production. Production startup rejects `development` until a commercial license and approved adapter exist. |
+| `OPEN_METEO_API_MODE` | Server only | Local/preview Open-Meteo weather and marine adapters | Optional enum: `off` or `noncommercial`. Defaults to `noncommercial` outside production and `off` in production. Production weather uses credential-free MET Norway Locationforecast instead; production startup continues to reject the noncommercial Open-Meteo adapter. |
+| `TIDE_FORECAST_MODE` | Server only | Local/preview Tide-Forecast Dapa adapter | Optional enum: `off` or `development`. Defaults to `development` outside production and `off` in production. Production tide checks use the public-domain NOAA/PacIOOS Pacific tide model instead; production startup continues to reject the unlicensed Tide-Forecast adapter. |
 | `GOOGLE_API_KEY` | Server only | Google Places adapters, discovery, and enrichment | Required for live Google Places provider calls and by `bun run db:discover:google-places` and `bun run db:enrich:google-places`. Keep field masks narrow; chat lookup uses Google Places Text Search Enterprise fields for rating signals, opening hours, price, website, phone, and map links, but still excludes review text, bookings, and availability; discovery uses ID-only fields, enrichment uses Place Details Pro fields. Google retention pruning uses `DATABASE_URL` and does not require this key. |
 | `GOOGLE_PLACES_DAILY_USD_LIMIT` | Server only | Google Places cost circuit | Optional non-negative number. Production always enforces at most USD 15 per UTC day even when this is missing or higher. |
 | `GOOGLE_PLACES_SEARCH_RESERVATION_MICRO_USD` | Server only | Google Places SKU reservation | Optional positive micro-USD reservation per Text Search. Defaults to `35000` for the Enterprise field mask. |
@@ -130,7 +130,8 @@ multiple simultaneous sessions are disabled.
 Chat model calls use a 15-second per-attempt deadline with one retry before fallback. Hosted web
 research uses a 25-second per-attempt deadline with one retry. Live weather, marine, tide, and
 Google Places HTTP calls use a 15-second deadline so a stalled provider returns a caveated result
-instead of holding the chat request indefinitely.
+instead of holding the chat request indefinitely. Production MET Norway responses are cached for
+30 minutes. Deterministic NOAA/PacIOOS tide-model queries are cached for one day.
 
 ## Database Credentials
 

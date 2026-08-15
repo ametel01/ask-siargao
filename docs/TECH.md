@@ -33,7 +33,7 @@ allowed by source policy and cost controls. Provider selection is not a user-fac
 - ORM: Drizzle, matching the current codebase direction.
 - Payments: Stripe Checkout.
 - LLM: OpenAI Responses API or a small adapter around the current OpenAI SDK.
-- Provider data: Google Places, Open-Meteo, approved event sources, and later approved partner or official sources.
+- Provider data: Google Places, production MET Norway weather, production NOAA/PacIOOS modeled tides, local-only Open-Meteo/Tide-Forecast adapters, approved event sources, and later approved partner or official sources.
 - Background jobs: start with explicit scripts and request-time jobs; add Redis, Inngest, Trigger.dev, or equivalent when async workload requires it.
 
 ## Frontend Surfaces
@@ -199,11 +199,16 @@ Google Places rules for this product:
 - Display provider attribution when required.
 - Use field masks to control cost.
 
-Open-Meteo rules:
+Weather and tide provider rules:
 
 - Weather facts can be refreshed frequently.
 - Today's forecast should expire quickly.
 - Weather answers should include observation or forecast time.
+- Production weather uses MET Norway Locationforecast with an identifying User-Agent, caching, and
+  CC BY 4.0 attribution.
+- Production tide timing uses the NOAA/PacIOOS public-domain Pacific barotropic model. Treat its
+  nearest 2-degree grid point as a coarse planning proxy, not a local station or safety signal.
+- Open-Meteo and Tide-Forecast remain local/preview-only unless their commercial boundaries change.
 
 Manual or user-submitted evidence:
 

@@ -261,6 +261,8 @@ describe("source registry and fact governance", () => {
       "source_nightlife_broad_travel_blogs",
       "source_google_places",
       "source_open_meteo",
+      "source_met_norway",
+      "source_pacioos_tide",
     ];
 
     for (const sourceProfileId of requiredProfiles) {

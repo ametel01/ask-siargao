@@ -127,6 +127,62 @@ describe("weather public snapshot", () => {
 
     expect(snapshot).toBe(fallbackWeatherSnapshot);
   });
+
+  test("uses MET Norway instead of the noncommercial adapter in production", async () => {
+    let requestedUrl = "";
+    const snapshot = await getLatestSiargaoWeatherSnapshot({
+      databaseUrl: "postgres://must-not-be-read-in-production-routing",
+      env: { VERCEL_ENV: "production" },
+      fetcher: async (url) => {
+        requestedUrl = String(url);
+        return Response.json({
+          type: "Feature",
+          properties: {
+            meta: { updated_at: "2026-08-15T01:17:04Z" },
+            timeseries: [
+              {
+                time: "2026-08-15T00:00:00Z",
+                data: {
+                  instant: { details: { wind_speed: 3.2 } },
+                  next_1_hours: {
+                    summary: { symbol_code: "rainshowers_day" },
+                    details: { precipitation_amount: 0.8 },
+                  },
+                },
+              },
+              {
+                time: "2026-08-15T01:00:00Z",
+                data: {
+                  instant: { details: { wind_speed: 4.5 } },
+                  next_1_hours: {
+                    summary: { symbol_code: "rainshowers_day" },
+                    details: { precipitation_amount: 1.4 },
+                  },
+                },
+              },
+            ],
+          },
+        });
+      },
+      now: new Date("2026-08-15T02:00:00Z"),
+    });
+
+    expect(requestedUrl).toContain("api.met.no");
+    expect(snapshot).toMatchObject({
+      status: "live",
+      sourceName: "MET Norway Locationforecast",
+      sourceProfileId: "source_met_norway",
+      freshness: "fresh",
+      today: {
+        condition: "Rain showers",
+        precipitationProbability: null,
+        rainSum: 2.2,
+        windGust: null,
+        windSpeed: 16.2,
+      },
+    });
+    expect(snapshot.summary).toContain("Norwegian Meteorological Institute");
+  });
 });
 
 function weatherRow({

@@ -36,11 +36,12 @@ model fields, but it does not replace official tide tables, tide-gauge readings,
 navigation advice, local boat/surf operator calls, lifeguards, rip-current
 checks, or safety status.
 
-When Tide-Forecast data is checked, treat it as predicted Dapa station tide
-timing/heights and embedded 3-hour sea-condition periods. It can support
-practical surf-window timing around Cloud 9/General Luna, but Dapa remains a
-nearby station proxy, not an exact Cloud 9 break reading, official tide-gauge
-measurement, local operator call, or safety clearance.
+When NOAA/PacIOOS tide data is checked, treat it as modeled high/low timing and
+sea-surface height from the nearest point on a coarse 2-degree Pacific grid. It
+can support flexible planning around Cloud 9/General Luna, but it is not a Dapa
+or Cloud 9 station prediction, exact break reading, official tide-gauge
+measurement, local operator call, or safety clearance. The production tide
+model does not provide swell or wave conditions.
 
 Tide times change from day to day. If a traveler asks about tomorrow or another
 specific date, use the checked tide data for that requested date when available.

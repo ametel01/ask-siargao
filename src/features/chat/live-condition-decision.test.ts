@@ -126,6 +126,29 @@ describe("live condition decision", () => {
     expect(decision.timing).toBeUndefined();
   });
 
+  test("shows sustained wind honestly when the provider has no gust field", () => {
+    const decision = projectWeatherConditionDecision({
+      locationName: "Cloud 9",
+      snapshot: weatherSnapshot({
+        today: {
+          condition: "Rain showers",
+          precipitationProbability: null,
+          precipitationSum: 2.4,
+          rainSum: 2.4,
+          windGust: null,
+          windSpeed: 16.2,
+        },
+      }),
+      isLoading: false,
+      isRefreshing: false,
+      hasError: false,
+    });
+
+    expect(decision.supportingMetrics).toContainEqual({ label: "Wind", value: "16.2 km/h" });
+    expect(decision.basis).toContain("16.2 km/h wind");
+    expect(decision.basis).not.toContain("gust");
+  });
+
   test("keeps stale retained weather distinct from a fresh decision during revalidation", () => {
     const decision = projectWeatherConditionDecision({
       locationName: "Cloud 9",
