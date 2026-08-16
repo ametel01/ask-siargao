@@ -25,6 +25,7 @@ Use these pages when working on the Ask Siargao codebase.
 - [Database row-level security decision](explanation/database-row-level-security-decision.md): why table RLS is deferred and what must be tested before activation.
 - [Chat agent routing and source governance](explanation/chat-agent-routing-and-source-governance.md): how model-owned tool choice, provider failures, artifacts, and source-label validation fit together.
 - [Improving AI answer quality beyond general assistants](explanation/improving-ai-answer-quality-beyond-general-assistants.md): prioritized gaps and product investments for making Siargao answers measurably better than general-assistant responses.
+- [Qualified Discovery strategy](explanation/qualified-discovery-strategy.md): approved product identity, editorial trust, search representation, privacy-safe attribution, and evidence-gated visibility rollout.
 - [On-demand Reality Check lifecycle](explanation/on-demand-reality-check-lifecycle.md): how explicit requests, evidence ordering, validation, public projection, persistence, and provider failure form one synchronous chat turn.
 - [Siargao chatbot data pipeline](explanation/siargao-chatbot-data-pipeline.md): product direction and lazy fact acquisition model for the chat-first tour-operator assistant.
 - [Web research layer](explanation/web-research-layer.md): background on public-web evidence, source scoring, provider failure, and how `research_web` complements Places, weather, and memory.

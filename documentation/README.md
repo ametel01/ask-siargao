@@ -16,5 +16,6 @@ releasing the codebase.
 - [Architecture and boundaries](developer/explanation/audit-lifecycle-and-boundaries.md)
 - [Reality Check contract](developer/reference/reality-check-contract.md)
 - [Planning guide analytics](developer/reference/planning-guide-analytics.md)
+- [Qualified Discovery strategy](developer/explanation/qualified-discovery-strategy.md)
 - [On-demand Reality Check lifecycle](developer/explanation/on-demand-reality-check-lifecycle.md)
 - [Extend a Reality Check kind](developer/how-to-guides/extend-a-reality-check-kind.md)
