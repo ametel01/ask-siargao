@@ -222,13 +222,6 @@ export function createDeterministicTerminalRecoveryStrategy<C, T>(
   };
 }
 
-export async function runAgentTurnRecovery<C, T>(
-  options: AgentTurnRecoveryOptions<C, T>,
-  input: C,
-): Promise<AgentTurnRecoveryDisposition<T>> {
-  return createAgentTurnRecovery(options).run(input);
-}
-
 export function mapRecoveryDispositionToPublicOutcome(
   disposition: AgentTurnRecoveryDisposition<unknown>,
 ):

@@ -36,8 +36,8 @@ const navigationItems = [
   { label: "Example", href: "#example-reality-check" },
   { label: "Planning inputs", href: "#planning-inputs" },
   { label: "Plan smarter", href: "#plan-smarter" },
-  { label: "Travel guides", href: "#travel-guides" },
   { label: "Trip Pass", href: "#trip-pass" },
+  { label: "Travel guides", href: "#travel-guides" },
 ] as const;
 
 const tourismTopics = [
@@ -121,7 +121,7 @@ const realityCheckExampleSteps = [
     body: "Your trip details plus current conditions, when you ask.",
   },
   {
-    title: "The bounded call",
+    title: "Your clear decision",
     body: "Keep, change, avoid, or confirm locally.",
   },
   {
@@ -148,8 +148,8 @@ export function LandingPage() {
             <CoastalFrame />
           </div>
           <PlanningPanel />
-          <TourismNavigation />
           <TripPassPricingSection />
+          <TourismNavigation />
         </div>
       </section>
     </main>
@@ -158,7 +158,7 @@ export function LandingPage() {
 
 function Header() {
   return (
-    <header className="flex min-h-16 items-center justify-between gap-4 lg:min-h-[4.75rem]">
+    <header className="flex min-h-16 items-center justify-between gap-2 sm:gap-4 lg:min-h-[4.75rem]">
       <Link
         aria-label="Ask Siargao home"
         className="min-w-0 rounded-md no-underline landing-focus-ring focus-visible:outline-offset-4"
@@ -182,17 +182,17 @@ function Header() {
         ))}
       </nav>
 
-      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-3">
         <LandingActionLink
-          className="min-h-12 rounded-xl border border-border-on-dark bg-surface-night-card px-3 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-4"
+          className="size-11 rounded-xl border border-border-on-dark bg-surface-night-card p-0 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:h-12 sm:w-auto sm:px-4"
           href="/guides"
           variant="outline"
         >
           <Compass aria-hidden="true" size={19} />
-          Guides
+          <span className="sr-only sm:not-sr-only">Guides</span>
         </LandingActionLink>
         <LandingActionLink
-          className="min-h-12 rounded-xl border border-border-on-dark bg-surface-night-card px-3 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:px-5"
+          className="min-h-11 rounded-xl border border-border-on-dark bg-surface-night-card px-2.5 text-sm font-semibold text-text-on-dark shadow-none backdrop-blur-md hover:border-border-on-dark-strong hover:bg-surface-night-card-strong landing-focus-ring focus-visible:outline-offset-3 sm:min-h-12 sm:px-5"
           href="/chat"
           variant="outline"
         >
@@ -207,8 +207,8 @@ function Header() {
 
 function LandingBrand() {
   return (
-    <span className="inline-flex min-w-0 items-center gap-3 text-text-on-dark sm:gap-4">
-      <span className="relative inline-flex size-14 shrink-0 items-center justify-center rounded-full border-2 border-text-on-dark bg-surface-night-card shadow-none backdrop-blur-sm sm:size-16 lg:size-[4.4rem]">
+    <span className="inline-flex min-w-0 items-center gap-2 text-text-on-dark sm:gap-4">
+      <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-text-on-dark bg-surface-night-card shadow-none backdrop-blur-sm sm:size-16 lg:size-[4.4rem]">
         {/* biome-ignore lint/performance/noImgElement: This local SVG does not benefit from image optimization or client hydration. */}
         <img
           alt=""
@@ -220,7 +220,7 @@ function LandingBrand() {
           width={58}
         />
       </span>
-      <span className="hidden min-w-0 font-heading text-2xl leading-none font-semibold whitespace-nowrap text-text-on-dark sm:inline sm:text-3xl lg:text-4xl">
+      <span className="min-w-0 font-heading text-xl leading-none font-semibold whitespace-nowrap text-text-on-dark sm:text-3xl lg:text-4xl">
         Ask Siargao
       </span>
     </span>
@@ -246,6 +246,7 @@ function Hero() {
       <PromptComposer />
       <QuickChips />
       <PlanningInputs />
+      <CommercialLadder />
     </section>
   );
 }
@@ -352,6 +353,64 @@ function PlanningInputs() {
   );
 }
 
+function CommercialLadder() {
+  return (
+    <section
+      aria-labelledby="commercial-ladder-title"
+      className="grid min-w-0 gap-4 rounded-2xl border border-border-on-dark bg-surface-night-card px-5 py-4 shadow-none backdrop-blur-md sm:px-6 sm:py-5 lg:max-w-[48rem]"
+      id="commercial-ladder"
+    >
+      <div className="grid min-w-0 gap-1">
+        <h2
+          className="m-0 text-balance font-heading text-2xl leading-tight font-semibold text-text-on-dark sm:text-3xl"
+          id="commercial-ladder-title"
+        >
+          Start free, upgrade when the trip gets real
+        </h2>
+        <p className="m-0 text-sm leading-normal font-semibold text-text-on-dark-muted">
+          Use the decision desk on demand, then add more runway when you need it.
+        </p>
+      </div>
+      <div className="grid min-w-0 gap-3 border-border-on-dark border-t pt-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center sm:gap-4">
+        <div className="grid min-w-0 gap-0.5">
+          <span className="text-xs font-extrabold uppercase tracking-[0.08em] text-brand-lagoon-300">
+            Try it first
+          </span>
+          <strong className="text-base text-text-on-dark">
+            {tripPassPublicOffer.freeAnswerLimit} answers · {tripPassPublicOffer.freeWindowDays}{" "}
+            days
+          </strong>
+        </div>
+        <ArrowRight
+          aria-hidden="true"
+          className="hidden text-brand-sunset-gold sm:block"
+          size={20}
+          strokeWidth={2.1}
+        />
+        <div className="grid min-w-0 gap-1.5 sm:border-border-on-dark sm:border-l sm:pl-4">
+          <span className="w-fit rounded-md bg-brand-sunset-gold px-2 py-1 text-xs font-extrabold uppercase tracking-[0.08em] text-brand-navy-980">
+            Recommended for your trip
+          </span>
+          <strong className="text-base text-text-on-dark">
+            Trip Pass · {tripPassPublicOffer.paidAnswerLimit} answers ·{" "}
+            {tripPassPublicOffer.durationDays} days
+            <span className="ml-2 font-semibold text-text-on-dark-muted">
+              {tripPassPublicOffer.priceLabel}
+            </span>
+          </strong>
+        </div>
+      </div>
+      <a
+        className="inline-flex min-h-11 w-fit items-center gap-2 rounded-md text-sm font-extrabold text-brand-lagoon-300 no-underline landing-focus-ring focus-visible:outline-offset-3"
+        href="#trip-pass"
+      >
+        See full pricing and terms
+        <ArrowRight aria-hidden="true" size={18} />
+      </a>
+    </section>
+  );
+}
+
 function CoastalFrame() {
   return (
     <aside
@@ -373,7 +432,7 @@ function CoastalFrame() {
       <div className="absolute inset-0 hidden bg-gradient-to-t from-brand-navy-980/90 via-transparent to-brand-navy-980/10 lg:block" />
       <div className="absolute right-6 bottom-6 left-6 hidden rounded-2xl border border-border-on-dark bg-surface-dark-glass p-5 shadow-surface-panel backdrop-blur-md lg:block xl:right-8 xl:bottom-8 xl:left-8 xl:p-6">
         <p className="m-0 max-w-[31ch] text-balance font-heading text-2xl leading-tight font-semibold text-text-on-dark xl:text-3xl">
-          One request, one evidence-backed call, one workable fallback at a time.
+          One request, one clear decision, one workable fallback at a time.
         </p>
       </div>
     </aside>
@@ -546,13 +605,20 @@ function TripPassPricingSection() {
           />
           <OfferCard
             action={{
-              href: tripPassPublicOffer.links.settings,
-              label: "Get Trip Pass in settings",
+              href: tripPassPublicOffer.links.purchase,
+              label: tripPassPublicOffer.purchaseActionLabel,
             }}
             body={`${tripPassPublicOffer.paidAnswerLimit} Siargao travel answers for ${tripPassPublicOffer.durationDays} days.`}
             icon={CreditCard}
             label={tripPassPublicOffer.priceLabel}
+            recommended
             title={tripPassPublicOffer.headline}
+            value={{
+              answerCount: tripPassPublicOffer.paidAnswerLimit,
+              durationDays: tripPassPublicOffer.durationDays,
+              perAnswerLabel: tripPassPublicOffer.value.perAnswerLabel,
+              perDayLabel: tripPassPublicOffer.value.perDayLabel,
+            }}
           />
         </div>
 
@@ -615,14 +681,14 @@ function TripPassPricingSection() {
             </div>
           </details>
           <p className="m-0 max-w-[70ch] text-sm leading-normal font-semibold text-text-on-dark-muted">
-            {`Checkout opens in signed-in settings when available. Your ${tripPassPublicOffer.durationDays}-day pass starts after payment is confirmed.`}
+            {tripPassPublicOffer.purchaseActivationCopy}
           </p>
           <div className="flex flex-wrap items-center gap-3 border-border-on-dark border-t pt-4">
             <LandingActionLink
               className={landingPrimaryActionClass}
-              href={tripPassPublicOffer.links.settings}
+              href={tripPassPublicOffer.links.purchase}
             >
-              Get Trip Pass in settings
+              {tripPassPublicOffer.purchaseActionLabel}
               <ArrowRight aria-hidden="true" size={18} />
             </LandingActionLink>
             <a
@@ -651,7 +717,9 @@ function OfferCard({
   body,
   icon: Icon,
   label,
+  recommended = false,
   title,
+  value,
 }: {
   action?: {
     href: string;
@@ -660,12 +728,38 @@ function OfferCard({
   body: string;
   icon: LucideIcon;
   label: string;
+  recommended?: boolean;
   title: string;
+  value?: {
+    answerCount: number;
+    durationDays: number;
+    perAnswerLabel: string;
+    perDayLabel: string;
+  };
 }) {
   return (
-    <article className="grid min-w-0 content-start gap-4 rounded-2xl border border-border-on-dark bg-surface-night-card p-5 shadow-none backdrop-blur-md md:p-6">
+    <article
+      className={cn(
+        "grid min-w-0 content-start gap-4 rounded-2xl border p-5 backdrop-blur-md md:p-6",
+        recommended
+          ? "border-brand-violet-400 bg-gradient-price-card shadow-night-card md:-mt-2 md:gap-5 md:p-7"
+          : "border-border-on-dark bg-surface-night-card shadow-none",
+      )}
+    >
+      {recommended ? (
+        <span className="w-fit rounded-md bg-brand-sunset-gold px-3 py-1.5 text-xs font-extrabold uppercase tracking-[0.08em] text-brand-navy-980">
+          Recommended for your trip
+        </span>
+      ) : null}
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <span className="inline-flex size-11 items-center justify-center rounded-full bg-brand-lagoon-100 text-brand-lagoon-700">
+        <span
+          className={cn(
+            "inline-flex size-11 items-center justify-center rounded-full",
+            recommended
+              ? "bg-brand-sunset-gold/15 text-brand-sunset-gold"
+              : "bg-brand-lagoon-100 text-brand-lagoon-700",
+          )}
+        >
           <Icon aria-hidden="true" size={24} strokeWidth={2} />
         </span>
         <span className="rounded-md border border-brand-sunset-gold/55 bg-brand-sunset-gold/15 px-3 py-1 text-sm font-extrabold text-brand-sunset-gold">
@@ -673,11 +767,29 @@ function OfferCard({
         </span>
       </div>
       <div className="grid min-w-0 gap-2">
-        <h3 className="m-0 text-balance font-heading text-2xl leading-tight font-semibold text-text-on-dark">
+        <h3
+          className={cn(
+            "m-0 text-balance font-heading leading-tight font-semibold text-text-on-dark",
+            recommended ? "text-3xl" : "text-2xl",
+          )}
+        >
           {title}
         </h3>
         <p className="m-0 text-sm leading-normal font-semibold text-text-on-dark-muted">{body}</p>
       </div>
+      {value ? (
+        <p className="m-0 border-border-on-dark border-y py-3 text-sm leading-normal font-semibold text-text-on-dark">
+          Use all {value.answerCount} answers for{" "}
+          <strong className="text-lg font-extrabold text-brand-sunset-gold">
+            about {value.perAnswerLabel} each
+          </strong>
+          . That&apos;s{" "}
+          <strong className="text-lg font-extrabold text-brand-sunset-gold">
+            {value.perDayLabel} a day
+          </strong>{" "}
+          across the {value.durationDays}-day pass.
+        </p>
+      ) : null}
       {action ? (
         <LandingActionLink
           className={cn(landingPrimaryActionClass, "mt-auto w-full")}

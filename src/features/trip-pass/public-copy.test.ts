@@ -17,11 +17,18 @@ describe("Trip Pass public copy contract", () => {
       freeWindowDays: 7,
       freeAnswerLimit: 10,
       paidAnswerLimit: 150,
+      purchaseActionLabel: "Get the 14-day Trip Pass — $9.99",
+      purchaseActivationCopy:
+        "Sign in to continue your purchase. Your 14-day Trip Pass activates only after payment is confirmed.",
+      value: {
+        perAnswerLabel: "$0.07",
+        perDayLabel: "$0.71",
+      },
     });
     expect(tripPassPublicOffer.priceLabel).toBe(
       tripPassProductCatalog.presentation.launchPriceLabel,
     );
-    expect(tripPassPublicOffer.links.settings).toBe("/sign-in?redirect_url=%2Fsettings%23pass");
+    expect(tripPassPublicOffer.links.purchase).toBe("/sign-in?redirect_url=%2Fsettings%23pass");
   });
 
   test("keeps public positioning truthful and bounded", () => {

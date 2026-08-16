@@ -1,4 +1,4 @@
-import { ArrowLeft, MessageCircle, Settings, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CreditCard, MessageCircle, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -113,9 +113,9 @@ export function TripPassLegalPage() {
               className="min-h-11 rounded-md border-border-default bg-white px-4 text-sm font-extrabold text-text-strong hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
               variant="outline"
             >
-              <Link href={tripPassPublicOffer.links.settings}>
-                <Settings aria-hidden="true" size={18} />
-                Manage in settings
+              <Link href={tripPassPublicOffer.links.purchase}>
+                <CreditCard aria-hidden="true" size={18} />
+                {tripPassPublicOffer.purchaseActionLabel}
               </Link>
             </Button>
           </div>
