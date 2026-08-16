@@ -229,6 +229,97 @@ _Avoid_: Entitlement, activation
 An allowance counter attached to a Trip Pass for one category of metered use.
 _Avoid_: Quota, balance
 
+**Siargao Trip Copilot**:
+The product category for Ask Siargao: an AI-powered travel assistant that reality-checks Siargao
+decisions against current evidence, traveler constraints, and explicit limitations.
+_Avoid_: Generic AI travel assistant, itinerary generator, chat-first product, booking service
+
+**Accountable Editor**:
+The named person publicly responsible for Ask Siargao's editorial method, corrections, and content
+claims. The role does not by itself establish local experience or independent review.
+_Avoid_: Editorial Desk, Local Knowledge Review, anonymous author
+
+**Evidence-Led Editorial Guidance**:
+Public travel-planning content whose claims are supported by disclosed sources, review dates, and
+limitations. It does not imply review by a locally experienced person unless that reviewer is named.
+_Avoid_: Local Knowledge Review, anonymous local expertise
+
+**Live Evidence**:
+Evidence retrieved from an external source during the current request with its retrieval time
+available. It does not guarantee that the source itself is accurate or complete.
+_Avoid_: Current evidence, real-time truth, safety confirmation
+
+**Current Evidence**:
+Evidence reviewed within the declared freshness window appropriate to its claim. It may be current
+without having been retrieved during the current request.
+_Avoid_: Live evidence, timeless fact, recently updated
+
+**Field Observation**:
+An immutable, atomic record of what an identified observer saw, measured, paid, experienced, or was
+told at a stated place, time, method, and set of conditions. It is not a publishable Fact until it
+passes review and Fact Admission.
+_Avoid_: Live Field Data, local truth, field fact
+
+**Field Batch**:
+A versioned, hashed, idempotent upload containing Field Visits, Field Observations, statements,
+route runs, and private evidence-asset references from one offline capture export.
+_Avoid_: Database dump, fact import, photo upload
+
+**Fact Admission**:
+The governed review decision that maps an approved Field Observation into a Source Record, Fact,
+and permitted Evidence while preserving provenance, freshness, corrections, and withdrawal.
+_Avoid_: Upload, synchronization, automatic publication
+
+**First-Hand Checked Fact**:
+A Current Evidence Fact whose provenance includes an admitted Field Observation. The label remains
+bounded by the observation's time, conditions, review, and expiry and is distinct from cache
+freshness.
+_Avoid_: Fresh cache, live truth, guaranteed local knowledge
+
+**Siargao-Specific Planning Context**:
+Governed island-specific knowledge used to interpret travel evidence and constraints. It does not
+imply that Ask Siargao's staff are locally based.
+_Avoid_: Local staff knowledge, live evidence, generic travel advice
+
+**Reality Check**:
+The evaluation method that tests a proposed Siargao plan or decision against relevant evidence,
+traveler constraints, uncertainty, and practical fallbacks.
+_Avoid_: Travel Answer, chat action, booking confirmation
+
+**Worked Reality Check**:
+An ungated, hand-authored editorial example based on a realistic synthetic scenario that
+demonstrates a Reality Check through its question, evidence, time-bounded recommendation,
+limitations, and fallback. It is never a republished Travel Answer.
+_Avoid_: Customer answer, testimonial, generic guide
+
+**Guide Publication Date**:
+The date an editorial guide first becomes public. It does not change after publication.
+_Avoid_: Evidence check date, last updated
+
+**Guide Modification Date**:
+The date an editorial guide's recommendation or substantive content most recently changed.
+_Avoid_: Typographical edit date, evidence check date
+
+**Evidence Check Date**:
+The date time-sensitive claims and cited evidence in editorial content were most recently reviewed.
+It may change without a substantive content change.
+_Avoid_: Guide modification date, generic last updated
+
+**Visibility Owner**:
+The named person responsible for the discovery baseline, monthly evidence review, and prioritization
+of search, external-reference, and qualified-discovery work.
+_Avoid_: SEO team, content owner
+
+**Visibility Journey**:
+A short-lived, privacy-safe correlation boundary that connects public discovery and content actions
+to chat acceptance, Reality Check completion, and Travel Answer admission.
+_Avoid_: Ask Siargao Account, advertising profile, prompt history
+
+**Qualified Discovery**:
+A visit attributable to search or an external reference that results in an admitted Travel Answer
+within the same Visibility Journey.
+_Avoid_: Page impression, crawler request, brand search
+
 **Agent Turn Recovery**:
 The bounded attempt to recover an interrupted or invalid answer-generation turn before it can
 become a Travel Answer.
