@@ -155,6 +155,13 @@ Editorial claims prefer evidence in this order:
 
 An uncited “local tip” must not become an authoritative claim.
 
+The [Siargao field research playbook](../how-to-guides/run-siargao-field-research.md) defines how
+first-hand material is captured from 2026-08-22 onward. Capture or upload alone does not satisfy the
+third evidence level: a Field Observation must retain its method, conditions, rights, freshness,
+and limitations and complete Fact Admission under the proposed
+[field research data model](../reference/field-research-data-model.md) before it can support a public
+claim or agent answer.
+
 ## Search representation and notification
 
 Human HTML pages remain canonical. Markdown and public JSON alternatives remain crawlable for

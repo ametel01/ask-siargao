@@ -254,6 +254,28 @@ Evidence reviewed within the declared freshness window appropriate to its claim.
 without having been retrieved during the current request.
 _Avoid_: Live evidence, timeless fact, recently updated
 
+**Field Observation**:
+An immutable, atomic record of what an identified observer saw, measured, paid, experienced, or was
+told at a stated place, time, method, and set of conditions. It is not a publishable Fact until it
+passes review and Fact Admission.
+_Avoid_: Live Field Data, local truth, field fact
+
+**Field Batch**:
+A versioned, hashed, idempotent upload containing Field Visits, Field Observations, statements,
+route runs, and private evidence-asset references from one offline capture export.
+_Avoid_: Database dump, fact import, photo upload
+
+**Fact Admission**:
+The governed review decision that maps an approved Field Observation into a Source Record, Fact,
+and permitted Evidence while preserving provenance, freshness, corrections, and withdrawal.
+_Avoid_: Upload, synchronization, automatic publication
+
+**First-Hand Checked Fact**:
+A Current Evidence Fact whose provenance includes an admitted Field Observation. The label remains
+bounded by the observation's time, conditions, review, and expiry and is distinct from cache
+freshness.
+_Avoid_: Fresh cache, live truth, guaranteed local knowledge
+
 **Siargao-Specific Planning Context**:
 Governed island-specific knowledge used to interpret travel evidence and constraints. It does not
 imply that Ask Siargao's staff are locally based.
