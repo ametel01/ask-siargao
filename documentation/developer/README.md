@@ -5,6 +5,7 @@ Use these pages when working on the Ask Siargao codebase.
 - [First local run](tutorials/first-local-run.md): install dependencies, prepare local env, seed the test database, and start the app.
 - [Build the data pipeline with local Postgres](how-to-guides/build-the-data-pipeline-with-local-postgres.md): use Docker Compose Postgres before cloud Postgres to validate migrations, seed data, ingestion, confidence, freshness, and audit gating.
 - [Run Siargao field research](how-to-guides/run-siargao-field-research.md): collect standardized first-hand observations from an iPad, run a Del Carmen-based baseline itinerary, and prepare private reviewable batches without treating uploads as facts.
+- [Use the offline field ingestion desk](how-to-guides/use-offline-field-ingestion-desk.md): transfer iPad exports explicitly, validate them without internet access, resolve local conflicts and permission blocks, and export a record-only staging envelope without writing to PostgreSQL.
 - [Operate the production database](how-to-guides/operate-the-production-database.md): provision, monitor, maintain, back up, and restore the production Postgres database.
 - [Run release-candidate QA](how-to-guides/run-release-candidate-qa.md): validate the release candidate across product, security, public, and operational surfaces.
 - [Launch the free product](how-to-guides/launch-free-product.md): authorize Free Controlled Beta and promote it to General Free Availability under explicit traffic, cost, monitoring, and rollback controls.
