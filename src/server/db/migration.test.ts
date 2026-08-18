@@ -76,11 +76,15 @@ import {
   sourcePermissions,
   sourceProfiles,
   sourceRecords,
+  tripPassCheckoutAttempts,
   tripPassDisputeFacts,
   tripPasses,
   tripPassGrants,
   tripPassOrders,
+  tripPassPaymentEventReceipts,
+  tripPassPaymentFacts,
   tripPassRefundFacts,
+  tripPassRefundOperations,
   tripPassStripeEvents,
   tripUsageEvents,
   tripUsageMeters,
@@ -378,6 +382,7 @@ describe("Step 3 database migration", () => {
       "0022_operational_schedule_sentinel_authorization.sql",
       "0023_agent_turn_recovery_status.sql",
       "0024_google_places_source_profile.sql",
+      "0025_lemon_squeezy_provider_neutral_commerce.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -465,6 +470,7 @@ describe("Step 3 database migration", () => {
       "0022_operational_schedule_sentinel_authorization.sql",
       "0023_agent_turn_recovery_status.sql",
       "0024_google_places_source_profile.sql",
+      "0025_lemon_squeezy_provider_neutral_commerce.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -538,6 +544,7 @@ describe("Step 3 database migration", () => {
       "0022_operational_schedule_sentinel_authorization.sql",
       "0023_agent_turn_recovery_status.sql",
       "0024_google_places_source_profile.sql",
+      "0025_lemon_squeezy_provider_neutral_commerce.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -662,6 +669,7 @@ describe("Step 3 database migration", () => {
       "0022_operational_schedule_sentinel_authorization.sql",
       "0023_agent_turn_recovery_status.sql",
       "0024_google_places_source_profile.sql",
+      "0025_lemon_squeezy_provider_neutral_commerce.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -1035,6 +1043,10 @@ describe("Step 3 database migration", () => {
       reviewerResults,
       providerHealthChecks,
       publicPageGenerationJobs,
+      tripPassCheckoutAttempts,
+      tripPassPaymentEventReceipts,
+      tripPassPaymentFacts,
+      tripPassRefundOperations,
     ];
     const schemaTableNames: string[] = schemaTables.map((table) => getTableName(table));
 
@@ -1731,7 +1743,7 @@ describe("Step 3 database migration", () => {
       ["status", "text", "NO", null],
       ["product_code", "text", "NO", null],
       ["product_version", "integer", "NO", null],
-      ["stripe_price_id", "text", "NO", null],
+      ["stripe_price_id", "text", "YES", null],
       ["amount_total_minor", "integer", "YES", null],
       ["currency", "text", "YES", null],
       ["checkout_idempotency_key", "text", "NO", null],
@@ -1760,6 +1772,17 @@ describe("Step 3 database migration", () => {
       ["dispute_state", "text", "NO", "'none'::text"],
       ["terminal_revocation_reason", "text", "YES", null],
       ["lifecycle_updated_at", "timestamp with time zone", "YES", null],
+      ["payment_provider", "text", "NO", "'stripe'::text"],
+      ["provider_store_id", "text", "YES", null],
+      ["provider_product_id", "text", "YES", null],
+      ["provider_variant_id", "text", "YES", null],
+      ["provider_checkout_id", "text", "YES", null],
+      ["provider_order_id", "text", "YES", null],
+      ["provider_payment_id", "text", "YES", null],
+      ["provider_updated_at", "timestamp with time zone", "YES", null],
+      ["checkout_attempt_id", "text", "YES", null],
+      ["accepted_payment_fact_id", "text", "YES", null],
+      ["payment_suspension_state", "text", "NO", "'none'::text"],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [

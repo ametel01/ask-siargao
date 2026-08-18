@@ -1,3 +1,4 @@
+import { siteConfig } from "@/lib/site";
 import type {
   TripPassAccountPresentation,
   TripPassAccountState,
@@ -340,16 +341,16 @@ function validityCopy(presentation: TripPassAccountPresentation) {
 
 function supportGuidanceFor(status: TripPassAccountState, checkoutDisabledReason: string | null) {
   if (status === "pending") {
-    return "If payment succeeded but this still says pending after a few minutes, contact support.";
+    return `If payment succeeded but this still says pending after a few minutes, email ${siteConfig.contact.supportEmail}.`;
   }
   if (status === "refund_review") {
-    return "Support can review the refund separately; access and meters have not changed.";
+    return `Email ${siteConfig.contact.supportEmail} for refund help; access and meters have not changed.`;
   }
   if (status === "dispute_suspended") {
     return "Access can return only if the dispute is won before the original pass expiry.";
   }
   if (checkoutDisabledReason && status !== "active") {
-    return "Try again later or contact support if checkout should be available.";
+    return `Try again later or email ${siteConfig.contact.supportEmail} if checkout should be available.`;
   }
   return null;
 }

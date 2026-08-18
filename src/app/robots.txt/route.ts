@@ -8,6 +8,7 @@ export function GET() {
       "Disallow: /audits/",
       "Disallow: /api/audit/",
       "Disallow: /api/stripe/",
+      "Disallow: /api/payments/",
       "Allow: /api/public/",
       `Sitemap: ${canonicalSitemapUrl}`,
       "",

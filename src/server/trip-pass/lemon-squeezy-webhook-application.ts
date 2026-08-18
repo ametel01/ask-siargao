@@ -1,0 +1,274 @@
+import type { DatabaseQueryClient } from "@/server/db/query-client";
+import {
+  type NormalizedPaymentFact,
+  paymentFactFingerprint,
+} from "@/server/payments/lemon-squeezy";
+import { tripPassProductCatalog } from "@/server/trip-pass/catalog";
+import { grantTripPass } from "@/server/trip-pass/entitlement";
+
+export type LemonSqueezyPaymentApplicationResult =
+  | { status: "ignored"; reason: "not_trip_pass_event" | "not_paid"; orderId?: string }
+  | {
+      status: "applied";
+      action: "activated" | "refunded" | "refund_review" | "payment_suspended" | "payment_restored";
+      orderId: string;
+    }
+  | { status: "duplicate"; orderId: string }
+  | { status: "rejected"; reason: string; orderId?: string };
+
+export async function applyLemonSqueezyPaymentFact(
+  fact: NormalizedPaymentFact,
+  options: {
+    db: DatabaseQueryClient;
+    now?: Date;
+    env?: Record<string, string | undefined>;
+  },
+): Promise<LemonSqueezyPaymentApplicationResult> {
+  const now = options.now ?? new Date();
+  const orderId = fact.orderId;
+  if (!orderId) return { status: "rejected", reason: "missing_trip_pass_order_id" };
+  if (fact.testMode === true && options.env?.LEMON_SQUEEZY_ALLOW_TEST_MODE !== "true") {
+    return { status: "rejected", reason: "test_mode_payment_not_allowed", orderId };
+  }
+  if (
+    fact.status !== "paid" &&
+    fact.status !== "refunded" &&
+    fact.status !== "partial_refund" &&
+    fact.status !== "fraudulent"
+  ) {
+    return { status: "ignored", reason: "not_paid", orderId };
+  }
+
+  return withTransaction(options.db, async (db) => {
+    const orderResult = await db.query<TripPassOrderRow>(
+      `select id, user_id, status, product_code, product_version, amount_total_minor, currency,
+        payment_provider,
+        provider_store_id, provider_variant_id, provider_order_id, accepted_payment_fact_id,
+        payment_suspension_state, refund_state
+       from trip_pass_orders where id = $1 for update`,
+      [orderId],
+    );
+    const order = orderResult.rows[0];
+    if (!order) return { status: "rejected", reason: "trip_pass_order_not_found", orderId };
+    if (order.payment_provider !== "lemon_squeezy") {
+      return { status: "rejected", reason: "trip_pass_provider_mismatch", orderId };
+    }
+    if (order.status === "refunded" && fact.status === "paid") {
+      return { status: "rejected", reason: "paid_after_refund", orderId };
+    }
+    if (
+      order.product_code !== tripPassProductCatalog.code ||
+      order.product_version !== tripPassProductCatalog.version
+    ) {
+      return { status: "rejected", reason: "trip_pass_product_version_mismatch", orderId };
+    }
+    if (fact.amountTotalMinor === null || fact.amountTotalMinor !== order.amount_total_minor) {
+      return { status: "rejected", reason: "trip_pass_payment_fact_amount_mismatch", orderId };
+    }
+    if (!fact.currency || fact.currency.toLowerCase() !== order.currency?.toLowerCase()) {
+      return { status: "rejected", reason: "trip_pass_payment_fact_currency_mismatch", orderId };
+    }
+    if (
+      order.provider_order_id &&
+      fact.providerOrderId &&
+      order.provider_order_id !== fact.providerOrderId
+    ) {
+      return { status: "rejected", reason: "trip_pass_provider_order_mismatch", orderId };
+    }
+    if (
+      !fact.variantId ||
+      !order.provider_variant_id ||
+      fact.variantId !== order.provider_variant_id
+    ) {
+      return { status: "rejected", reason: "trip_pass_variant_mismatch", orderId };
+    }
+    if (!fact.storeId || !order.provider_store_id || fact.storeId !== order.provider_store_id) {
+      return { status: "rejected", reason: "trip_pass_store_mismatch", orderId };
+    }
+    if (!order.user_id) {
+      await createRefundOperation(db, { order, fact, reason: "paid_after_closure", now });
+      await recordPaymentFact(db, { order, fact, receiptId: factFingerprintForFact(fact), now });
+      return { status: "applied", action: "refunded", orderId };
+    }
+
+    const factId = `payment_fact_${factFingerprintForFact(fact).slice(0, 32)}`;
+    const inserted = await recordPaymentFact(db, {
+      order,
+      fact,
+      receiptId: factFingerprintForFact(fact),
+      now,
+      id: factId,
+    });
+    if (!inserted) return { status: "duplicate", orderId };
+
+    if (fact.status === "partial_refund") {
+      await db.query(
+        "update trip_pass_orders set refund_state = 'review', successful_refund_amount_minor = $2, lifecycle_updated_at = $3, updated_at = $3 where id = $1",
+        [orderId, fact.refundedAmountMinor ?? 0, now],
+      );
+      return { status: "applied", action: "refund_review", orderId };
+    }
+    if (fact.status === "refunded") {
+      await db.query(
+        "update trip_pass_orders set status = 'refunded', refund_state = 'full', successful_refund_amount_minor = coalesce($2, captured_amount_minor, amount_total_minor), terminal_revocation_reason = 'full_refund', lifecycle_updated_at = $3, updated_at = $3 where id = $1",
+        [orderId, fact.refundedAmountMinor, now],
+      );
+      await revokePass(db, orderId, now, "full_refund");
+      return { status: "applied", action: "refunded", orderId };
+    }
+    if (fact.status === "fraudulent") {
+      await db.query(
+        "update trip_pass_orders set payment_suspension_state = 'fraudulent', dispute_state = 'open', lifecycle_updated_at = $2, updated_at = $2 where id = $1",
+        [orderId, now],
+      );
+      await db.query(
+        "update trip_passes set status = 'suspended', suspended_at = $2, updated_at = $2 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status = 'active'",
+        [orderId, now],
+      );
+      return { status: "applied", action: "payment_suspended", orderId };
+    }
+
+    if (order.payment_suspension_state !== "none") {
+      await db.query(
+        "update trip_pass_orders set payment_suspension_state = 'none', dispute_state = 'won', updated_at = $2 where id = $1",
+        [orderId, now],
+      );
+      await db.query(
+        "update trip_passes set status = case when expires_at > $2 then 'active' else status end, suspended_at = null, updated_at = $2 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status = 'suspended'",
+        [orderId, now],
+      );
+      return { status: "applied", action: "payment_restored", orderId };
+    }
+    if (order.accepted_payment_fact_id) {
+      await createRefundOperation(db, { order, fact, reason: "duplicate_payment", now });
+      return { status: "duplicate", orderId };
+    }
+    if (!order.user_id)
+      return { status: "rejected", reason: "trip_pass_order_missing_owner", orderId };
+    const grant = await grantTripPass(
+      {
+        userId: order.user_id,
+        orderId,
+        sourceType: "lemon_squeezy_checkout",
+        sourceEventId: factFingerprintForFact(fact),
+        now,
+      },
+      db,
+    );
+    await db.query(
+      `update trip_pass_orders set status = 'paid', payment_provider = 'lemon_squeezy',
+        provider_order_id = coalesce(provider_order_id, $2), provider_payment_id = coalesce(provider_payment_id, $3),
+        accepted_payment_fact_id = $4, captured_amount_minor = coalesce(captured_amount_minor, amount_total_minor),
+        lifecycle_updated_at = $5, completed_at = coalesce(completed_at, $5), updated_at = $5 where id = $1`,
+      [orderId, fact.providerOrderId, fact.paymentId, factId, now],
+    );
+    return grant.status === "duplicate"
+      ? { status: "duplicate", orderId }
+      : { status: "applied", action: "activated", orderId };
+  });
+}
+
+type TripPassOrderRow = {
+  id: string;
+  user_id: string | null;
+  status: string;
+  product_code: string;
+  product_version: number;
+  amount_total_minor: number | null;
+  currency: string | null;
+  provider_store_id: string | null;
+  provider_variant_id: string | null;
+  provider_order_id: string | null;
+  accepted_payment_fact_id: string | null;
+  payment_suspension_state: string;
+  refund_state: string;
+  payment_provider: string;
+};
+
+async function recordPaymentFact(
+  db: DatabaseQueryClient,
+  input: {
+    order: TripPassOrderRow;
+    fact: NormalizedPaymentFact;
+    receiptId: string;
+    now: Date;
+    id?: string;
+  },
+) {
+  const fingerprint = factFingerprintForFact(input.fact);
+  const result = await db.query<{ id: string }>(
+    `insert into trip_pass_payment_facts (
+      id, order_id, receipt_id, provider, provider_order_id, provider_payment_id, fingerprint,
+      status, amount_total_minor, refunded_amount_minor, currency, provider_updated_at, created_at, updated_at
+    ) values ($1, $2, $3, 'lemon_squeezy', $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+    on conflict (fingerprint) do nothing returning id`,
+    [
+      input.id ?? `payment_fact_${fingerprint.slice(0, 32)}`,
+      input.order.id,
+      input.receiptId.startsWith("payment_receipt_")
+        ? input.receiptId
+        : `payment_receipt_${input.receiptId.slice(0, 32)}`,
+      input.fact.providerOrderId ?? input.fact.objectId,
+      input.fact.paymentId,
+      fingerprint,
+      input.fact.status,
+      input.fact.amountTotalMinor,
+      input.fact.refundedAmountMinor,
+      input.fact.currency,
+      input.fact.providerUpdatedAt,
+      input.now,
+    ],
+  );
+  return Boolean(result.rows[0]);
+}
+
+async function createRefundOperation(
+  db: DatabaseQueryClient,
+  input: {
+    order: TripPassOrderRow;
+    fact: NormalizedPaymentFact;
+    reason: "duplicate_payment" | "paid_after_closure";
+    now: Date;
+  },
+) {
+  const providerOrderId = input.fact.providerOrderId ?? input.fact.objectId;
+  await db.query(
+    `insert into trip_pass_refund_operations (
+      id, order_id, provider, provider_order_id, reason, amount_minor, idempotency_key, created_at, updated_at
+    ) values ($1, $2, 'lemon_squeezy', $3, $4, $5, $6, $7, $7)
+    on conflict (idempotency_key) do nothing`,
+    [
+      `refund_operation_${input.order.id}_${input.reason}`,
+      input.order.id,
+      providerOrderId,
+      input.reason,
+      input.fact.amountTotalMinor,
+      `lemon_squeezy:${input.order.id}:${input.reason}`,
+      input.now,
+    ],
+  );
+}
+
+async function revokePass(
+  db: DatabaseQueryClient,
+  orderId: string,
+  now: Date,
+  reason: "full_refund",
+) {
+  await db.query(
+    "update trip_passes set status = 'refunded', terminal_revocation_reason = $2, updated_at = $3 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status in ('active', 'suspended')",
+    [orderId, reason, now],
+  );
+}
+
+function factFingerprintForFact(fact: NormalizedPaymentFact) {
+  return paymentFactFingerprint(fact);
+}
+
+async function withTransaction<T>(
+  db: DatabaseQueryClient,
+  callback: (transaction: DatabaseQueryClient) => Promise<T>,
+) {
+  if (db.inTransaction || !db.transaction) return callback(db);
+  return db.transaction(callback);
+}

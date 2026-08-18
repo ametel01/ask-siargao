@@ -64,12 +64,18 @@ The app reads these environment variables.
 | `DATABASE_MAX_LIFETIME_SECONDS` | Server only | Postgres clients | Optional. Integer seconds greater than or equal to `0`; `0` disables lifetime closing. Defaults to `1800`. |
 | `DATABASE_SSL_MODE` | Server only | Postgres clients | Required to be `verify-full` when `NODE_ENV=production`. Outside production, allowed values are `disable`, `allow`, `prefer`, `require`, and `verify-full`, defaulting to `disable` for local Docker compatibility. |
 | `DATABASE_STATEMENT_TIMEOUT_MS` | Server only | Postgres clients | Optional. Integer milliseconds greater than or equal to `0`; `0` disables and omits the connection-level startup parameter for PgBouncer compatibility. Defaults to `30000` for app clients in production, `120000` for CLI/job clients in production, and `0` outside production. |
-| `STRIPE_RESTRICTED_KEY` | Server only | Stripe Checkout API calls | Preferred server key for Checkout permissions. |
-| `STRIPE_SECRET_KEY` | Server only | Stripe Checkout API calls | Fallback when `STRIPE_RESTRICTED_KEY` is not set. |
-| `STRIPE_WEBHOOK_SECRET` | Server only | Stripe webhook verification | Required by `/api/stripe/webhook`. |
-| `STRIPE_TRIP_PASS_PRICE_ID` | Server only | Trip Pass Checkout | Required before `TRIP_PASS_CHECKOUT_MODE=canary` or `TRIP_PASS_CHECKOUT_MODE=on` can create Trip Pass Checkout sessions. This Price is the amount/currency authority for the Trip Pass. Do not expose it as `NEXT_PUBLIC_*`. |
+| `LEMON_SQUEEZY_API_KEY` | Server only | Lemon Squeezy Trip Pass checkout, lookup, and refund calls | Mode-isolated annual key; never expose or log it. |
+| `LEMON_SQUEEZY_WEBHOOK_SECRET` | Server only | `/api/payments/lemon-squeezy/webhook` | Independent mode-isolated signing secret; rotation uses bounded overlap. |
+| `LEMON_SQUEEZY_STORE_ID` | Server only | Lemon Squeezy Trip Pass checkout | Exact configured Store ID; test and live resources must not mix. |
+| `LEMON_SQUEEZY_PRODUCT_ID` | Server only | Lemon Squeezy Trip Pass catalogue validation | Exact immutable Product ID for the local Product version. |
+| `LEMON_SQUEEZY_VARIANT_ID` | Server only | Lemon Squeezy Trip Pass checkout | Exact immutable USD 9.99 Variant ID; quantity one and custom pricing are enforced by the adapter. |
+| `LEMON_SQUEEZY_ALLOW_TEST_MODE` | Server only | Protected test-mode validation only | Must remain `false` in production; allows signed test facts only in an explicitly isolated lane. |
+| `STRIPE_RESTRICTED_KEY` | Server only | Legacy Stripe evidence and retired audit provider | Not a Trip Pass launch dependency. |
+| `STRIPE_SECRET_KEY` | Server only | Legacy Stripe evidence and retired audit provider | Not a Trip Pass launch dependency. |
+| `STRIPE_WEBHOOK_SECRET` | Server only | Legacy Stripe webhook evidence | `/api/payments/lemon-squeezy/webhook` is the active Trip Pass route. |
+| `STRIPE_TRIP_PASS_PRICE_ID` | Server only | Legacy Stripe evidence | Retained only for additive migration/reconciliation tests; it cannot authorize Lemon Squeezy checkout. |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Public/client-safe | Client-side Stripe surfaces | Present in `.env.example`; current Checkout flow is server initiated. |
-| `TRIP_PASS_CHECKOUT_MODE` | Server only | Trip Pass rollout | Optional enum: `off`, `canary`, or `on`. Defaults safely to `off`, including malformed values. `canary` and `on` require `STRIPE_TRIP_PASS_PRICE_ID`; otherwise the catalog reports checkout as unavailable. |
+| `TRIP_PASS_CHECKOUT_MODE` | Server only | Trip Pass rollout | Optional enum: `off`, `canary`, or `on`. Defaults safely to `off`, including malformed values. Lemon Squeezy Store, Product, Variant, and API configuration are required before new Orders can open. |
 | `TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS` | Server only | Trip Pass rollout | Optional comma-separated immutable account/user IDs allowed to use checkout when `TRIP_PASS_CHECKOUT_MODE=canary`. Empty canary allowlists keep checkout unavailable. |
 | `TRIP_PASS_ANON_HMAC_KEY` | Server only | Anonymous Trip Pass identity signing and HMAC cohorts | Required in production for anonymous reset resistance. Local development uses a fallback key for cookie behavior but does not enforce cohort reset-resistance unless this key is set. |
 | `TRIP_PASS_ANON_HMAC_KEY_VERSION` | Server only | Anonymous Trip Pass identity key version | Optional positive integer. Defaults to `1`; increment during HMAC key rotation. |
@@ -160,8 +166,8 @@ the release-candidate QA run. Code completion is not launch approval.
 
 | Area | Owner | Required action before `TRIP_PASS_CHECKOUT_MODE=canary` or `on` |
 | --- | --- | --- |
-| Stripe Price | Finance/operator | Confirm live Price ID, amount, currency, fees, tax treatment, and Stripe-account eligibility. |
-| Stripe webhook | Engineering | Confirm endpoint URL, signing secret, and subscribed Checkout, refund, dispute, and expiry events. |
+| Lemon Squeezy catalogue | Finance/operator | Confirm Store, Product, Variant, tax-inclusive USD 9.99, one-time quantity-one pricing, receipt/support copy, and live/test separation. |
+| Lemon Squeezy webhook | Engineering | Confirm `/api/payments/lemon-squeezy/webhook`, `X-Signature`, independent secret, and `order_created`/`order_refunded` subscriptions. |
 | Legal/refund policy | Legal/operator | Approve Trip Pass Terms, Privacy wording, full-refund revocation, dispute suspension, and support contact copy. |
 | Redis | Engineering | Confirm provider, TLS, eviction policy, retention expectations, and operational owner. |
 | Analytics | Operator | Confirm PostHog-compatible host, key, retention, consent wording, and DNT behavior. |
@@ -221,7 +227,7 @@ Rollback is flag-based and forward-repair only:
 4. Run read-only reconciliation, then use a separate Repair Action only with an opaque Finding ID,
    an allowlisted named Operator, fresh Clerk MFA, a before/after preview, explicit confirmation,
    a reason code, and an idempotency key.
-5. Preserve order, pass, grant, meter, usage-event, Stripe inbox, analytics, and cost records. Do
+5. Preserve order, pass, grant, meter, usage-event, Payment Event Receipt, analytics, and cost records. Do
    not drop launch data to roll back.
 
 Database rollback uses backups and forward repair. Before enabling checkout, confirm production

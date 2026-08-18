@@ -258,6 +258,12 @@ export const clerkRoutePolicyEntries = [
     "Stripe signature-verified webhook",
   ),
   api(
+    "src/app/api/payments/lemon-squeezy/webhook/route.ts",
+    "/api/payments/lemon-squeezy/webhook",
+    "externally_verified",
+    "Lemon Squeezy signature-verified webhook",
+  ),
+  api(
     "src/app/api/trips/saved/route.ts",
     "/api/trips/saved",
     "public",

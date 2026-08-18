@@ -1,3 +1,4 @@
+import { siteConfig } from "@/lib/site";
 import { tripPassProductCatalog } from "@/server/trip-pass/catalog";
 
 export const tripPassPublicOffer = {
@@ -26,6 +27,7 @@ export const tripPassPublicOffer = {
     legal: "/legal/trip-pass",
     purchase: "/sign-in?redirect_url=%2Fsettings%23pass",
     pricing: "/#trip-pass",
+    support: siteConfig.contact.supportMailto,
   },
 } as const;
 
@@ -56,7 +58,7 @@ export const tripPassPolicyPoints = [
   },
   {
     title: "Privacy and support",
-    body: "Account status is owner-scoped. Public analytics and support notes must not include raw prompts, precise coordinates, Stripe secrets, or full provider payloads.",
+    body: `Account status is owner-scoped. Contact ${siteConfig.contact.supportEmail} for product, access, usage, or refund-request help. Public analytics and support notes must not include raw prompts, precise coordinates, payment secrets, or full provider payloads.`,
   },
 ] as const;
 

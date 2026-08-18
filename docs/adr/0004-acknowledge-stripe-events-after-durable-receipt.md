@@ -1,5 +1,7 @@
 # Acknowledge Stripe events after durable receipt
 
+Status: Superseded by ADR-0018.
+
 Ask Siargao will acknowledge a verified Stripe event after its versioned normalized, unique ledger
 record is durably committed, not after all business state has been applied. Events with missing
 prerequisites remain pending for internal retry and targeted Stripe retrieval; unsupported event

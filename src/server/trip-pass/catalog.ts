@@ -164,19 +164,26 @@ export function readTripPassEnvironment(
       ? true
       : parseBooleanFlag(env.DEEPSEEK_COST_POLICY_ENABLED);
   const stripePriceId = optionalServerSecret("STRIPE_TRIP_PASS_PRICE_ID", env);
+  const lemonVariantId = optionalServerSecret("LEMON_SQUEEZY_VARIANT_ID", env);
+  const configuredPriceOrVariant = lemonVariantId ?? stripePriceId;
+  const lemonConfigurationAttempted = Boolean(
+    env.LEMON_SQUEEZY_STORE_ID || env.LEMON_SQUEEZY_PRODUCT_ID || env.LEMON_SQUEEZY_VARIANT_ID,
+  );
   const canaryAccountIds = parseCanaryAccountIds(env.TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS);
   const checkoutCanOpen = checkoutMode === "canary" || checkoutMode === "on";
   const checkoutUnavailableReason = checkoutUnavailableReasonForMode({
     canaryAccountIds,
     checkoutMode,
-    priceId: stripePriceId,
+    priceId: configuredPriceOrVariant,
+    provider: lemonConfigurationAttempted ? "lemon_squeezy" : "stripe",
   });
 
   return {
     checkout: {
-      enabled: checkoutCanOpen && Boolean(stripePriceId) && checkoutUnavailableReason === null,
+      enabled:
+        checkoutCanOpen && Boolean(configuredPriceOrVariant) && checkoutUnavailableReason === null,
       mode: checkoutMode,
-      priceId: stripePriceId,
+      priceId: configuredPriceOrVariant,
       canaryAccountIds,
       status:
         checkoutMode === "off"
@@ -242,6 +249,26 @@ export function readTripPassEnvironment(
         env.GLOBAL_MODEL_DAILY_USD_LIMIT,
       ),
     },
+  } as const;
+}
+
+export function readLemonSqueezyEnvironment(env: Environment = process.env) {
+  const storeId = optionalServerSecret("LEMON_SQUEEZY_STORE_ID", env);
+  const productId = optionalServerSecret("LEMON_SQUEEZY_PRODUCT_ID", env);
+  const variantId = optionalServerSecret("LEMON_SQUEEZY_VARIANT_ID", env);
+  const apiKeyConfigured = Boolean(optionalServerSecret("LEMON_SQUEEZY_API_KEY", env));
+  const webhookSecretConfigured = Boolean(
+    optionalServerSecret("LEMON_SQUEEZY_WEBHOOK_SECRET", env),
+  );
+  const configured = Boolean(storeId && productId && variantId);
+  return {
+    storeId,
+    productId,
+    variantId,
+    apiKeyConfigured,
+    webhookSecretConfigured,
+    configured,
+    status: configured && apiKeyConfigured ? "available" : "unavailable",
   } as const;
 }
 
@@ -345,12 +372,15 @@ function checkoutUnavailableReasonForMode(input: {
   canaryAccountIds: readonly string[];
   checkoutMode: "off" | "canary" | "on";
   priceId: string | undefined;
+  provider: "stripe" | "lemon_squeezy";
 }) {
   if (input.checkoutMode === "off") {
     return null;
   }
   if (!input.priceId) {
-    return "missing_stripe_trip_pass_price_id";
+    return input.provider === "lemon_squeezy"
+      ? "missing_lemon_squeezy_variant_id"
+      : "missing_stripe_trip_pass_price_id";
   }
   if (input.checkoutMode === "canary" && input.canaryAccountIds.length === 0) {
     return "missing_trip_pass_checkout_canary_account_ids";

@@ -29,6 +29,7 @@ describe("Trip Pass public copy contract", () => {
       tripPassProductCatalog.presentation.launchPriceLabel,
     );
     expect(tripPassPublicOffer.links.purchase).toBe("/sign-in?redirect_url=%2Fsettings%23pass");
+    expect(tripPassPublicOffer.links.support).toBe("mailto:support@asksiargao.com");
   });
 
   test("keeps public positioning truthful and bounded", () => {
@@ -44,5 +45,7 @@ describe("Trip Pass public copy contract", () => {
     expect(copy).not.toMatch(/live decisions|heavy research|route checks|weather allowance/i);
     expect(copy).toContain("source, freshness, and not-checked boundaries");
     expect(copy).toContain("verified Stripe payment event");
+    expect(copy).toContain("support@asksiargao.com");
+    expect(copy).not.toContain("hello@asksiargao.com");
   });
 });

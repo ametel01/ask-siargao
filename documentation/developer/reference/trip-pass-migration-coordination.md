@@ -21,11 +21,13 @@ file. Operations findings, repair audit, paging delivery, and generic worker lea
 | `0016_preflight` | #154 | Late-discovered duplicate-Finding convergence that sorts before immutable `0017`; safe as a no-op on ledgers already through `0017`. |
 | `0017` | #154 | Stable incident lifecycles and database-time Sentry delivery leases, added without rewriting `0016`. |
 | `0018` | #154 | Repair command identity/indexes and monotonic reconciliation observation fencing, added without rewriting `0016` or `0017`. |
+| `0025` | #227 | Additive Lemon Squeezy Store/Variant checkout attempts, normalized Payment Event Receipts, Payment Facts, and refund recovery operations. |
 
 Issues #155-#156 must not reuse migrations owned by #154. Any newly discovered schema need is
 coordinator-assigned after this reserved sequence instead of being folded into an applied or
 already-reserved file. Operations paging fencing uses additive `0019`; the next available
-coordinator-assigned number is `0020`.
+coordinator-assigned number is the next unused sequence after `0025`; do not reuse a
+number already present in the migration ledger.
 
 The migration ledger validates every known filename/checksum independently so an additive preflight
 can be discovered after a database recorded `0017`. On a database stopped at `0016`, lexical order

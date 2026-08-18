@@ -190,6 +190,7 @@ export async function deleteTripPassCheckoutResponse(
       { userId: currentUser.userId },
       {
         db: dependencies.db,
+        env: dependencies.env,
         now: dependencies.now(),
       },
     );
