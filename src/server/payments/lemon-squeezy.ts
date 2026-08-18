@@ -206,6 +206,7 @@ export function parseLemonSqueezyOrderFact(input: {
   const relationships = asRecord(data.relationships);
   const orderItem = asRecord(asRecord(relationships.order_item).data);
   const orderItemAttributes = asRecord(orderItem.attributes);
+  const firstOrderItem = asRecord(attributes.first_order_item);
   const providerOrderId =
     stringValue(data.id) ?? stringValue(attributes.id) ?? input.orderId ?? null;
   const status = normalizeOrderStatus(attributes.status ?? attributes.order_status);
@@ -216,7 +217,10 @@ export function parseLemonSqueezyOrderFact(input: {
   const amountTotalMinor = integerValue(attributes.total ?? attributes.total_usd);
   const refundedAmountMinor = integerValue(attributes.refunded ?? attributes.refunded_amount);
   const variantId =
-    stringValue(orderItemAttributes.variant_id) ?? stringValue(attributes.variant_id) ?? null;
+    stringValue(orderItemAttributes.variant_id) ??
+    stringValue(firstOrderItem.variant_id) ??
+    stringValue(attributes.variant_id) ??
+    null;
   return {
     provider: "lemon_squeezy",
     eventName: input.eventName,
@@ -269,7 +273,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function stringValue(value: unknown) {
-  return typeof value === "string" && value.trim() ? value : null;
+  if (typeof value === "string") return value.trim() || null;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? String(value) : null;
 }
 
 function integerValue(value: unknown) {

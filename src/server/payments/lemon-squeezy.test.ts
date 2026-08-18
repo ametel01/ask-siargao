@@ -54,6 +54,42 @@ describe("Lemon Squeezy payment authority boundary", () => {
     expect(JSON.stringify(fact)).not.toContain("custom_data");
   });
 
+  test("normalizes Store and Variant IDs from the official order webhook shape", () => {
+    const fact = parseLemonSqueezyOrderFact({
+      eventName: "order_created",
+      payload: {
+        meta: {
+          event_name: "order_created",
+          custom_data: { order_id: "trip_pass_order_1" },
+        },
+        data: {
+          type: "orders",
+          id: "123",
+          attributes: {
+            store_id: 1,
+            status: "paid",
+            total: 999,
+            currency: "USD",
+            first_order_item: {
+              order_id: 123,
+              product_id: 456,
+              variant_id: 789,
+              price: 999,
+              test_mode: false,
+            },
+            updated_at: "2026-08-19T00:00:00Z",
+          },
+        },
+      },
+    });
+
+    expect(fact).toMatchObject({
+      orderId: "trip_pass_order_1",
+      storeId: "1",
+      variantId: "789",
+    });
+  });
+
   test("distinguishes lifecycle updates in the deterministic receipt fingerprint", () => {
     const base = parseLemonSqueezyOrderFact({
       eventName: "order_created",
