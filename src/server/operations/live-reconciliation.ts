@@ -17,6 +17,7 @@ export type AuthoritativeCommerceReader = {
   readPaymentFact(input: {
     checkoutSessionId: string | null;
     paymentIntentId: string | null;
+    providerOrderId?: string | null;
   }): Promise<AuthoritativePaymentFact>;
 };
 
@@ -56,6 +57,8 @@ type LocalCommerceSnapshot = {
   currency: string;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
+  payment_provider: string;
+  provider_order_id: string | null;
   created_at: Date | string;
   pass_count: string | number;
 };
@@ -103,6 +106,7 @@ export async function reconcileLiveCommerce(
     const provider = await dependencies.commerceReader.readPaymentFact({
       checkoutSessionId: local.stripe_checkout_session_id,
       paymentIntentId: local.stripe_payment_intent_id,
+      providerOrderId: local.provider_order_id,
     });
     await trace.record({
       index: 0,
@@ -279,7 +283,8 @@ async function loadLocalCommerce(db: DatabaseQueryClient, orderId?: string) {
   const filter = orderId ? "where o.id = $1" : "";
   const result = await db.query<LocalCommerceSnapshot>(
     `select o.id, o.user_id, o.product_family, o.status, o.amount_total_minor, o.currency,
-       o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.created_at,
+       o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.payment_provider,
+       o.provider_order_id, o.created_at,
        count(distinct p.id)::text as pass_count
      from trip_pass_orders o
      left join trip_pass_grants g on g.order_id = o.id

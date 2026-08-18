@@ -1,5 +1,7 @@
 # Minimize commerce evidence after account closure
 
+Status: Superseded by ADR-0022.
+
 After Account Closure, Ask Siargao will retain only account-detached commerce facts needed for
 accounting, chargebacks, and Stripe reconciliation: product and policy versions, consent evidence,
 amount/currency, lifecycle status and timestamps, refund/dispute outcomes, required Stripe

@@ -2,6 +2,7 @@ import Stripe from "stripe";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import type { OperationalTaskHandlers } from "@/server/operations/contracts";
+import { createLemonSqueezyCommerceReader } from "@/server/operations/lemon-squeezy-commerce-reader";
 import type {
   AuthoritativeCommerceReader,
   OperationalFindingView,
@@ -11,6 +12,7 @@ import { createStripeCommerceReader } from "@/server/operations/stripe-commerce-
 import type { StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
+import { readLemonSqueezyEnvironment } from "@/server/trip-pass/catalog";
 import { runPaidAfterClosureRefundBatch } from "@/server/trip-pass/paid-after-closure-refund";
 import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
 import {
@@ -121,6 +123,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
 }
 
 function createDefaultCommerceReader() {
+  if (readLemonSqueezyEnvironment().configured) return createLemonSqueezyCommerceReader();
   return createStripeCommerceReader(createStripeServerClient());
 }
 

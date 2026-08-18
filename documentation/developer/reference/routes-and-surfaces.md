@@ -10,7 +10,7 @@ classification:
 | Classification | Routes |
 | --- | --- |
 | `protected` | `/settings`, `/profile`, `/admin/diagnostics`, `/audits/[auditRequestId]/status`, `/api/me/**`, `/api/chat/threads/**`, and `/api/chat/ratings` |
-| `externally_verified` | `/api/clerk/webhooks` and `/api/stripe/webhook` |
+| `externally_verified` | `/api/clerk/webhooks`, `/api/stripe/webhook` (legacy evidence), and `/api/payments/lemon-squeezy/webhook` |
 | `public` | `/`, `/chat`, sign-in/sign-up, public knowledge pages, LLM/robots/sitemap routes, signed report/share delivery, retired audit intake/checkout tombstones, anonymous chat/save/share APIs, public JSON APIs, and `/audits/demo/report` in its non-production QA context |
 
 Unknown application paths matched by `src/proxy.ts` are denied. Supplemental policies such as rate
@@ -39,6 +39,7 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | `/api/audit/intake` | `POST` | Return the stable `410` retirement tombstone; this route cannot create or advertise a payment-ready audit | Intake rate limit |
 | `/api/audit/checkout` | `POST` | Return the stable `410` retirement tombstone without invoking the legacy payment lifecycle | Checkout rate limit |
 | `/api/stripe/webhook` | `POST` | Bound and verify Stripe webhook signatures, commit a normalized versioned event receipt, then apply or retry payment state | Webhook secret; verified processing is independent of Redis/provider-call rate limits |
+| `/api/payments/lemon-squeezy/webhook` | `POST` | Bound and verify the Lemon Squeezy signature, persist a fingerprinted normalized Payment Event Receipt, then apply or retry provider-neutral Trip Pass payment facts | `X-Signature` plus Lemon Squeezy webhook secret; raw payloads are not retained |
 
 ## Auth APIs
 

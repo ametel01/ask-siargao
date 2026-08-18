@@ -1,7 +1,7 @@
 # Trip Pass Analytics
 
 Trip Pass analytics measure launch funnel and quota friction. They are operational evidence only:
-payment, entitlement, usage, refund, and dispute authority remains in Stripe verification and the
+payment, entitlement, usage, refund, and dispute authority remains in Lemon Squeezy verification and the
 server database ledger.
 
 ## Sink
@@ -21,8 +21,8 @@ separate, strictly validated [planning-guide analytics](planning-guide-analytics
 | --- | --- | --- |
 | `trip_pass_pricing_viewed` | Landing pricing section | `productCode`, `productVersion`, `surface`, `status` |
 | `trip_pass_checkout_started` | Authenticated settings checkout route | `productCode`, `productVersion`, `surface`, `status`, `checkoutAvailable`, `reason` |
-| `trip_pass_checkout_failed` | Checkout route or verified Stripe failure | `applicationStatus`, `eventType`, `reason`, `status` |
-| `trip_pass_activated` | Verified Trip Pass Stripe webhook | `productCode`, `productVersion`, `eventType`, `applicationStatus`, `action`, `status` |
+| `trip_pass_checkout_failed` | Checkout route or verified Payment Authority failure | `applicationStatus`, `eventType`, `reason`, `status` |
+| `trip_pass_activated` | Verified Lemon Squeezy webhook | `productCode`, `productVersion`, `eventType`, `applicationStatus`, `action`, `status` |
 | `trip_pass_refund_transition` | Verified refund webhook | `eventType`, `applicationStatus`, `action`, `status` |
 | `trip_pass_dispute_transition` | Verified dispute webhook | `eventType`, `applicationStatus`, `action`, `status` |
 | `trip_pass_expired` | Verified checkout expiry webhook | `eventType`, `applicationStatus`, `action`, `status` |

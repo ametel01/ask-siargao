@@ -44,7 +44,10 @@ _Avoid_: Permanent retention, cleanup default
 
 **Commerce Retention Policy**:
 The Retention Policy applied to Retained Commerce Evidence for accounting, dispute, and
-reconciliation purposes.
+reconciliation purposes. Its working Philippine accounting period is five years from the applicable
+tax-return deadline or later filing date, extended only while a relevant audit, refund, dispute, or
+claim remains unresolved; launch requires professional confirmation of the owner's actual tax
+jurisdiction and obligations.
 _Avoid_: Customer retention policy, payment archive
 
 **Operator**:
@@ -155,23 +158,73 @@ verified-event application.
 _Avoid_: Event retry, reconciliation
 
 **Trip Pass Product**:
-A versioned commercial offer that defines a Trip Pass's price, currency, duration, and answer
-allowances.
+A versioned commercial offer that defines a Trip Pass's tax-inclusive customer price, currency,
+duration, and answer allowances. Changing any commercial term creates a new Product version and
+Payment Authority Variant; an Order's referenced version never changes.
 _Avoid_: Offer, plan, SKU
 
 **Trip Pass Product Family**:
 All versions and prices of the time-bounded Trip Pass offer. No-stacking eligibility is enforced
-across the family rather than per version or Stripe Price.
-_Avoid_: Product version, Stripe Price
+across the family rather than per version or provider Variant.
+_Avoid_: Product version, provider Variant
 
 **Trip Pass Order**:
-A record of one attempt to purchase a Trip Pass Product and its payment lifecycle.
+A record of one intent to purchase a Trip Pass Product. It can contain multiple Checkout Attempts
+and Payment Facts but can accept at most one payment for one Trip Pass Grant. Technical checkout
+retries before the shared expiry stay on the Order; a deliberate purchase after expiry creates a new
+Order.
 _Avoid_: Checkout, purchase record
 
+**Payment Authority**:
+The external commerce system authoritative for whether a Trip Pass Order was paid or refunded. It
+does not grant or revoke Trip Pass access directly.
+_Avoid_: Access authority, checkout page
+
+**Payment Authority Outage**:
+A period when new checkout, payment verification, refund, or reconciliation calls cannot obtain
+authoritative provider facts. New commerce and activation fail closed, free functionality remains
+available, and already-verified Trip Pass access continues while durable recovery retries and pages
+the Operator.
+_Avoid_: Unpaid access, global outage, pass revocation
+
+**Provider Order Reference**:
+The opaque Trip Pass Order ID shared with the Payment Authority and returned with verified payment
+facts. It identifies an Order, not an Ask Siargao Account or external identity.
+_Avoid_: Account ID, Clerk user ID, customer identifier
+
+**Checkout Attempt**:
+One expiring provider checkout created for a Trip Pass Order. Multiple attempts may exist, but only
+a durably recorded checkout URL is exposed to the purchaser. Its lifecycle is independent from the
+Order, Payment Fact, and Trip Pass lifecycles.
+_Avoid_: Trip Pass Order, browser visit
+
+**Checkout Confirmation**:
+The non-authoritative browser state shown after a purchaser returns from checkout. It polls only
+Ask Siargao's local Order state and, after a ten-second webhook grace period, may enqueue one bounded
+Payment Authority lookup. It never activates access from browser data.
+_Avoid_: Checkout success, payment confirmation, activation
+
+**Payment Fact**:
+A normalized authoritative statement about one provider payment associated with a Trip Pass Order.
+Only the first accepted paid fact can create a Trip Pass Grant. Its lifecycle is independent from
+the Order, Checkout Attempt, and Trip Pass lifecycles.
+_Avoid_: Checkout Attempt, Trip Pass, raw provider payload
+
+**Payment Event Receipt**:
+A durable, privacy-minimized record of one verified Payment Authority fact, identified by a
+deterministic fingerprint. It contains normalized facts rather than a raw provider payload.
+_Avoid_: Raw webhook, provider event archive
+
+**Commerce Reconciliation**:
+The read-only comparison of local commerce state with authoritative Payment Authority facts. It
+prioritizes active and nonterminal Orders at least every five minutes and performs a bounded daily
+sweep of Orders still under the Commerce Retention Policy; it records Findings but never repairs.
+_Avoid_: Repair, webhook retry, database correction
+
 **Effective Pending Order**:
-A Trip Pass Order whose Stripe Checkout Session can still accept payment. It blocks creation of
-another payable order for the same account and Trip Pass Product Family.
-_Avoid_: Recent order, locally pending order
+A Trip Pass Order whose provider checkout can still accept payment before its configured expiry. It
+blocks creation of another payable order for the same account and Trip Pass Product Family.
+_Avoid_: Recent order, locally pending order, cancelled browser return
 
 **Checkout Canary**:
 A live production checkout available only to explicitly allowlisted internal accounts while global
@@ -182,12 +235,25 @@ _Avoid_: Test-mode checkout, manual activation
 **Checkout Mode**:
 The `off`, `canary`, or `on` production exposure state for new Trip Pass Orders. An invalid value is
 not a mode: deployment is rejected, while runtime behavior preserves the free product and forces
-checkout off.
+checkout off. `off` stops only new Order and Checkout Attempt creation; verified access, webhook
+ingestion, refunds, closure work, reconciliation, retention purge, and audited repair continue.
 _Avoid_: Feature flag, payment state
 
-**Pending Stripe Event**:
-A verified, normalized Stripe event that has been durably received but cannot yet be applied because
-a prerequisite is missing. It is acknowledged to Stripe and retried within Ask Siargao.
+**Paid Commerce Rollback**:
+The operation that sets Checkout Mode to `off` and converges existing commerce forward. It never
+reactivates Stripe, deletes evidence, stops lifecycle workers, or reverses durable migrations.
+_Avoid_: Provider fallback, payment rollback, data reset
+
+**Payment Credential Rotation**:
+A mode-isolated overlap-and-verify replacement of Payment Authority API keys or webhook secrets.
+Current and replacement credentials coexist only for a bounded verification window; revocation
+follows exact-candidate proof, and any production credential change invalidates affected Release
+Evidence.
+_Avoid_: In-place secret edit, unverified revocation, shared test/live key
+
+**Pending Payment Event**:
+A Payment Event Receipt that cannot yet be applied because a prerequisite is missing. It is
+acknowledged to the provider and retried within Ask Siargao.
 _Avoid_: Failed event, ignored event
 
 **Paid After Closure**:
@@ -212,13 +278,30 @@ _Avoid_: Checkout success, browser return, payment redirect
 
 **Refund Review**:
 The Operator-owned state for a partial or nonterminal refund. The associated Trip Pass and Usage
-Meters remain unchanged until a final reviewed outcome is recorded.
+Meters remain unchanged for at most 24 hours until a final reviewed outcome is recorded. If the
+deadline passes unresolved, Ask Siargao pursues refunding the remaining amount and revokes access
+only after verified full-refund evidence.
 _Avoid_: Automatic proration, refund suspension
 
-**Dispute Suspension**:
-The temporary removal of Trip Pass access while a payment dispute is open. A merchant win restores
-access only through the Trip Pass's original expiry and does not extend its term.
-_Avoid_: Revocation, paused expiry
+**Payment Suspension**:
+The temporary removal of Trip Pass access after a verified fraudulent or disputed payment fact. A
+later authoritative paid outcome restores access only through the Trip Pass's original expiry and
+does not extend its term.
+_Avoid_: Revocation, paused expiry, Refund Review
+
+**Refund Operation**:
+An idempotent request initiated through the browser-based, fresh-MFA Operator workflow and executed
+against the Payment Authority by the deployed server. Access changes only after verified refund
+facts; a provider-dashboard refund is an emergency or provider-initiated path that must converge
+through a verified event or Commerce Reconciliation.
+_Avoid_: Manual database refund, access toggle, unverified dashboard action
+
+**Commerce Support Boundary**:
+Ask Siargao owns product, access, Usage Meter, and refund-request support through
+`support@asksiargao.com`; the Payment Authority owns the customer-facing transaction, receipt, payment
+method, tax, and chargeback boundary. An authenticated Account or opaque local Order reference can
+locate support state, but email alone never proves ownership.
+_Avoid_: Shared support ownership, email identity, provider access support
 
 **Trip Pass Grant**:
 An immutable provenance record linking a Trip Pass to the Order or Operator action that created it

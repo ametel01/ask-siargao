@@ -1,0 +1,214 @@
+import { describe, expect, test } from "bun:test";
+import type { PGlite } from "@electric-sql/pglite";
+
+import type { DatabaseQueryClient } from "@/server/db/query-client";
+import {
+  openTestDatabase,
+  resetTestDatabase,
+  runInitialMigration,
+} from "@/server/db/test-database";
+import { receiveLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
+import {
+  type LemonTripPassCheckoutOptions,
+  startLemonSqueezyTripPassCheckout,
+} from "@/server/trip-pass/lemon-commerce";
+import { applyLemonSqueezyPaymentFact } from "@/server/trip-pass/lemon-squeezy-webhook-application";
+
+const now = new Date("2026-08-19T00:00:00.000Z");
+const env = {
+  TRIP_PASS_CHECKOUT_MODE: "on",
+  LEMON_SQUEEZY_API_KEY: "test_api_key",
+  LEMON_SQUEEZY_STORE_ID: "store_test",
+  LEMON_SQUEEZY_PRODUCT_ID: "product_test",
+  LEMON_SQUEEZY_VARIANT_ID: "variant_test",
+} as const;
+
+describe("Lemon Squeezy Trip Pass commerce", () => {
+  test("persists a pending Order and Checkout Attempt before exposing the URL", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ($1, $2)", [
+        "account_lemon_1",
+        "traveler@example.com",
+      ]);
+      const calls: string[] = [];
+      const client = fakeClient({
+        createCheckout: async ({ order }) => {
+          const pending = await db.query<{ count: string }>(
+            "select count(*)::text as count from trip_pass_orders where id = $1 and status = 'pending'",
+            [order.id],
+          );
+          calls.push(`pending:${pending.rows[0]?.count}`);
+          return {
+            id: "checkout_test_1",
+            url: "https://checkout.lemonsqueezy.test/1",
+            orderId: order.id,
+            storeId: order.storeId,
+            variantId: order.variantId,
+          };
+        },
+      });
+
+      await expect(
+        startLemonSqueezyTripPassCheckout(
+          {
+            userId: "account_lemon_1",
+            email: "traveler@example.com",
+            appUrl: "https://www.asksiargao.com",
+          },
+          { db, env, now, createId: () => "trip_pass_order_lemon_1", client },
+        ),
+      ).resolves.toEqual({
+        status: "started",
+        orderId: "trip_pass_order_lemon_1",
+        checkoutUrl: "https://checkout.lemonsqueezy.test/1",
+      });
+      expect(calls).toEqual(["pending:1"]);
+      const order = await db.query<{
+        payment_provider: string;
+        provider_store_id: string;
+        provider_variant_id: string;
+        provider_checkout_id: string;
+        email: string | null;
+      }>(
+        "select payment_provider, provider_store_id, provider_variant_id, provider_checkout_id, email from trip_pass_orders where id = $1",
+        ["trip_pass_order_lemon_1"],
+      );
+      expect(order.rows[0]).toEqual({
+        payment_provider: "lemon_squeezy",
+        provider_store_id: "store_test",
+        provider_variant_id: "variant_test",
+        provider_checkout_id: "checkout_test_1",
+        email: "traveler@example.com",
+      });
+      const attempt = await db.query<{ status: string; checkout_url: string }>(
+        "select status, checkout_url from trip_pass_checkout_attempts where order_id = $1",
+        ["trip_pass_order_lemon_1"],
+      );
+      expect(attempt.rows[0]).toEqual({
+        status: "created",
+        checkout_url: "https://checkout.lemonsqueezy.test/1",
+      });
+    });
+  });
+
+  test("applies one paid fact to one local Grant and deduplicates the exact receipt", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ($1, $2)", [
+        "account_lemon_paid",
+        "paid@example.com",
+      ]);
+      await insertLemonOrder(db, "trip_pass_order_paid", "account_lemon_paid");
+      const payload = {
+        meta: { event_name: "order_created", custom_data: { order_id: "trip_pass_order_paid" } },
+        data: {
+          id: "provider_order_paid",
+          attributes: {
+            status: "paid",
+            total: 999,
+            refunded: 0,
+            currency: "usd",
+            store_id: "store_test",
+            variant_id: "variant_test",
+            updated_at: "2026-08-19T00:00:00Z",
+            test_mode: false,
+          },
+        },
+      };
+      const applyFact = ({
+        fact,
+        db: factDb,
+        now,
+      }: Parameters<
+        NonNullable<Parameters<typeof receiveLemonSqueezyPaymentEvent>[1]["applyFact"]>
+      >[0]) => applyLemonSqueezyPaymentFact(fact, { db: factDb, now });
+      const first = await receiveLemonSqueezyPaymentEvent(payload, {
+        db,
+        applyFact,
+        now,
+      });
+      const second = await receiveLemonSqueezyPaymentEvent(payload, {
+        db,
+        applyFact,
+        now,
+      });
+
+      expect(first.status).toBe("applied");
+      expect(second.status).toBe("duplicate");
+      const grants = await db.query<{ count: string }>(
+        "select count(*)::text as count from trip_pass_grants where order_id = $1",
+        ["trip_pass_order_paid"],
+      );
+      expect(grants.rows[0]?.count).toBe("1");
+      const order = await db.query<{ status: string; accepted_payment_fact_id: string | null }>(
+        "select status, accepted_payment_fact_id from trip_pass_orders where id = $1",
+        ["trip_pass_order_paid"],
+      );
+      expect(order.rows[0]?.status).toBe("paid");
+      expect(order.rows[0]?.accepted_payment_fact_id).toBeTruthy();
+    });
+  });
+});
+
+function fakeClient(
+  overrides: Partial<NonNullable<LemonTripPassCheckoutOptions["client"]>> = {},
+): NonNullable<LemonTripPassCheckoutOptions["client"]> {
+  return {
+    createCheckout: async () => ({
+      id: "checkout_default",
+      url: "https://checkout.lemonsqueezy.test/default",
+      orderId: null,
+      storeId: null,
+      variantId: null,
+    }),
+    retrieveOrder: async () => {
+      throw new Error("not used");
+    },
+    refundOrder: async () => {
+      throw new Error("not used");
+    },
+    ...overrides,
+  };
+}
+
+async function withTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
+  await resetTestDatabase();
+  const database = await openTestDatabase();
+  try {
+    await runInitialMigration(database);
+    await work(createPgliteQueryClient(database));
+  } finally {
+    await database.close();
+  }
+}
+
+async function insertLemonOrder(db: DatabaseQueryClient, orderId: string, userId: string) {
+  await db.query(
+    `insert into trip_pass_orders (
+      id, user_id, status, product_code, product_family, product_version, stripe_price_id,
+      amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+      provider_store_id, provider_variant_id, provider_order_id, created_at, updated_at
+    ) values ($1, $2, 'checkout_created', 'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2,
+      null, 999, 'usd', $3, 'lemon_squeezy', 'store_test', 'variant_test', null, $4, $4)`,
+    [orderId, userId, `trip_pass_checkout:${orderId}`, now],
+  );
+}
+
+function createPgliteQueryClient(database: PGlite): DatabaseQueryClient {
+  const client: DatabaseQueryClient = {
+    async query<T>(query: string, params: unknown[] = []) {
+      return database.query<T>(query, params);
+    },
+    async transaction<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>) {
+      await database.exec("begin");
+      try {
+        const result = await callback({ ...client, inTransaction: true });
+        await database.exec("commit");
+        return result;
+      } catch (error) {
+        await database.exec("rollback");
+        throw error;
+      }
+    },
+  };
+  return client;
+}

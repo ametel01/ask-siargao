@@ -1,9 +1,10 @@
+import { siteConfig } from "@/lib/site";
 import type { FetchLike } from "@/server/providers/open-meteo";
 import { fetchWithProviderTimeout } from "@/server/providers/provider-fetch";
 
 const metNorwayEndpoint = "https://api.met.no/weatherapi/locationforecast/2.0/compact";
 const timezone = "Asia/Manila";
-const userAgent = "AskSiargao/1.0 (+https://www.asksiargao.com; hello@asksiargao.com)";
+const userAgent = `AskSiargao/1.0 (+https://www.asksiargao.com; ${siteConfig.contact.primaryEmail})`;
 
 export const metNorwaySourceProfileId = "source_met_norway";
 export const metNorwaySourceName = "MET Norway Locationforecast";
