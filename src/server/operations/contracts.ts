@@ -28,6 +28,7 @@ export const operationalTaskTypes = [
   "pending_payment_event",
   "pending_stripe_event",
   "paid_after_closure_refund",
+  "lemon_squeezy_refund",
   "retention_purge",
   "commerce_reconciliation",
 ] as const;

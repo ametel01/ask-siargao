@@ -14,7 +14,12 @@ import type { StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
 import { readLemonSqueezyEnvironment } from "@/server/trip-pass/catalog";
+import {
+  createLemonSqueezyCheckoutClient,
+  type LemonSqueezyCheckoutClient,
+} from "@/server/trip-pass/lemon-squeezy-adapter";
 import { applyLemonSqueezyPaymentFact } from "@/server/trip-pass/lemon-squeezy-webhook-application";
+import { runLemonSqueezyRefundBatch } from "@/server/trip-pass/lemon-squeezy-refund-worker";
 import { runPaidAfterClosureRefundBatch } from "@/server/trip-pass/paid-after-closure-refund";
 import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
 import {
@@ -32,6 +37,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
   closureProviders?: ClosureProviders;
   commerceReader?: AuthoritativeCommerceReader;
   db: DatabaseQueryClient;
+  lemonRefundClient?: LemonSqueezyCheckoutClient;
   refundClient?: StripeRefundClient;
 }): OperationalTaskHandlers {
   const { db } = dependencies;
@@ -111,6 +117,25 @@ export function createProductionOperationalTaskHandlers(dependencies: {
         }
       }
       await trace.record({ index: 0, operation: "paid_after_closure_refund", result: "succeeded" });
+    },
+    lemon_squeezy_refund: async ({ resourceRef, trace }) => {
+      await trace.record({ index: 0, operation: "lemon_squeezy_refund", result: "started" });
+      const result = await runLemonSqueezyRefundBatch({
+        client: dependencies.lemonRefundClient ?? createLemonSqueezyCheckoutClient(),
+        db,
+        limit: 1,
+        operationId: resourceRef,
+      });
+      if (result.claimed !== 1 || result.confirmed !== 1) {
+        const operation = await db.query<{ status: string }>(
+          "select status from trip_pass_refund_operations where id = $1",
+          [resourceRef],
+        );
+        if (operation.rows[0]?.status !== "succeeded") {
+          throw new Error("lemon_squeezy_refund_retryable");
+        }
+      }
+      await trace.record({ index: 0, operation: "lemon_squeezy_refund", result: "succeeded" });
     },
     retention_purge: async ({ resourceRef, trace }) => {
       await trace.record({ index: 0, operation: "retention_purge", result: "started" });
