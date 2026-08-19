@@ -75,7 +75,7 @@ export async function receiveLemonSqueezyPaymentEvent(
 
   if (!inserted.rows[0]) {
     const existing = await options.db.query<PaymentEventReceiptRow>(
-      `select id, fingerprint, event_name, status, normalized_facts_json
+      `select id, fingerprint, event_name, status, normalized_facts_json, next_attempt_at
        from trip_pass_payment_event_receipts where fingerprint = $1`,
       [fingerprint],
     );
@@ -138,6 +138,7 @@ type PaymentEventReceiptRow = {
   event_name: string;
   status: string;
   normalized_facts_json: unknown;
+  next_attempt_at: Date | string | null;
 };
 
 export async function applyPendingLemonSqueezyPaymentEvent(
@@ -151,7 +152,7 @@ export async function applyPendingLemonSqueezyPaymentEvent(
   const now = options.now ?? new Date();
   const applyWithinTransaction = async (db: DatabaseQueryClient) => {
     const result = await db.query<PaymentEventReceiptRow>(
-      `select id, fingerprint, event_name, status, normalized_facts_json
+      `select id, fingerprint, event_name, status, normalized_facts_json, next_attempt_at
        from trip_pass_payment_event_receipts where id = $1 for update`,
       [receiptId],
     );
@@ -190,6 +191,16 @@ export async function applyPendingLemonSqueezyPaymentEvent(
         fingerprint: row.fingerprint,
         fact,
         reason: "payment_receipt_not_pending",
+      };
+    }
+
+    if (row.next_attempt_at && new Date(row.next_attempt_at).getTime() > now.getTime()) {
+      return {
+        status: "pending" as const,
+        receiptId: row.id,
+        fingerprint: row.fingerprint,
+        fact,
+        reason: "payment_receipt_retry_not_due",
       };
     }
 
