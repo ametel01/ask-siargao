@@ -84,6 +84,7 @@ export async function reconcileLiveCommerce(
   },
   dependencies: {
     commerceReader: AuthoritativeCommerceReader;
+    commerceReaders?: Partial<Record<"stripe" | "lemon_squeezy", AuthoritativeCommerceReader>>;
     createId?: (prefix: string) => string;
     db?: DatabaseQueryClient;
     now?: () => Date;
@@ -103,7 +104,10 @@ export async function reconcileLiveCommerce(
   const observations: CommerceObservation[] = [];
   for (const local of localRows) {
     await trace.record({ index: 0, operation: "authoritative_payment_lookup", result: "started" });
-    const provider = await dependencies.commerceReader.readPaymentFact({
+    const commerceReader =
+      dependencies.commerceReaders?.[local.payment_provider as "stripe" | "lemon_squeezy"] ??
+      dependencies.commerceReader;
+    const provider = await commerceReader.readPaymentFact({
       checkoutSessionId: local.stripe_checkout_session_id,
       paymentIntentId: local.stripe_payment_intent_id,
       providerOrderId: local.provider_order_id,
@@ -291,7 +295,8 @@ async function loadLocalCommerce(db: DatabaseQueryClient, orderId?: string) {
      left join trip_passes p on p.id = g.trip_pass_id
      ${filter}
      group by o.id
-     order by o.id`,
+     order by case when o.status in ('paid', 'checkout_created') then 0 else 1 end,
+       o.created_at, o.id`,
     params,
   );
   return result.rows;

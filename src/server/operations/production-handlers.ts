@@ -36,6 +36,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
   alertFinding?: (finding: OperationalFindingView) => Promise<void>;
   closureProviders?: ClosureProviders;
   commerceReader?: AuthoritativeCommerceReader;
+  commerceReaders?: Partial<Record<"stripe" | "lemon_squeezy", AuthoritativeCommerceReader>>;
   db: DatabaseQueryClient;
   lemonRefundClient?: LemonSqueezyCheckoutClient;
   refundClient?: StripeRefundClient;
@@ -159,6 +160,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
         },
         {
           commerceReader: dependencies.commerceReader ?? createDefaultCommerceReader(),
+          commerceReaders: dependencies.commerceReaders ?? createDefaultCommerceReaders(),
           db,
           recordEvent: trace.record,
           alertFinding: dependencies.alertFinding,
@@ -172,6 +174,16 @@ export function createProductionOperationalTaskHandlers(dependencies: {
 function createDefaultCommerceReader() {
   if (readLemonSqueezyEnvironment().configured) return createLemonSqueezyCommerceReader();
   return createStripeCommerceReader(createStripeServerClient());
+}
+
+function createDefaultCommerceReaders() {
+  const readers: Partial<Record<"stripe" | "lemon_squeezy", AuthoritativeCommerceReader>> = {};
+  if (readLemonSqueezyEnvironment().configured) {
+    readers.lemon_squeezy = createLemonSqueezyCommerceReader();
+  }
+  const stripeKey = process.env.STRIPE_RESTRICTED_KEY ?? process.env.STRIPE_SECRET_KEY;
+  if (stripeKey) readers.stripe = createStripeCommerceReader(new Stripe(stripeKey));
+  return readers;
 }
 
 function createDefaultClosureProviders(): ClosureProviders {
