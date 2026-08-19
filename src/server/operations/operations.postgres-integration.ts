@@ -417,6 +417,12 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
        clock_timestamp(), 'pending', '{"provider":"lemon_squeezy"}'::jsonb
      )`,
   );
+  await db.query(
+    `update operational_reconciliation_observations
+     set observed_at = clock_timestamp() - interval '6 minutes'
+     where local_entity_type = 'trip_pass_order'
+       and local_entity_ref = 'native_operations_order'`,
+  );
 
   const cycleKey = "native-cycle-20260808T12";
   const reconciliationRef = `risk:${cycleKey}:native_operations_order`;
