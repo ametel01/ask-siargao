@@ -326,9 +326,15 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
 
       const first = await receiveLemonSqueezyPaymentEvent(payload, { db, applyFact, now });
       const second = await receiveLemonSqueezyPaymentEvent(payload, { db, applyFact, now });
+      const third = await receiveLemonSqueezyPaymentEvent(payload, {
+        db,
+        applyFact,
+        now: new Date(now.getTime() + 60_000),
+      });
 
       expect(first).toMatchObject({ status: "pending" });
-      expect(second).toMatchObject({ status: "applied" });
+      expect(second).toMatchObject({ status: "pending", reason: "payment_receipt_retry_not_due" });
+      expect(third).toMatchObject({ status: "applied" });
       expect(attempts).toBe(2);
     });
   });
