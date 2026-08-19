@@ -42,7 +42,7 @@ export const tripPassDifferentiators = [
 export const tripPassPolicyPoints = [
   {
     title: "Activation and expiry",
-    body: "A Trip Pass starts only after a verified Stripe payment event is matched to your signed-in account. Redirects do not activate access. The pass lasts 14 days from activation.",
+    body: "A Trip Pass starts only after a verified Lemon Squeezy payment event is matched to your signed-in account. Redirects do not activate access. The pass lasts 14 days from activation.",
   },
   {
     title: "Answers and reset windows",

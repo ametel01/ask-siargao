@@ -44,7 +44,7 @@ describe("Trip Pass public copy contract", () => {
     expect(copy).not.toMatch(/\bExplorer\b|\bExtended\b/);
     expect(copy).not.toMatch(/live decisions|heavy research|route checks|weather allowance/i);
     expect(copy).toContain("source, freshness, and not-checked boundaries");
-    expect(copy).toContain("verified Stripe payment event");
+    expect(copy).toContain("verified Lemon Squeezy payment event");
     expect(copy).toContain("support@asksiargao.com");
     expect(copy).not.toContain("hello@asksiargao.com");
   });
