@@ -93,6 +93,31 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
     ).toThrow("Store is missing");
   });
 
+  test("accepts tax-inclusive previews when the advertised total is unchanged", () => {
+    expect(() =>
+      validateLemonSqueezyCheckout({
+        order,
+        checkout: {
+          id: "checkout_taxed",
+          url: "https://lemonsqueezy.test/checkout_taxed",
+          orderId: order.id,
+          storeId: order.storeId,
+          variantId: order.variantId,
+          customPrice: null,
+          enabledVariants: [order.variantId],
+          quantity: 1,
+          discountEnabled: false,
+          previewSubtotal: 909,
+          previewDiscountTotal: 0,
+          previewTax: 90,
+          previewTotal: 999,
+          testMode: false,
+          expiresAt: order.checkoutSessionExpiresAt,
+        },
+      }),
+    ).not.toThrow();
+  });
+
   test("normalizes numeric Store and Variant response attributes", async () => {
     let capturedRequest: unknown;
     const client = createLemonSqueezyCheckoutClient({

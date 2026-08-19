@@ -2308,6 +2308,18 @@ export const operationalReconciliationObservations = pgTable(
   ],
 );
 
+export const operationalReconciliationCursors = pgTable(
+  "operational_reconciliation_cursors",
+  {
+    scopeKey: text("scope_key").primaryKey(),
+    cursorOffset: integer("cursor_offset").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("operational_reconciliation_cursors_offset_check", sql`${table.cursorOffset} >= 0`),
+  ],
+);
+
 export const operationalFindings = pgTable(
   "operational_findings",
   {

@@ -37,8 +37,14 @@ export async function applyLemonSqueezyPaymentFact(
     | undefined;
   const orderId = fact.orderId;
   if (!orderId) return { status: "rejected", reason: "missing_trip_pass_order_id" };
-  if (fact.testMode === true && options.env?.LEMON_SQUEEZY_ALLOW_TEST_MODE !== "true") {
-    return { status: "rejected", reason: "test_mode_payment_not_allowed", orderId };
+  const allowTestMode = options.env?.LEMON_SQUEEZY_ALLOW_TEST_MODE === "true";
+  if (fact.testMode === null || fact.testMode !== allowTestMode) {
+    return {
+      status: "rejected",
+      reason:
+        fact.testMode === null ? "test_mode_evidence_missing" : "test_mode_payment_not_allowed",
+      orderId,
+    };
   }
   if (
     fact.status !== "paid" &&
@@ -91,6 +97,15 @@ export async function applyLemonSqueezyPaymentFact(
           });
         }
         return { status: "applied", action: "refunded", orderId };
+      }
+      if (fact.quantity !== undefined && fact.quantity !== null && fact.quantity !== 1) {
+        return { status: "rejected", reason: "trip_pass_quantity_mismatch", orderId };
+      }
+      if (fact.discountEnabled === true || (fact.discountTotalMinor ?? 0) > 0) {
+        return { status: "rejected", reason: "trip_pass_discount_not_allowed", orderId };
+      }
+      if (fact.customPriceMinor !== undefined && fact.customPriceMinor !== null) {
+        return { status: "rejected", reason: "trip_pass_custom_price_not_allowed", orderId };
       }
       if (
         order.product_code !== tripPassProductCatalog.code ||

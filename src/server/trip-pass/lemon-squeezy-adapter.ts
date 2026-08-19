@@ -208,6 +208,7 @@ export function validateLemonSqueezyCheckout(input: {
   if (input.checkout.discountEnabled !== false) {
     throw new Error("Lemon Squeezy checkout discounts must be hidden.");
   }
+  const previewSubtotal = input.checkout.previewSubtotal;
   const previewTax = input.checkout.previewTax;
   const previewTotal = input.checkout.previewTotal;
   if (
@@ -215,9 +216,10 @@ export function validateLemonSqueezyCheckout(input: {
     input.checkout.previewDiscountTotal == null ||
     previewTax == null ||
     previewTotal == null ||
-    input.checkout.previewSubtotal !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor ||
     input.checkout.previewDiscountTotal !== 0 ||
-    previewTax !== 0 ||
+    (previewSubtotal !== null &&
+      previewSubtotal !== undefined &&
+      previewSubtotal + previewTax !== previewTotal) ||
     previewTotal !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor
   ) {
     throw new Error("Lemon Squeezy checkout commercial preview is incomplete or invalid.");

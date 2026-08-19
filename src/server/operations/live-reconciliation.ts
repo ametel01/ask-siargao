@@ -106,8 +106,10 @@ export async function reconcileLiveCommerce(
   const createId = dependencies.createId ?? ((prefix: string) => `${prefix}_${randomUUID()}`);
   const trace = createOperationTrace(dependencies.recordEvent);
   const runId = createId("reconciliation_run");
+  const scope = input.scope ?? "all";
+  const pageOffset = input.orderId ? 0 : await readReconciliationCursor(db, scope);
   await trace.record({ index: 0, operation: "load_local_commerce", result: "started" });
-  const localRows = await loadLocalCommerce(db, input.orderId, input.scope ?? "all");
+  const localRows = await loadLocalCommerce(db, input.orderId, scope, pageOffset);
   await trace.record({ index: 0, operation: "load_local_commerce", result: "succeeded" });
 
   const observations: CommerceObservation[] = [];
@@ -277,6 +279,9 @@ export async function reconcileLiveCommerce(
     }
   }
   await Promise.all(findings.map((finding) => dependencies.alertFinding?.(finding)));
+  if (!input.orderId && scope !== "all") {
+    await advanceReconciliationCursor(db, scope, pageOffset, localRows.length);
+  }
   return { checkedCount: localRows.length, findings, runId, trace: trace.events };
 }
 
@@ -305,14 +310,16 @@ async function loadLocalCommerce(
   db: DatabaseQueryClient,
   orderId?: string,
   scope: ReconciliationScope = "all",
+  offset = 0,
 ) {
-  const params = orderId ? [orderId] : [scope === "risk" ? 100 : 500];
+  const pageSize = scope === "risk" ? 100 : 500;
+  const params = orderId ? [orderId] : [pageSize, offset];
   const filter = orderId
     ? "where o.id = $1"
     : scope === "risk"
       ? "where o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')"
       : "";
-  const limit = orderId ? "" : `limit $${params.length}`;
+  const limit = orderId ? "" : "limit $1 offset $2";
   const result = await db.query<LocalCommerceSnapshot>(
     `select o.id, o.user_id, o.product_family, o.status, o.amount_total_minor, o.currency,
        o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.payment_provider,
@@ -329,6 +336,34 @@ async function loadLocalCommerce(
     params,
   );
   return result.rows;
+}
+
+async function readReconciliationCursor(db: DatabaseQueryClient, scope: ReconciliationScope) {
+  await db.query(
+    `insert into operational_reconciliation_cursors (scope_key, cursor_offset)
+     values ($1, 0) on conflict (scope_key) do nothing`,
+    [scope],
+  );
+  const result = await db.query<{ cursor_offset: number | string }>(
+    "select cursor_offset from operational_reconciliation_cursors where scope_key = $1",
+    [scope],
+  );
+  return Number(result.rows[0]?.cursor_offset ?? 0);
+}
+
+async function advanceReconciliationCursor(
+  db: DatabaseQueryClient,
+  scope: ReconciliationScope,
+  pageOffset: number,
+  checkedCount: number,
+) {
+  const pageSize = scope === "risk" ? 100 : 500;
+  const nextOffset = checkedCount < pageSize ? 0 : pageOffset + checkedCount;
+  await db.query(
+    `update operational_reconciliation_cursors set cursor_offset = $2, updated_at = clock_timestamp()
+     where scope_key = $1 and cursor_offset = $3`,
+    [scope, nextOffset, pageOffset],
+  );
 }
 
 function compareCommerce(

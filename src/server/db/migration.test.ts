@@ -47,6 +47,7 @@ import {
   llmToolCalls,
   operationalAlertDeliveries,
   operationalFindings,
+  operationalReconciliationCursors,
   operationalReconciliationObservations,
   operationalReconciliationRuns,
   operationalScheduleStates,
@@ -390,6 +391,7 @@ describe("Step 3 database migration", () => {
       "0030_commerce_reconciliation_schedule.sql",
       "0031_checkout_return_lookup_claim.sql",
       "0032_preserve_checkout_attempt_history.sql",
+      "0033_reconciliation_cursors.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -485,6 +487,7 @@ describe("Step 3 database migration", () => {
       "0030_commerce_reconciliation_schedule.sql",
       "0031_checkout_return_lookup_claim.sql",
       "0032_preserve_checkout_attempt_history.sql",
+      "0033_reconciliation_cursors.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -495,6 +498,7 @@ describe("Step 3 database migration", () => {
     expect(tables.rows.map((row) => row.table_name)).toEqual([
       "operational_alert_deliveries",
       "operational_findings",
+      "operational_reconciliation_cursors",
       "operational_reconciliation_observations",
       "operational_reconciliation_runs",
       "operational_schedule_states",
@@ -566,6 +570,7 @@ describe("Step 3 database migration", () => {
       "0030_commerce_reconciliation_schedule.sql",
       "0031_checkout_return_lookup_claim.sql",
       "0032_preserve_checkout_attempt_history.sql",
+      "0033_reconciliation_cursors.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -698,6 +703,7 @@ describe("Step 3 database migration", () => {
       "0030_commerce_reconciliation_schedule.sql",
       "0031_checkout_return_lookup_claim.sql",
       "0032_preserve_checkout_attempt_history.sql",
+      "0033_reconciliation_cursors.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -755,6 +761,7 @@ describe("Step 3 database migration", () => {
         "local_entity_type",
         "observed_at",
       ],
+      operational_reconciliation_cursors: ["cursor_offset", "scope_key", "updated_at"],
       operational_worker_tasks: [
         "attempts",
         "completed_at",
@@ -1027,6 +1034,7 @@ describe("Step 3 database migration", () => {
       paidAnswerReservations,
       operationalReconciliationRuns,
       operationalReconciliationObservations,
+      operationalReconciliationCursors,
       operationalFindings,
       operatorRepairActions,
       operationalAlertDeliveries,
