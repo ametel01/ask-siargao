@@ -46,7 +46,7 @@ export async function applyLemonSqueezyPaymentFact(
       `select id, user_id, status, product_code, product_version, amount_total_minor, currency,
         payment_provider,
         provider_store_id, provider_variant_id, provider_order_id, accepted_payment_fact_id,
-        payment_suspension_state, refund_state
+        provider_updated_at, payment_suspension_state, refund_state
        from trip_pass_orders where id = $1 for update`,
       [orderId],
     );
@@ -115,6 +115,7 @@ export async function applyLemonSqueezyPaymentFact(
     });
     if (!inserted) return { status: "duplicate", orderId };
 
+    if (isStaleProviderFact(order, fact)) return { status: "duplicate", orderId };
     if (order.status === "refunded" && fact.status === "paid") {
       return { status: "rejected", reason: "paid_after_refund", orderId };
     }
@@ -127,23 +128,23 @@ export async function applyLemonSqueezyPaymentFact(
 
     if (fact.status === "partial_refund") {
       await db.query(
-        "update trip_pass_orders set refund_state = 'review', successful_refund_amount_minor = $2, lifecycle_updated_at = $3, updated_at = $3 where id = $1",
-        [orderId, fact.refundedAmountMinor ?? 0, now],
+        "update trip_pass_orders set refund_state = 'review', successful_refund_amount_minor = $2, provider_updated_at = $4, lifecycle_updated_at = $3, updated_at = $3 where id = $1",
+        [orderId, fact.refundedAmountMinor ?? 0, now, fact.providerUpdatedAt],
       );
       return { status: "applied", action: "refund_review", orderId };
     }
     if (fact.status === "refunded") {
       await db.query(
-        "update trip_pass_orders set status = 'refunded', refund_state = 'full', successful_refund_amount_minor = coalesce($2, captured_amount_minor, amount_total_minor), terminal_revocation_reason = 'full_refund', lifecycle_updated_at = $3, updated_at = $3 where id = $1",
-        [orderId, fact.refundedAmountMinor, now],
+        "update trip_pass_orders set status = 'refunded', refund_state = 'full', successful_refund_amount_minor = coalesce($2, captured_amount_minor, amount_total_minor), terminal_revocation_reason = 'full_refund', provider_updated_at = $4, lifecycle_updated_at = $3, updated_at = $3 where id = $1",
+        [orderId, fact.refundedAmountMinor, now, fact.providerUpdatedAt],
       );
       await revokePass(db, orderId, now, "full_refund");
       return { status: "applied", action: "refunded", orderId };
     }
     if (fact.status === "fraudulent") {
       await db.query(
-        "update trip_pass_orders set payment_suspension_state = 'fraudulent', dispute_state = 'open', lifecycle_updated_at = $2, updated_at = $2 where id = $1",
-        [orderId, now],
+        "update trip_pass_orders set payment_suspension_state = 'fraudulent', dispute_state = 'open', provider_updated_at = $3, lifecycle_updated_at = $2, updated_at = $2 where id = $1",
+        [orderId, now, fact.providerUpdatedAt],
       );
       await db.query(
         "update trip_passes set status = 'suspended', suspended_at = $2, updated_at = $2 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status = 'active'",
@@ -154,8 +155,8 @@ export async function applyLemonSqueezyPaymentFact(
 
     if (order.payment_suspension_state !== "none") {
       await db.query(
-        "update trip_pass_orders set payment_suspension_state = 'none', dispute_state = 'won', updated_at = $2 where id = $1",
-        [orderId, now],
+        "update trip_pass_orders set payment_suspension_state = 'none', dispute_state = 'won', provider_updated_at = $3, lifecycle_updated_at = $2, updated_at = $2 where id = $1",
+        [orderId, now, fact.providerUpdatedAt],
       );
       await db.query(
         "update trip_passes set status = case when expires_at > $2 then 'active' else status end, suspended_at = null, updated_at = $2 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status = 'suspended'",
@@ -182,8 +183,8 @@ export async function applyLemonSqueezyPaymentFact(
       `update trip_pass_orders set status = 'paid', payment_provider = 'lemon_squeezy',
         provider_order_id = coalesce(provider_order_id, $2), provider_payment_id = coalesce(provider_payment_id, $3),
         accepted_payment_fact_id = $4, captured_amount_minor = coalesce(captured_amount_minor, amount_total_minor),
-        lifecycle_updated_at = $5, completed_at = coalesce(completed_at, $5), updated_at = $5 where id = $1`,
-      [orderId, fact.providerOrderId, fact.paymentId, factId, now],
+        provider_updated_at = $5, lifecycle_updated_at = $6, completed_at = coalesce(completed_at, $6), updated_at = $6 where id = $1`,
+      [orderId, fact.providerOrderId, fact.paymentId, factId, fact.providerUpdatedAt, now],
     );
     return grant.status === "duplicate"
       ? { status: "duplicate", orderId }
@@ -206,6 +207,7 @@ type TripPassOrderRow = {
   payment_suspension_state: string;
   refund_state: string;
   payment_provider: string;
+  provider_updated_at: Date | string | null;
 };
 
 async function recordPaymentFact(
@@ -281,6 +283,13 @@ async function createRefundOperation(
 function remainingRefundAmount(fact: NormalizedPaymentFact) {
   if (fact.amountTotalMinor === null) return null;
   return Math.max(fact.amountTotalMinor - (fact.refundedAmountMinor ?? 0), 0);
+}
+
+function isStaleProviderFact(order: TripPassOrderRow, fact: NormalizedPaymentFact) {
+  if (!order.provider_updated_at) return false;
+  const current = new Date(order.provider_updated_at).getTime();
+  const incoming = new Date(fact.providerUpdatedAt).getTime();
+  return Number.isFinite(current) && Number.isFinite(incoming) && incoming <= current;
 }
 
 async function revokePass(

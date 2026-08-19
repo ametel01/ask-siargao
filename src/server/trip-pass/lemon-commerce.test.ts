@@ -232,6 +232,73 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
     });
   });
 
+  test("ignores provider facts older than the Order lifecycle watermark", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ($1, $2)", [
+        "account_lemon_monotonic",
+        "monotonic@example.com",
+      ]);
+      await insertLemonOrder(db, "trip_pass_order_monotonic", "account_lemon_monotonic");
+      const applyFact = ({
+        fact,
+        db: factDb,
+        now: factNow,
+      }: Parameters<
+        NonNullable<Parameters<typeof receiveLemonSqueezyPaymentEvent>[1]["applyFact"]>
+      >[0]) => applyLemonSqueezyPaymentFact(fact, { db: factDb, now: factNow });
+      const payload = (status: "paid" | "fraudulent", updatedAt: string, objectId: string) => ({
+        meta: {
+          event_name: "order_created",
+          custom_data: { order_id: "trip_pass_order_monotonic" },
+        },
+        data: {
+          id: "provider_order_monotonic",
+          attributes: {
+            status,
+            total: 999,
+            refunded: 0,
+            currency: "usd",
+            store_id: "store_test",
+            variant_id: "variant_test",
+            updated_at: updatedAt,
+            test_mode: false,
+            object_id: objectId,
+          },
+        },
+      });
+
+      await receiveLemonSqueezyPaymentEvent(
+        payload("paid", "2026-08-19T00:00:00Z", "paid"),
+        { db, applyFact, now },
+      );
+      await receiveLemonSqueezyPaymentEvent(
+        payload("fraudulent", "2026-08-19T00:02:00Z", "fraudulent"),
+        { db, applyFact, now },
+      );
+      const stale = await receiveLemonSqueezyPaymentEvent(
+        payload("paid", "2026-08-19T00:01:00Z", "stale_paid"),
+        { db, applyFact, now },
+      );
+
+      expect(stale).toMatchObject({ status: "applied", applicationResult: { status: "duplicate" } });
+      const state = await db.query<{
+        payment_suspension_state: string;
+        provider_updated_at: Date | string | null;
+        pass_status: string;
+      }>(
+        `select o.payment_suspension_state, o.provider_updated_at, p.status as pass_status
+         from trip_pass_orders o join trip_pass_grants g on g.order_id = o.id
+         join trip_passes p on p.id = g.trip_pass_id where o.id = $1`,
+        ["trip_pass_order_monotonic"],
+      );
+      expect(state.rows[0]?.payment_suspension_state).toBe("fraudulent");
+      expect(new Date(String(state.rows[0]?.provider_updated_at)).toISOString()).toBe(
+        "2026-08-19T00:02:00.000Z",
+      );
+      expect(state.rows[0]?.pass_status).toBe("suspended");
+    });
+  });
+
   test("retries a pending receipt instead of treating it as an applied duplicate", async () => {
     await withTestDb(async (db) => {
       const payload = {
