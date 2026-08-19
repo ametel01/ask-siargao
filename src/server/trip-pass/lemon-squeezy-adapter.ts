@@ -127,7 +127,6 @@ export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequ
     data: {
       type: "checkouts",
       attributes: {
-        custom_price: tripPassLemonSqueezyProductSnapshot.amountTotalMinor,
         checkout_data: {
           ...(input.order.customerEmail ? { email: input.order.customerEmail } : {}),
           custom: { order_id: input.order.id },
@@ -186,8 +185,8 @@ export function validateLemonSqueezyCheckout(input: {
   if (input.checkout.variantId !== input.order.variantId) {
     throw new Error("Lemon Squeezy checkout Variant does not match configuration.");
   }
-  if (input.checkout.customPrice !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor) {
-    throw new Error("Lemon Squeezy checkout custom price does not match the Trip Pass price.");
+  if (input.checkout.customPrice !== null) {
+    throw new Error("Lemon Squeezy checkout must not use custom pricing.");
   }
   if (
     input.checkout.enabledVariants?.length !== 1 ||
