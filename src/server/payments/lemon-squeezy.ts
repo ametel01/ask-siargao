@@ -21,6 +21,7 @@ export type NormalizedPaymentFact = {
   checkoutId: string | null;
   paymentId: string | null;
   storeId: string | null;
+  productId?: string | null;
   variantId: string | null;
   status: LemonSqueezyOrderStatus;
   amountTotalMinor: number | null;
@@ -227,6 +228,11 @@ export function parseLemonSqueezyOrderFact(input: {
     stringValue(firstOrderItem.variant_id) ??
     stringValue(attributes.variant_id) ??
     null;
+  const productId =
+    stringValue(orderItemAttributes.product_id) ??
+    stringValue(firstOrderItem.product_id) ??
+    stringValue(attributes.product_id) ??
+    null;
   return {
     provider: "lemon_squeezy",
     eventName: input.eventName,
@@ -237,6 +243,7 @@ export function parseLemonSqueezyOrderFact(input: {
     checkoutId: stringValue(attributes.checkout_id),
     paymentId: stringValue(attributes.identifier) ?? stringValue(attributes.payment_id),
     storeId: stringValue(attributes.store_id),
+    productId,
     variantId,
     status,
     amountTotalMinor,

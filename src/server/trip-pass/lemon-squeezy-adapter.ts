@@ -20,7 +20,9 @@ export type LemonSqueezyCheckoutOrderSnapshot = {
   productFamily: string;
   customerEmail?: string | null;
   storeId: string;
+  productId?: string;
   variantId: string;
+  testMode?: boolean;
 };
 
 export type LemonSqueezyCheckoutSummary = {
@@ -28,7 +30,18 @@ export type LemonSqueezyCheckoutSummary = {
   url: string;
   orderId: string | null;
   storeId: string | null;
+  productId?: string | null;
   variantId: string | null;
+  customPrice?: number | null;
+  enabledVariants?: string[] | null;
+  quantity?: number | null;
+  discountEnabled?: boolean | null;
+  previewSubtotal?: number | null;
+  previewDiscountTotal?: number | null;
+  previewTax?: number | null;
+  previewTotal?: number | null;
+  testMode?: boolean | null;
+  expiresAt?: Date | null;
 };
 
 export class LemonSqueezyCheckoutCreationError extends Error {
@@ -114,6 +127,7 @@ export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequ
     data: {
       type: "checkouts",
       attributes: {
+        custom_price: tripPassLemonSqueezyProductSnapshot.amountTotalMinor,
         checkout_data: {
           ...(input.order.customerEmail ? { email: input.order.customerEmail } : {}),
           custom: { order_id: input.order.id },
@@ -129,6 +143,8 @@ export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequ
         checkout_options: {
           discount: false,
         },
+        preview: true,
+        test_mode: input.order.testMode ?? false,
         expires_at: input.order.checkoutSessionExpiresAt.toISOString(),
       },
       relationships: {
@@ -170,6 +186,46 @@ export function validateLemonSqueezyCheckout(input: {
   if (input.checkout.variantId !== input.order.variantId) {
     throw new Error("Lemon Squeezy checkout Variant does not match configuration.");
   }
+  if (input.checkout.customPrice !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor) {
+    throw new Error("Lemon Squeezy checkout custom price does not match the Trip Pass price.");
+  }
+  if (
+    input.checkout.enabledVariants?.length !== 1 ||
+    input.checkout.enabledVariants[0] !== input.order.variantId
+  ) {
+    throw new Error("Lemon Squeezy checkout enabled variants do not match the configured Variant.");
+  }
+  if (input.checkout.quantity !== 1) {
+    throw new Error("Lemon Squeezy checkout quantity must be exactly one.");
+  }
+  if (input.checkout.discountEnabled !== false) {
+    throw new Error("Lemon Squeezy checkout discounts must be hidden.");
+  }
+  const previewTax = input.checkout.previewTax;
+  const previewTotal = input.checkout.previewTotal;
+  if (
+    input.checkout.previewSubtotal == null ||
+    input.checkout.previewDiscountTotal == null ||
+    previewTax == null ||
+    previewTotal == null ||
+    input.checkout.previewSubtotal !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor ||
+    input.checkout.previewDiscountTotal !== 0 ||
+    previewTax === undefined ||
+    previewTax < 0 ||
+    previewTotal === undefined ||
+    previewTotal < input.checkout.previewSubtotal
+  ) {
+    throw new Error("Lemon Squeezy checkout commercial preview is incomplete or invalid.");
+  }
+  if (input.checkout.testMode !== (input.order.testMode ?? false)) {
+    throw new Error("Lemon Squeezy checkout test/live mode does not match configuration.");
+  }
+  if (
+    !input.checkout.expiresAt ||
+    input.checkout.expiresAt > input.order.checkoutSessionExpiresAt
+  ) {
+    throw new Error("Lemon Squeezy checkout expiry does not match the local Order.");
+  }
 }
 
 export function summarizeCheckout(response: unknown): LemonSqueezyCheckoutSummary {
@@ -178,12 +234,38 @@ export function summarizeCheckout(response: unknown): LemonSqueezyCheckoutSummar
   const relationships = record(data.relationships);
   const store = record(record(relationships.store).data);
   const variant = record(record(relationships.variant).data);
+  const checkoutOptions = record(attributes.checkout_options);
+  const productOptions = record(attributes.product_options);
+  const checkoutData = record(attributes.checkout_data);
+  const variantQuantities = Array.isArray(checkoutData.variant_quantities)
+    ? checkoutData.variant_quantities
+    : [];
+  const targetVariantId = identifierValue(variant.id) ?? identifierValue(attributes.variant_id);
+  const quantityEntry = variantQuantities
+    .map(record)
+    .find((entry) => identifierValue(entry.variant_id) === targetVariantId);
+  const preview = record(attributes.preview);
   return {
     id: stringValue(data.id) ?? "",
     url: stringValue(attributes.url) ?? stringValue(attributes.checkout_url) ?? "",
     orderId: stringValue(record(record(attributes.checkout_data).custom).order_id),
     storeId: identifierValue(store.id) ?? identifierValue(attributes.store_id),
+    productId: identifierValue(attributes.product_id),
     variantId: identifierValue(variant.id) ?? identifierValue(attributes.variant_id),
+    customPrice: integerValue(attributes.custom_price),
+    enabledVariants: Array.isArray(productOptions.enabled_variants)
+      ? productOptions.enabled_variants
+          .map(identifierValue)
+          .filter((id): id is string => id !== null)
+      : null,
+    quantity: integerValue(quantityEntry?.quantity),
+    discountEnabled: booleanValue(checkoutOptions.discount),
+    previewSubtotal: integerValue(preview.subtotal),
+    previewDiscountTotal: integerValue(preview.discount_total),
+    previewTax: integerValue(preview.tax),
+    previewTotal: integerValue(preview.total),
+    testMode: booleanValue(attributes.test_mode),
+    expiresAt: dateValue(attributes.expires_at),
   };
 }
 
@@ -220,6 +302,22 @@ function identifierValue(value: unknown) {
     return Number.isSafeInteger(numeric) && numeric > 0 ? String(numeric) : null;
   }
   return stringValue(value);
+}
+
+function integerValue(value: unknown) {
+  const parsed =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function booleanValue(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function dateValue(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
 }
 
 export const tripPassLemonSqueezyProductSnapshot = {

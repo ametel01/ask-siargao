@@ -148,5 +148,7 @@ async function markRefundRetryable(
 }
 
 function errorCode(error: unknown) {
-  return error instanceof Error ? `lemon_squeezy_refund_${error.name}` : "lemon_squeezy_refund_unknown";
+  return error instanceof Error
+    ? `lemon_squeezy_refund_${error.name}`
+    : "lemon_squeezy_refund_unknown";
 }

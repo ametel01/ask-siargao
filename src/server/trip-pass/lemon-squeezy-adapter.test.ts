@@ -34,7 +34,10 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
       { variant_id: 999, quantity: 1 },
     ]);
     expect(request.data.attributes.product_options.enabled_variants).toEqual([999]);
+    expect(request.data.attributes.custom_price).toBe(999);
     expect(request.data.attributes.checkout_options).toEqual({ discount: false });
+    expect(request.data.attributes.preview).toBe(true);
+    expect(request.data.attributes.test_mode).toBe(false);
     expect(request.data.attributes.expires_at).toBe("2026-08-19T00:30:00.000Z");
     expect(serialized).not.toContain("account_private_1");
     expect(serialized).toContain("traveler@example.com");
@@ -50,6 +53,16 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
           orderId: "trip_pass_order_1",
           storeId: "store_live",
           variantId: "variant_other",
+          customPrice: 999,
+          enabledVariants: ["variant_other"],
+          quantity: 1,
+          discountEnabled: false,
+          previewSubtotal: 999,
+          previewDiscountTotal: 0,
+          previewTax: 0,
+          previewTotal: 999,
+          testMode: false,
+          expiresAt: order.checkoutSessionExpiresAt,
         },
       }),
     ).toThrow("Variant does not match");
@@ -65,6 +78,16 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
           orderId: order.id,
           storeId: null,
           variantId: order.variantId,
+          customPrice: 999,
+          enabledVariants: [order.variantId],
+          quantity: 1,
+          discountEnabled: false,
+          previewSubtotal: 999,
+          previewDiscountTotal: 0,
+          previewTax: 0,
+          previewTotal: 999,
+          testMode: false,
+          expiresAt: order.checkoutSessionExpiresAt,
         },
       }),
     ).toThrow("Store is missing");
