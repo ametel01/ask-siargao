@@ -32,6 +32,7 @@ export async function enqueueDueOperationalTasks(
     commerce_reconciliation: 0,
     pending_payment_event: 0,
     paid_after_closure_refund: 0,
+    lemon_squeezy_refund: 0,
     pending_stripe_event: 0,
     retention_purge: 0,
   };
@@ -119,6 +120,23 @@ async function loadDueTargets(
              or (status = 'running' and lease_expires_at <= clock_timestamp())
            )
          order by id
+         limit $1`,
+        [limit],
+      )
+    ).rows;
+  }
+  if (taskType === "lemon_squeezy_refund") {
+    return (
+      await db.query<DueTarget>(
+        `select id as resource_ref from trip_pass_refund_operations
+         where (
+           status = 'pending'
+           and (next_attempt_at is null or next_attempt_at <= clock_timestamp())
+           and (lease_expires_at is null or lease_expires_at <= clock_timestamp())
+         ) or (
+           status = 'running' and lease_expires_at <= clock_timestamp()
+         )
+         order by coalesce(next_attempt_at, created_at), id
          limit $1`,
         [limit],
       )

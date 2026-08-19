@@ -22,6 +22,17 @@ describe("production operational task handlers", () => {
           }),
         },
         db,
+        lemonRefundClient: {
+          createCheckout: async () => {
+            throw new Error("not used");
+          },
+          retrieveOrder: async () => {
+            throw new Error("not used");
+          },
+          refundOrder: async () => {
+            throw new Error("not used");
+          },
+        },
         refundClient: {
           createFullRefund: async () => ({ id: "refund", status: "succeeded" }),
           retrieveRefund: async () => ({ id: "refund", status: "succeeded" }),

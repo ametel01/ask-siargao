@@ -119,5 +119,6 @@ function operationForTask(taskType: OperationalTaskType) {
   if (taskType === "pending_payment_event") return "payment_event_application" as const;
   if (taskType === "pending_stripe_event") return "stripe_application" as const;
   if (taskType === "paid_after_closure_refund") return "paid_after_closure_refund" as const;
+  if (taskType === "lemon_squeezy_refund") return "paid_after_closure_refund" as const;
   return "live_reconciliation" as const;
 }
