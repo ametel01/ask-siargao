@@ -467,8 +467,8 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     },
   );
   assert(
-    drained.succeeded === 4 && drained.failed === 1,
-    "native producer worker did not drain four tasks and retain one retry",
+    drained.succeeded === 5 && drained.failed === 1,
+    "native producer worker did not drain five tasks and retain one retry",
   );
   await db.query(
     `update operational_worker_tasks set next_attempt_at = clock_timestamp()
