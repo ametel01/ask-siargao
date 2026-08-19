@@ -93,10 +93,15 @@ export function createLemonSqueezyCheckoutClient(
         method: "POST",
         path: `/v1/orders/${encodeURIComponent(providerOrderId)}/refund`,
         idempotencyKey: input.idempotencyKey,
-        body:
-          input.amountMinor === undefined
-            ? undefined
-            : { data: { type: "order-refunds", attributes: { amount: input.amountMinor } } },
+        body: {
+          data: {
+            type: "orders",
+            id: providerOrderId,
+            ...(input.amountMinor === undefined
+              ? {}
+              : { attributes: { amount: input.amountMinor } }),
+          },
+        },
       });
       return parseLemonSqueezyOrderFact({ eventName: "order_refunded", payload: response });
     },
