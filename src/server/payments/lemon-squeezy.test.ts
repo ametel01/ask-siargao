@@ -114,4 +114,38 @@ describe("Lemon Squeezy payment authority boundary", () => {
     expect(paymentFactFingerprint(base)).not.toBe(paymentFactFingerprint(refunded));
     expect(paymentFactFingerprint(base)).toHaveLength(64);
   });
+
+  test("preserves the refunded amount and partial-refund status from an order payload", () => {
+    const partial = parseLemonSqueezyOrderFact({
+      eventName: "order_refunded",
+      payload: {
+        data: {
+          id: "123",
+          attributes: {
+            status: "partial_refund",
+            total: 1199,
+            refunded: false,
+            refunded_amount: 100,
+          },
+        },
+      },
+    });
+    const full = parseLemonSqueezyOrderFact({
+      eventName: "order_refunded",
+      payload: {
+        data: {
+          id: "123",
+          attributes: {
+            status: "refunded",
+            total: 1199,
+            refunded: true,
+            refunded_amount: 1199,
+          },
+        },
+      },
+    });
+
+    expect(partial).toMatchObject({ status: "partial_refund", refundedAmountMinor: 100 });
+    expect(full).toMatchObject({ status: "refunded", refundedAmountMinor: 1199 });
+  });
 });

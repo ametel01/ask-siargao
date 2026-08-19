@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildLemonSqueezyCheckoutRequest,
+  createLemonSqueezyCheckoutClient,
   validateLemonSqueezyCheckout,
 } from "@/server/trip-pass/lemon-squeezy-adapter";
 
@@ -47,5 +48,43 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
         },
       }),
     ).toThrow("Variant does not match");
+  });
+
+  test("uses the official JSON:API order refund request for partial refunds", async () => {
+    let capturedRequest: unknown;
+    const client = createLemonSqueezyCheckoutClient({
+      request: async (request) => {
+        capturedRequest = request;
+        return {
+          data: {
+            type: "orders",
+            id: "123",
+            attributes: {
+              status: "partial_refund",
+              total: 1199,
+              refunded: false,
+              refunded_amount: 100,
+              currency: "USD",
+              updated_at: "2026-08-19T00:00:00Z",
+            },
+          },
+        };
+      },
+    });
+
+    await client.refundOrder("123", { amountMinor: 100, idempotencyKey: "refund:123:100" });
+
+    expect(capturedRequest).toEqual({
+      method: "POST",
+      path: "/v1/orders/123/refund",
+      idempotencyKey: "refund:123:100",
+      body: {
+        data: {
+          type: "orders",
+          id: "123",
+          attributes: { amount: 100 },
+        },
+      },
+    });
   });
 });

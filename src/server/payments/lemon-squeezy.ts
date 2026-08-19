@@ -209,13 +209,19 @@ export function parseLemonSqueezyOrderFact(input: {
   const firstOrderItem = asRecord(attributes.first_order_item);
   const providerOrderId =
     stringValue(data.id) ?? stringValue(attributes.id) ?? input.orderId ?? null;
-  const status = normalizeOrderStatus(attributes.status ?? attributes.order_status);
   const updatedAt =
     stringValue(attributes.updated_at) ??
     stringValue(attributes.created_at) ??
     new Date(0).toISOString();
   const amountTotalMinor = integerValue(attributes.total ?? attributes.total_usd);
-  const refundedAmountMinor = integerValue(attributes.refunded ?? attributes.refunded_amount);
+  const refundedAmountMinor = integerValue(
+    attributes.refunded_amount ?? attributes.refunded_amount_usd,
+  );
+  const status = normalizeOrderStatus(attributes.status ?? attributes.order_status, {
+    refunded: attributes.refunded,
+    refundedAmountMinor,
+    amountTotalMinor,
+  });
   const variantId =
     stringValue(orderItemAttributes.variant_id) ??
     stringValue(firstOrderItem.variant_id) ??
@@ -240,10 +246,17 @@ export function parseLemonSqueezyOrderFact(input: {
   };
 }
 
-function normalizeOrderStatus(value: unknown): LemonSqueezyOrderStatus {
+function normalizeOrderStatus(
+  value: unknown,
+  refund: {
+    refunded: unknown;
+    refundedAmountMinor: number | null;
+    amountTotalMinor: number | null;
+  },
+): LemonSqueezyOrderStatus {
   switch (String(value ?? "").toLowerCase()) {
     case "paid":
-      return "paid";
+      return inferredRefundStatus(refund) ?? "paid";
     case "refunded":
       return "refunded";
     case "partial_refund":
@@ -255,9 +268,24 @@ function normalizeOrderStatus(value: unknown): LemonSqueezyOrderStatus {
     case "failed":
     case "cancelled":
       return "failed";
+    case "pending":
+      return inferredRefundStatus(refund) ?? "pending";
     default:
-      return "pending";
+      return inferredRefundStatus(refund) ?? "pending";
   }
+}
+
+function inferredRefundStatus(input: {
+  refunded: unknown;
+  refundedAmountMinor: number | null;
+  amountTotalMinor: number | null;
+}): LemonSqueezyOrderStatus | null {
+  if (input.refunded === true) return "refunded";
+  if (input.refundedAmountMinor === null || input.refundedAmountMinor <= 0) return null;
+  if (input.amountTotalMinor !== null && input.refundedAmountMinor >= input.amountTotalMinor) {
+    return "refunded";
+  }
+  return "partial_refund";
 }
 
 function customOrderId(root: Record<string, unknown>) {
@@ -278,7 +306,12 @@ function stringValue(value: unknown) {
 }
 
 function integerValue(value: unknown) {
-  const number = typeof value === "number" ? value : Number(value);
+  const number =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN;
   return Number.isInteger(number) && number >= 0 ? number : null;
 }
 
