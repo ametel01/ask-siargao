@@ -559,6 +559,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
       db,
       handlers: {
         account_closure: async () => undefined,
+        checkout_return_lookup: async () => undefined,
         commerce_reconciliation: async () => undefined,
         pending_payment_event: async () => undefined,
         paid_after_closure_refund: async () => undefined,
@@ -569,8 +570,8 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     },
   );
   assert(
-    drained.succeeded === 6 && drained.failed === 1,
-    "native producer worker did not drain six tasks and retain one retry",
+    drained.succeeded === 7 && drained.failed === 1,
+    "native producer worker did not drain seven tasks and retain one retry",
   );
   await db.query(
     `update operational_worker_tasks set next_attempt_at = clock_timestamp()
@@ -599,7 +600,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     [reconciliationRef],
   );
   assert(
-    terminalBeforeReplay.rows.length === 7 &&
+    terminalBeforeReplay.rows.length === 8 &&
       terminalBeforeReplay.rows.every((row) => row.status === "succeeded"),
     "native producer tasks did not reach terminal success",
   );
