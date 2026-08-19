@@ -79,6 +79,7 @@ export const applicationTables = [
   "public_page_generation_jobs",
   "operational_reconciliation_runs",
   "operational_findings",
+  "operational_reconciliation_cursors",
   "operator_repair_actions",
   "operational_alert_deliveries",
   "operational_worker_tasks",
