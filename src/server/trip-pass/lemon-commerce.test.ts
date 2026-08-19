@@ -164,6 +164,74 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
     });
   });
 
+  test("refunds each additional provider Order without refunding lifecycle updates", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ($1, $2)", [
+        "account_lemon_extra_payment",
+        "extra@example.com",
+      ]);
+      await insertLemonOrder(db, "trip_pass_order_extra_payment", "account_lemon_extra_payment");
+      const applyFact = ({
+        fact,
+        db: factDb,
+        now: factNow,
+      }: Parameters<
+        NonNullable<Parameters<typeof receiveLemonSqueezyPaymentEvent>[1]["applyFact"]>
+      >[0]) => applyLemonSqueezyPaymentFact(fact, { db: factDb, now: factNow });
+      const payload = (providerOrderId: string, updatedAt: string, objectId: string) => ({
+        meta: {
+          event_name: "order_created",
+          custom_data: { order_id: "trip_pass_order_extra_payment" },
+        },
+        data: {
+          id: providerOrderId,
+          attributes: {
+            status: "paid",
+            total: 999,
+            refunded: 0,
+            currency: "usd",
+            store_id: "store_test",
+            variant_id: "variant_test",
+            updated_at: updatedAt,
+            test_mode: false,
+            object_id: objectId,
+          },
+        },
+      });
+
+      const original = await receiveLemonSqueezyPaymentEvent(
+        payload("provider_order_original", "2026-08-19T00:00:00Z", "original"),
+        { db, applyFact, now },
+      );
+      const extra = await receiveLemonSqueezyPaymentEvent(
+        payload("provider_order_extra", "2026-08-19T00:01:00Z", "extra"),
+        { db, applyFact, now },
+      );
+      const extraReplay = await receiveLemonSqueezyPaymentEvent(
+        payload("provider_order_extra", "2026-08-19T00:01:00Z", "extra"),
+        { db, applyFact, now },
+      );
+      const originalLifecycleUpdate = await receiveLemonSqueezyPaymentEvent(
+        payload("provider_order_original", "2026-08-19T00:02:00Z", "original_update"),
+        { db, applyFact, now },
+      );
+
+      expect(original.status).toBe("applied");
+      expect(extra).toMatchObject({ status: "applied", applicationResult: { action: "refunded" } });
+      expect(extraReplay.status).toBe("duplicate");
+      expect(originalLifecycleUpdate).toMatchObject({
+        status: "applied",
+        applicationResult: { status: "duplicate" },
+      });
+      const refunds = await db.query<{ provider_order_id: string; count: string }>(
+        `select provider_order_id, count(*)::text as count
+         from trip_pass_refund_operations where order_id = $1 group by provider_order_id`,
+        ["trip_pass_order_extra_payment"],
+      );
+      expect(refunds.rows).toEqual([{ provider_order_id: "provider_order_extra", count: "1" }]);
+    });
+  });
+
   test("retries a pending receipt instead of treating it as an applied duplicate", async () => {
     await withTestDb(async (db) => {
       const payload = {
