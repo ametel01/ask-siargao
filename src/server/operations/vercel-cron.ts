@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { pruneGooglePlacesContent } from "@/server/jobs/prune-google-places";
+import { operationalTaskTypes } from "@/server/operations/contracts";
 import {
   evaluateOperationalSchedules,
   runTrackedOperationalSchedule,
@@ -80,24 +81,24 @@ async function enqueueAndRunOperationalWorker({
   sentry: SentryOperationalSink;
 }) {
   const enqueued = await enqueueDueOperationalTasks(
-    { limitPerType: 25, taskTypes: ["account_closure"] },
+    { limitPerType: 25, taskTypes: operationalTaskTypes },
     db,
   );
   return {
     enqueued,
     // The worker must start after enqueueing so it can claim this cycle's tasks.
     worker: await runOperationalWorker(
-      { batchSize: 25, leaseSeconds: 60, taskTypes: ["account_closure"] },
+      { batchSize: 100, leaseSeconds: 60, taskTypes: operationalTaskTypes },
       {
         db,
         handlers: createProductionOperationalTaskHandlers({ db }),
-        onRepeatedFailure: async ({ attempts, taskKey }) => {
+        onRepeatedFailure: async ({ attempts, taskKey, taskType }) => {
           await deliverOperationalAlertOnce(
             {
               alertKey: `worker:${taskKey}:tier:${attempts >= 5 ? "high" : "warning"}`,
               errorCode: "operational_worker_repeated_failure",
               impact: attempts >= 5 ? "high" : "warning",
-              operation: "account_closure",
+              operation: taskTypeOperation(taskType),
             },
             { db, sink: sentry },
           );
@@ -105,6 +106,16 @@ async function enqueueAndRunOperationalWorker({
       },
     ),
   };
+}
+
+function taskTypeOperation(taskType: (typeof operationalTaskTypes)[number]) {
+  if (taskType === "pending_payment_event") return "payment_event_application" as const;
+  if (taskType === "pending_stripe_event") return "stripe_application" as const;
+  if (taskType === "lemon_squeezy_refund") return "paid_after_closure_refund" as const;
+  if (taskType === "paid_after_closure_refund") return "paid_after_closure_refund" as const;
+  if (taskType === "retention_purge") return "account_closure" as const;
+  if (taskType === "commerce_reconciliation") return "live_reconciliation" as const;
+  return "account_closure" as const;
 }
 
 export async function runMonitoredOperationalCron(

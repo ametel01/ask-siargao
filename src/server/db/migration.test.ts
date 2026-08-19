@@ -387,6 +387,7 @@ describe("Step 3 database migration", () => {
       "0027_lemon_squeezy_refund_worker.sql",
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
+      "0030_commerce_reconciliation_schedule.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -479,6 +480,7 @@ describe("Step 3 database migration", () => {
       "0027_lemon_squeezy_refund_worker.sql",
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
+      "0030_commerce_reconciliation_schedule.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -557,6 +559,7 @@ describe("Step 3 database migration", () => {
       "0027_lemon_squeezy_refund_worker.sql",
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
+      "0030_commerce_reconciliation_schedule.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -686,6 +689,7 @@ describe("Step 3 database migration", () => {
       "0027_lemon_squeezy_refund_worker.sql",
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
+      "0030_commerce_reconciliation_schedule.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),

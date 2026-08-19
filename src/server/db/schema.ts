@@ -2448,7 +2448,7 @@ export const operationalWorkerTasks = pgTable(
     ),
     check(
       "operational_worker_tasks_type_check",
-      sql`${table.taskType} in ('account_closure', 'pending_payment_event', 'pending_stripe_event', 'paid_after_closure_refund', 'retention_purge', 'commerce_reconciliation')`,
+      sql`${table.taskType} in ('account_closure', 'pending_payment_event', 'pending_stripe_event', 'paid_after_closure_refund', 'lemon_squeezy_refund', 'retention_purge', 'commerce_reconciliation')`,
     ),
     check(
       "operational_worker_tasks_status_check",
@@ -2492,7 +2492,7 @@ export const operationalScheduleStates = pgTable(
     ),
     check(
       "operational_schedule_states_key_check",
-      sql`${table.scheduleKey} in ('weather', 'marine', 'places_prune')`,
+      sql`${table.scheduleKey} in ('weather', 'marine', 'places_prune', 'commerce_reconciliation')`,
     ),
     check(
       "operational_schedule_states_schedule_check",

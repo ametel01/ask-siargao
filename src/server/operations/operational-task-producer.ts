@@ -155,6 +155,13 @@ async function loadDueTargets(
       )
     ).rows;
   }
+  if (taskType === "commerce_reconciliation") {
+    const dayKey = /^\d{8}/.test(cycleKey) ? cycleKey.slice(0, 8) : `day-${cycleKey}`;
+    return [
+      { resource_ref: `all:risk:${cycleKey}` },
+      { resource_ref: `all:daily:${dayKey}` },
+    ].slice(0, limit);
+  }
   return [{ resource_ref: `all:${cycleKey}` }];
 }
 

@@ -2,15 +2,19 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { createOperationTrace, type OperationEventRecorder } from "@/server/operations/contracts";
+import type { NormalizedPaymentFact } from "@/server/payments/lemon-squeezy";
 import {
   lockTripPassAccountFamily,
   lockTripPassAccountWrites,
 } from "@/server/trip-pass/payment-lifecycle";
 
+export type ReconciliationScope = "risk" | "daily" | "all";
+
 export type AuthoritativePaymentFact = {
   paymentState: "pending" | "paid" | "refunded" | "disputed" | "unpaid";
   amountMinor: number | null;
   currency: string | null;
+  providerFact?: NormalizedPaymentFact;
 };
 
 export type AuthoritativeCommerceReader = {
@@ -81,6 +85,7 @@ export async function reconcileLiveCommerce(
   input: {
     source: "cli" | "authenticated_adapter" | "worker";
     orderId?: string;
+    scope?: ReconciliationScope;
   },
   dependencies: {
     commerceReader: AuthoritativeCommerceReader;
@@ -90,6 +95,10 @@ export async function reconcileLiveCommerce(
     now?: () => Date;
     recordEvent?: OperationEventRecorder;
     alertFinding?: (finding: OperationalFindingView) => Promise<void>;
+    applyVerifiedPaymentFact?: (input: {
+      local: { id: string; paymentProvider: string };
+      fact: NormalizedPaymentFact;
+    }) => Promise<void>;
   },
 ): Promise<LiveReconciliationResult> {
   const db = dependencies.db ?? getDefaultDatabaseQueryClient();
@@ -98,7 +107,7 @@ export async function reconcileLiveCommerce(
   const trace = createOperationTrace(dependencies.recordEvent);
   const runId = createId("reconciliation_run");
   await trace.record({ index: 0, operation: "load_local_commerce", result: "started" });
-  const localRows = await loadLocalCommerce(db, input.orderId);
+  const localRows = await loadLocalCommerce(db, input.orderId, input.scope ?? "all");
   await trace.record({ index: 0, operation: "load_local_commerce", result: "succeeded" });
 
   const observations: CommerceObservation[] = [];
@@ -166,7 +175,7 @@ export async function reconcileLiveCommerce(
       );
       if (!freshness.rows[0]) continue;
 
-      const currentLocal = (await loadLocalCommerce(transaction, localId))[0];
+      const currentLocal = (await loadLocalCommerce(transaction, localId, "all"))[0];
       if (!currentLocal) continue;
       const observationFindings: OperationalFindingView[] = [];
       for (const candidate of compareCommerce(
@@ -257,6 +266,16 @@ export async function reconcileLiveCommerce(
     operation: "record_reconciliation_findings",
     result: "succeeded",
   });
+  if (dependencies.applyVerifiedPaymentFact) {
+    for (const observation of observations) {
+      if (observation.provider.providerFact) {
+        await dependencies.applyVerifiedPaymentFact({
+          local: { id: observation.local.id, paymentProvider: observation.local.payment_provider },
+          fact: observation.provider.providerFact,
+        });
+      }
+    }
+  }
   await Promise.all(findings.map((finding) => dependencies.alertFinding?.(finding)));
   return { checkedCount: localRows.length, findings, runId, trace: trace.events };
 }
@@ -282,9 +301,18 @@ function createIncidentKey(candidate: FindingCandidate) {
     .digest("hex")}`;
 }
 
-async function loadLocalCommerce(db: DatabaseQueryClient, orderId?: string) {
-  const params = orderId ? [orderId] : [];
-  const filter = orderId ? "where o.id = $1" : "";
+async function loadLocalCommerce(
+  db: DatabaseQueryClient,
+  orderId?: string,
+  scope: ReconciliationScope = "all",
+) {
+  const params = orderId ? [orderId] : [scope === "risk" ? 100 : 500];
+  const filter = orderId
+    ? "where o.id = $1"
+    : scope === "risk"
+      ? "where o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')"
+      : "";
+  const limit = orderId ? "" : `limit $${params.length}`;
   const result = await db.query<LocalCommerceSnapshot>(
     `select o.id, o.user_id, o.product_family, o.status, o.amount_total_minor, o.currency,
        o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.payment_provider,
@@ -296,7 +324,8 @@ async function loadLocalCommerce(db: DatabaseQueryClient, orderId?: string) {
      ${filter}
      group by o.id
      order by case when o.status in ('paid', 'checkout_created') then 0 else 1 end,
-       o.created_at, o.id`,
+       o.updated_at desc, o.created_at, o.id
+     ${limit}`,
     params,
   );
   return result.rows;

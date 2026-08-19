@@ -15,6 +15,7 @@ export function createLemonSqueezyCommerceReader(
         amountMinor: order.amountTotalMinor,
         currency: order.currency,
         paymentState: toPaymentState(order.status),
+        providerFact: order,
       };
     },
   };

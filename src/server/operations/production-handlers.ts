@@ -8,6 +8,7 @@ import type {
   OperationalFindingView,
 } from "@/server/operations/live-reconciliation";
 import { reconcileLiveCommerce } from "@/server/operations/live-reconciliation";
+import { runTrackedOperationalSchedule } from "@/server/operations/operational-schedule-sentinel";
 import { createStripeCommerceReader } from "@/server/operations/stripe-commerce-reader";
 import { applyPendingLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
 import type { StripeRefundClient } from "@/server/payments/stripe";
@@ -152,19 +153,41 @@ export function createProductionOperationalTaskHandlers(dependencies: {
     },
     commerce_reconciliation: async ({ resourceRef, trace }) => {
       await trace.record({ index: 0, operation: "commerce_reconciliation", result: "started" });
-      await reconcileLiveCommerce(
-        {
-          orderId:
-            resourceRef === "all" || resourceRef.startsWith("all:") ? undefined : resourceRef,
-          source: "worker",
+      await runTrackedOperationalSchedule(
+        "commerce_reconciliation",
+        async () => {
+          const scope = resourceRef.startsWith("all:risk:")
+            ? "risk"
+            : resourceRef.startsWith("all:daily:")
+              ? "daily"
+              : "all";
+          await reconcileLiveCommerce(
+            {
+              orderId:
+                resourceRef === "all" || resourceRef.startsWith("all:") ? undefined : resourceRef,
+              scope,
+              source: "worker",
+            },
+            {
+              applyVerifiedPaymentFact: async ({ fact }) => {
+                if (fact.provider !== "lemon_squeezy") return;
+                const result = await applyLemonSqueezyPaymentFact(fact, {
+                  db,
+                  env: process.env,
+                });
+                if (result.status === "rejected") {
+                  throw new Error(`reconciliation_payment_fact_rejected:${result.reason}`);
+                }
+              },
+              commerceReader: dependencies.commerceReader ?? createDefaultCommerceReader(),
+              commerceReaders: dependencies.commerceReaders ?? createDefaultCommerceReaders(),
+              db,
+              recordEvent: trace.record,
+              alertFinding: dependencies.alertFinding,
+            },
+          );
         },
-        {
-          commerceReader: dependencies.commerceReader ?? createDefaultCommerceReader(),
-          commerceReaders: dependencies.commerceReaders ?? createDefaultCommerceReaders(),
-          db,
-          recordEvent: trace.record,
-          alertFinding: dependencies.alertFinding,
-        },
+        { db },
       );
       await trace.record({ index: 0, operation: "commerce_reconciliation", result: "succeeded" });
     },

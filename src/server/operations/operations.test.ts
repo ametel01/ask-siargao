@@ -999,52 +999,54 @@ describe("Sentry operational paging", () => {
 });
 
 describe("durable provider-neutral workers", () => {
-  test("producer enqueues one stable reconciliation cycle and worker drains it", async () => {
+  test("producer enqueues risk and daily reconciliation cycles and worker drains them", async () => {
     await withTestDb(async (db) => {
       const input = {
         cycleKey: "cycle-20260808T12",
         taskTypes: ["commerce_reconciliation"] as const,
       };
       expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
-        commerce_reconciliation: 1,
+        commerce_reconciliation: 2,
       });
       expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
         commerce_reconciliation: 0,
       });
-      const resourceRef = "all:cycle-20260808T12";
+      const resourceRefs = ["all:risk:cycle-20260808T12", "all:daily:day-cycle-20260808T12"];
       const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(
         "select id, resource_ref, task_type from operational_worker_tasks",
       );
-      expect(queued.rows).toEqual([
-        {
+      expect(queued.rows).toEqual(
+        resourceRefs.map((resourceRef) => ({
           id: stableOperationalTaskId("commerce_reconciliation", resourceRef),
           resource_ref: resourceRef,
           task_type: "commerce_reconciliation",
-        },
-      ]);
+        })),
+      );
       await expect(
         runOperationalWorker(
-          { batchSize: 1, leaseSeconds: 60 },
+          { batchSize: 2, leaseSeconds: 60 },
           {
             db,
             handlers: { commerce_reconciliation: async () => undefined },
           },
         ),
-      ).resolves.toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      ).resolves.toEqual({ claimed: 2, failed: 0, stale: 0, succeeded: 2 });
     });
   });
 
   test("producer keys remain terminal-idempotent after every task kind succeeds", async () => {
     await withTestDb(async (db) => {
       const cycleKey = "cycle-terminal-idempotency";
-      const inputs = operationalTaskTypes.map((taskType) => {
-        const resourceRef =
-          taskType === "commerce_reconciliation" ? `all:${cycleKey}` : `opaque:${taskType}`;
-        return {
+      const inputs = operationalTaskTypes.flatMap((taskType) => {
+        const resourceRefs =
+          taskType === "commerce_reconciliation"
+            ? [`all:risk:${cycleKey}`, `all:daily:day-${cycleKey}`]
+            : [`opaque:${taskType}`];
+        return resourceRefs.map((resourceRef) => ({
           id: stableOperationalTaskId(taskType, resourceRef),
           resourceRef,
           taskType,
-        };
+        }));
       });
       const concurrentCreates = await Promise.all(
         inputs.flatMap((input) => [
@@ -1052,21 +1054,19 @@ describe("durable provider-neutral workers", () => {
           enqueueOperationalTask(input, db),
         ]),
       );
-      expect(concurrentCreates.filter(Boolean)).toHaveLength(operationalTaskTypes.length);
+      const expectedTaskCount = operationalTaskTypes.length + 1;
+      expect(concurrentCreates.filter(Boolean)).toHaveLength(expectedTaskCount);
 
       const handlers = Object.fromEntries(
         operationalTaskTypes.map((taskType) => [taskType, async () => undefined]),
       );
       await expect(
-        runOperationalWorker(
-          { batchSize: operationalTaskTypes.length, leaseSeconds: 60 },
-          { db, handlers },
-        ),
+        runOperationalWorker({ batchSize: expectedTaskCount, leaseSeconds: 60 }, { db, handlers }),
       ).resolves.toEqual({
-        claimed: operationalTaskTypes.length,
+        claimed: expectedTaskCount,
         failed: 0,
         stale: 0,
-        succeeded: operationalTaskTypes.length,
+        succeeded: expectedTaskCount,
       });
 
       const replayed = await Promise.all(inputs.map((input) => enqueueOperationalTask(input, db)));
@@ -1080,12 +1080,12 @@ describe("durable provider-neutral workers", () => {
         `select attempts, completed_at, resource_ref, status
          from operational_worker_tasks order by task_type`,
       );
-      expect(terminal.rows).toHaveLength(operationalTaskTypes.length);
+      expect(terminal.rows).toHaveLength(expectedTaskCount);
       for (const row of terminal.rows) {
         expect(row.status).toBe("succeeded");
         expect(row.attempts).toBe(1);
         expect(row.completed_at).not.toBeNull();
-        expect(row.resource_ref).toMatch(/^(?:all:cycle-|opaque:)[a-z_:-]+$/);
+        expect(row.resource_ref).toMatch(/^(?:all:(?:risk:|daily:)|opaque:)[a-z_:-]+$/);
       }
 
       const nextCycle = await Promise.all([
@@ -1098,7 +1098,7 @@ describe("durable provider-neutral workers", () => {
           db,
         ),
       ]);
-      expect(nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0)).toBe(1);
+      expect(nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0)).toBe(2);
     });
   });
 
