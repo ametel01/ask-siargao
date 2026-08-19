@@ -230,6 +230,16 @@ export async function deliverPendingPageWorthyAlerts(dependencies: {
     where status <> 'succeeded' and alerted_at is not null
     union all
     select
+      'partial-refund:' || id,
+      'partial_refund_deadline',
+      null::text,
+      null::text,
+      'high'::text,
+      'paid_after_closure_refund'::text
+    from trip_pass_orders
+    where refund_state = 'review' and refund_review_alerted_at is not null
+    union all
+    select
       'operational-finding:' || id || ':lifecycle:' || lifecycle::text,
       summary_code,
       id,
