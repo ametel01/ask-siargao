@@ -40,9 +40,13 @@ references, never full Checkout URLs, provider payloads, emails, or provider obj
 The producer emits one durable `risk:<cycle>:<order>` task for each due active or nonterminal Order
 and one `daily:<cycle>:<order>` task for each terminal Order, including refunded Orders. Risk
 observations become due after five minutes and terminal observations after 24 hours. Each production
-cron invocation pages through every due reconciliation Order and drains that lane before processing
-the bounded general-worker backlog, so neither a fixed producer cap nor unrelated work can starve a
-due Order. Each worker lease performs at most one provider lookup.
+cron invocation persists every newly due task, then concurrently claims at most 50 reconciliation
+tasks, 25 tasks from each lifecycle-recovery family, and 25 retention tasks. Provider calls in each
+lane run concurrently behind database-time leases, so a 45-second lookup cannot turn a batch into
+an unbounded sequential drain or prevent checkout-return, webhook, refund, or Account Closure work
+from starting. The every-minute schedule gives a 151-Order risk backlog four bounded attempt cycles
+inside the five-minute cadence. Workers stop claiming a lane when less than 46 seconds remain in the
+function budget, and each task lease performs at most one provider lookup.
 
 ## Exact finding scope
 

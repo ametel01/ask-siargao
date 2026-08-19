@@ -10,6 +10,8 @@ import {
 } from "@/app/api/me/trip-pass/trip-pass-route";
 import type { CurrentUserAuthSnapshot } from "@/server/auth/clerk-users";
 import { runInitialMigration } from "@/server/db/test-database";
+import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
+import { runOperationalWorker } from "@/server/operations/worker-runner";
 import { receiveLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
@@ -356,12 +358,12 @@ describe("Trip Pass account API routes", () => {
       );
       expect(state.rows[0]).toEqual({
         accepted_payment_fact_id: null,
-        checkout_return_lookup_status: "exhausted",
+        checkout_return_lookup_status: "pending",
       });
     });
   });
 
-  test("performs one bounded provider lookup when the paid webhook is lost", async () => {
+  test("durably enqueues the exact-Order lookup before a worker calls the provider", async () => {
     await withRouteDb(async (db) => {
       await insertUser(db, "user_return_lookup");
       const createdAt = new Date(now.getTime() - 11_000);
@@ -386,27 +388,6 @@ describe("Trip Pass account API routes", () => {
           LEMON_SQUEEZY_VARIANT_ID: "variant_test",
           LEMON_SQUEEZY_API_KEY: "test_key",
         },
-        retrieveLemonSqueezyOrder: async (providerOrderId) => {
-          lookupCalls.push(providerOrderId);
-          return {
-            provider: "lemon_squeezy",
-            eventName: "order_lookup",
-            objectId: providerOrderId,
-            providerUpdatedAt: now.toISOString(),
-            orderId: null,
-            providerOrderId,
-            paymentId: identifier,
-            storeId: "7",
-            productId: "product_test",
-            variantId: "variant_test",
-            status: "paid",
-            amountTotalMinor: 999,
-            refundedAmountMinor: 0,
-            currency: "usd",
-            testMode: false,
-            discountTotalMinor: 0,
-          };
-        },
         userId: "user_return_lookup",
       });
       const request = () =>
@@ -416,13 +397,105 @@ describe("Trip Pass account API routes", () => {
         });
 
       const first = await postTripPassCheckoutReturnResponse(request(), dependencies);
-      const second = await postTripPassCheckoutReturnResponse(request(), dependencies);
+      expect(first.status).toBe(202);
+      expect(await first.json()).toEqual({ status: "pending" });
+      expect(lookupCalls).toEqual([]);
+      const queued = await db.query<{
+        attempts: number;
+        provider_order_id: string;
+        provider_order_identifier: string;
+        status: string;
+      }>(
+        `select task.attempts, orders.checkout_return_provider_order_id as provider_order_id,
+           orders.checkout_return_provider_order_identifier as provider_order_identifier,
+           task.status
+         from operational_worker_tasks task
+         join trip_pass_orders orders on orders.id = task.resource_ref
+         where task.task_type = 'checkout_return_lookup' and task.resource_ref = $1`,
+        ["order_return_lookup"],
+      );
+      expect(queued.rows[0]).toEqual({
+        attempts: 0,
+        provider_order_id: "12345",
+        provider_order_identifier: identifier,
+        status: "pending",
+      });
 
-      expect(first.status).toBe(200);
+      const ambiguousHandlers = createProductionOperationalTaskHandlers({
+        db,
+        lemonCheckoutClient: {
+          retrieveOrder: async (providerOrderId) => {
+            lookupCalls.push(providerOrderId);
+            throw new TypeError("ambiguous_lookup_response");
+          },
+        },
+      });
+      await expect(
+        runOperationalWorker(
+          { batchSize: 1, leaseSeconds: 60, taskTypes: ["checkout_return_lookup"] },
+          { db, handlers: ambiguousHandlers },
+        ),
+      ).resolves.toEqual({ claimed: 1, failed: 1, stale: 0, succeeded: 0 });
+      const retryable = await db.query<{
+        provider_order_id: string;
+        provider_order_identifier: string;
+        status: string;
+      }>(
+        `select orders.checkout_return_provider_order_id as provider_order_id,
+           orders.checkout_return_provider_order_identifier as provider_order_identifier,
+           task.status
+         from operational_worker_tasks task
+         join trip_pass_orders orders on orders.id = task.resource_ref
+         where task.task_type = 'checkout_return_lookup' and task.resource_ref = $1`,
+        ["order_return_lookup"],
+      );
+      expect(retryable.rows[0]).toEqual({
+        provider_order_id: "12345",
+        provider_order_identifier: identifier,
+        status: "pending",
+      });
+      await db.query(
+        `update operational_worker_tasks set next_attempt_at = clock_timestamp()
+         where task_type = 'checkout_return_lookup' and resource_ref = $1`,
+        ["order_return_lookup"],
+      );
+
+      const handlers = createProductionOperationalTaskHandlers({
+        db,
+        lemonCheckoutClient: {
+          retrieveOrder: async (providerOrderId) => {
+            lookupCalls.push(providerOrderId);
+            return {
+              provider: "lemon_squeezy",
+              eventName: "order_lookup",
+              objectId: providerOrderId,
+              providerUpdatedAt: now.toISOString(),
+              orderId: null,
+              providerOrderId,
+              paymentId: identifier,
+              storeId: "7",
+              productId: "product_test",
+              variantId: "variant_test",
+              status: "paid",
+              amountTotalMinor: 999,
+              refundedAmountMinor: 0,
+              currency: "usd",
+              testMode: false,
+              discountTotalMinor: 0,
+            };
+          },
+        },
+      });
+      await expect(
+        runOperationalWorker(
+          { batchSize: 1, leaseSeconds: 60, taskTypes: ["checkout_return_lookup"] },
+          { db, handlers },
+        ),
+      ).resolves.toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      const second = await postTripPassCheckoutReturnResponse(request(), dependencies);
       expect(second.status).toBe(200);
-      expect(await first.json()).toEqual({ status: "applied" });
       expect(await second.json()).toEqual({ status: "applied" });
-      expect(lookupCalls).toEqual(["12345"]);
+      expect(lookupCalls).toEqual(["12345", "12345"]);
       const receipts = await db.query<{ event_name: string; status: string }>(
         "select event_name, status from trip_pass_payment_event_receipts where order_id = $1",
         ["order_return_lookup"],
@@ -446,25 +519,6 @@ describe("Trip Pass account API routes", () => {
       );
       let lookupCount = 0;
       const dependencies = routeDependencies(db, {
-        retrieveLemonSqueezyOrder: async (providerOrderId) => {
-          lookupCount += 1;
-          return {
-            provider: "lemon_squeezy",
-            eventName: "order_lookup",
-            objectId: providerOrderId,
-            providerUpdatedAt: now.toISOString(),
-            orderId: null,
-            providerOrderId,
-            paymentId: "104e18a2-d755-4d4b-80c4-a6c1dcbe1c10",
-            storeId: "7",
-            variantId: "variant_test",
-            status: "paid",
-            amountTotalMinor: 999,
-            refundedAmountMinor: 0,
-            currency: "usd",
-            testMode: false,
-          };
-        },
         userId: "user_return_mismatch",
       });
       const response = await postTripPassCheckoutReturnResponse(
@@ -474,8 +528,36 @@ describe("Trip Pass account API routes", () => {
         }),
         dependencies,
       );
-
       expect(response.status).toBe(202);
+      expect(lookupCount).toBe(0);
+      const handlers = createProductionOperationalTaskHandlers({
+        db,
+        lemonCheckoutClient: {
+          retrieveOrder: async (providerOrderId) => {
+            lookupCount += 1;
+            return {
+              provider: "lemon_squeezy",
+              eventName: "order_lookup",
+              objectId: providerOrderId,
+              providerUpdatedAt: now.toISOString(),
+              orderId: null,
+              providerOrderId,
+              paymentId: "104e18a2-d755-4d4b-80c4-a6c1dcbe1c10",
+              storeId: "7",
+              variantId: "variant_test",
+              status: "paid",
+              amountTotalMinor: 999,
+              refundedAmountMinor: 0,
+              currency: "usd",
+              testMode: false,
+            };
+          },
+        },
+      });
+      await runOperationalWorker(
+        { batchSize: 1, leaseSeconds: 60, taskTypes: ["checkout_return_lookup"] },
+        { db, handlers },
+      );
       expect(lookupCount).toBe(1);
       const state = await db.query<{ checkout_return_lookup_status: string }>(
         "select checkout_return_lookup_status from trip_pass_orders where id = $1",
@@ -500,7 +582,6 @@ function routeDependencies(
     checkoutError?: Error;
     checkoutResult?: Awaited<ReturnType<TripPassAccountRouteDependencies["startTripPassCheckout"]>>;
     env?: Record<string, string | undefined>;
-    retrieveLemonSqueezyOrder?: TripPassAccountRouteDependencies["retrieveLemonSqueezyOrder"];
     userId: string | null;
   },
 ): TestRouteDependencies {
@@ -523,7 +604,6 @@ function routeDependencies(
     env: input.env ?? availableEnv,
     events,
     now: () => now,
-    retrieveLemonSqueezyOrder: input.retrieveLemonSqueezyOrder,
     cancelTripPassCheckout: async (cancelInput) => {
       cancelCalls.push({ userId: cancelInput.userId });
       if (input.cancelError) {

@@ -169,18 +169,12 @@ export async function executeOperatorRefund(
       ) {
         await db.query(
           `update trip_pass_refund_operations set reason = 'operator_refund', amount_minor = $3,
-             provider_captured_amount_minor = $4, idempotency_key = $5,
+             provider_captured_amount_minor = $4,
              next_attempt_at = clock_timestamp(), last_error_code = null,
              updated_at = clock_timestamp()
            where order_id = $1 and provider_order_id = $2
              and reason = 'partial_refund_deadline' and status = 'pending'`,
-          [
-            input.orderId,
-            lockedOrder.provider_order_id,
-            amountMinor,
-            before.capturedAmountMinor,
-            `operator_refund:${actionId}`,
-          ],
+          [input.orderId, lockedOrder.provider_order_id, amountMinor, before.capturedAmountMinor],
         );
       } else {
         await db.query(
@@ -210,6 +204,7 @@ export async function executeOperatorRefund(
       await db.query(
         `update trip_pass_orders set refund_state = 'partial_final',
            refund_remaining_amount_minor = null, refund_review_deadline_at = null,
+           refund_review_alerted_at = null,
            lifecycle_updated_at = clock_timestamp(), updated_at = clock_timestamp()
          where id = $1 and refund_state = 'review'`,
         [input.orderId],

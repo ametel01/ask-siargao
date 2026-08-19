@@ -645,6 +645,8 @@ export const tripPassOrders = pgTable(
     checkoutReturnLookupCompletedAt: timestamp("checkout_return_lookup_completed_at", {
       withTimezone: true,
     }),
+    checkoutReturnProviderOrderId: text("checkout_return_provider_order_id"),
+    checkoutReturnProviderOrderIdentifier: text("checkout_return_provider_order_identifier"),
     checkoutCancellationConfirmedAt: timestamp("checkout_cancellation_confirmed_at", {
       withTimezone: true,
     }),
@@ -679,6 +681,11 @@ export const tripPassOrders = pgTable(
       .where(sql`${table.status} in ('pending', 'checkout_created')`),
     index("trip_pass_orders_closure_tombstone_id_idx").on(table.closureTombstoneId),
     index("trip_pass_orders_closure_refund_obligation_id_idx").on(table.closureRefundObligationId),
+    index("trip_pass_orders_checkout_return_lookup_due_idx")
+      .on(table.checkoutReturnLookupStatus, table.checkoutReturnLookupCompletedAt, table.id)
+      .where(
+        sql`${table.checkoutReturnLookupAttempts} > 0 and ${table.acceptedPaymentFactId} is null`,
+      ),
     check(
       "trip_pass_orders_status_check",
       sql`${table.status} in ('pending', 'checkout_created', 'paid', 'cancelled', 'expired', 'refunded', 'disputed', 'failed')`,
@@ -724,6 +731,10 @@ export const tripPassOrders = pgTable(
     check(
       "trip_pass_orders_checkout_return_lookup_status_check",
       sql`${table.checkoutReturnLookupStatus} in ('pending', 'succeeded', 'not_found', 'exhausted')`,
+    ),
+    check(
+      "trip_pass_orders_checkout_return_provider_reference_check",
+      sql`(${table.checkoutReturnProviderOrderId} is null and ${table.checkoutReturnProviderOrderIdentifier} is null) or (${table.checkoutReturnProviderOrderId} is not null and ${table.checkoutReturnProviderOrderIdentifier} is not null)`,
     ),
   ],
 );
@@ -2521,7 +2532,7 @@ export const operationalWorkerTasks = pgTable(
     ),
     check(
       "operational_worker_tasks_type_check",
-      sql`${table.taskType} in ('account_closure', 'pending_payment_event', 'pending_stripe_event', 'paid_after_closure_refund', 'lemon_squeezy_refund', 'retention_purge', 'commerce_reconciliation')`,
+      sql`${table.taskType} in ('account_closure', 'checkout_return_lookup', 'pending_payment_event', 'pending_stripe_event', 'paid_after_closure_refund', 'lemon_squeezy_refund', 'retention_purge', 'commerce_reconciliation')`,
     ),
     check(
       "operational_worker_tasks_status_check",

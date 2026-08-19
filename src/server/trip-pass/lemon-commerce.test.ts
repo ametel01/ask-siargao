@@ -438,7 +438,7 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
           provider: "lemon_squeezy",
           eventName: "order_lookup",
           objectId: "provider_order_partial",
-          providerUpdatedAt: "2026-08-19T00:00:00.000Z",
+          providerUpdatedAt: "2026-08-19T00:05:00.000Z",
           orderId: "trip_pass_order_partial_refund",
           providerOrderId: "provider_order_partial",
           paymentId: null,
@@ -463,6 +463,47 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
          where o.id = 'trip_pass_order_partial_refund'`,
       );
       expect(final.rows[0]).toEqual({ refund_state: "partial_final", status: "cancelled" });
+
+      const increased = await receiveLemonSqueezyPaymentFact(
+        {
+          provider: "lemon_squeezy",
+          eventName: "order_lookup",
+          objectId: "provider_order_partial",
+          providerUpdatedAt: "2026-08-19T00:06:00.000Z",
+          orderId: "trip_pass_order_partial_refund",
+          providerOrderId: "provider_order_partial",
+          paymentId: null,
+          storeId: "store_test",
+          variantId: "variant_test",
+          status: "partial_refund",
+          amountTotalMinor: 999,
+          refundedAmountMinor: 400,
+          currency: "usd",
+          testMode: false,
+          discountTotalMinor: 0,
+        },
+        { db, applyFact, now },
+      );
+      expect(increased).toMatchObject({
+        status: "applied",
+        applicationResult: { status: "applied", action: "refund_review" },
+      });
+      const reopened = await db.query<{
+        amount_minor: number;
+        refund_state: string;
+        status: string;
+      }>(
+        `select o.refund_state, operation.status, operation.amount_minor
+         from trip_pass_orders o
+         join trip_pass_refund_operations operation on operation.order_id = o.id
+         where o.id = 'trip_pass_order_partial_refund'`,
+      );
+      expect(reopened.rows[0]).toEqual({
+        amount_minor: 599,
+        refund_state: "review",
+        status: "pending",
+      });
+      expect(reviews).toHaveLength(2);
     });
   });
 

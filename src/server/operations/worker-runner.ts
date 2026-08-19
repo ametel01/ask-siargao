@@ -49,11 +49,7 @@ export async function runOperationalWorker(
     recordEvent?: OperationEventRecorder;
   },
 ) {
-  if (!Number.isInteger(input.batchSize) || input.batchSize < 1)
-    throw new Error("invalid_batch_size");
-  if (!Number.isInteger(input.leaseSeconds) || input.leaseSeconds < 1) {
-    throw new Error("invalid_lease_seconds");
-  }
+  validateWorkerInput(input);
   const results = { claimed: 0, failed: 0, stale: 0, succeeded: 0 };
   for (let index = 0; index < input.batchSize; index += 1) {
     const task = await claimTask(
@@ -64,42 +60,39 @@ export async function runOperationalWorker(
     );
     if (!task) break;
     results.claimed += 1;
-    const trace = createOperationTrace(dependencies.recordEvent);
-    const handler = dependencies.handlers[task.task_type];
-    if (!handler) {
-      const fenced = await retryTask(task, "handler_unavailable", dependencies.db);
-      if (fenced) results.failed += 1;
-      else results.stale += 1;
-      continue;
-    }
-    try {
-      await trace.record({ index: 0, operation: task.task_type, result: "started" });
-      await handler({ resourceRef: task.resource_ref, trace });
-      const fenced = await succeedTask(task, dependencies.db);
-      if (fenced) {
-        results.succeeded += 1;
-        await trace.record({ index: 0, operation: task.task_type, result: "succeeded" });
-      } else {
-        results.stale += 1;
-      }
-    } catch {
-      const fenced = await retryTask(task, "task_failed", dependencies.db);
-      if (fenced) {
-        results.failed += 1;
-        await trace.record({ index: 0, operation: task.task_type, result: "failed" });
-        if (task.attempts >= 3) {
-          await dependencies.onRepeatedFailure?.({
-            attempts: task.attempts,
-            resourceRef: task.resource_ref,
-            taskKey: opaqueTaskKey(task.id),
-            taskType: task.task_type,
-          });
-        }
-      } else {
-        results.stale += 1;
-      }
-    }
+    await processClaimedTask(task, results, dependencies);
   }
+  return results;
+}
+
+export async function runOperationalWorkerConcurrently(
+  input: {
+    batchSize: number;
+    deadlineAt?: number;
+    leaseSeconds: number;
+    minimumStartBudgetMs?: number;
+    now?: () => number;
+    taskTypes?: readonly OperationalTaskType[];
+  },
+  dependencies: Parameters<typeof runOperationalWorker>[1],
+) {
+  validateWorkerInput(input);
+  const now = input.now ?? (() => performance.now());
+  if (
+    input.deadlineAt !== undefined &&
+    now() + (input.minimumStartBudgetMs ?? 0) >= input.deadlineAt
+  ) {
+    return { claimed: 0, failed: 0, stale: 0, succeeded: 0 };
+  }
+  const tasks = await claimTaskBatch(
+    dependencies.db,
+    input.leaseSeconds,
+    dependencies.createLeaseToken?.() ?? randomUUID(),
+    input.batchSize,
+    input.taskTypes,
+  );
+  const results = { claimed: tasks.length, failed: 0, stale: 0, succeeded: 0 };
+  await Promise.all(tasks.map((task) => processClaimedTask(task, results, dependencies)));
   return results;
 }
 
@@ -153,6 +146,93 @@ async function claimTask(
     );
     return result.rows[0] ?? null;
   });
+}
+
+async function claimTaskBatch(
+  db: DatabaseQueryClient,
+  leaseSeconds: number,
+  leaseToken: string,
+  batchSize: number,
+  taskTypes?: readonly OperationalTaskType[],
+) {
+  if (!db.transaction) throw new Error("database_transactions_required");
+  return db.transaction(async (transaction) => {
+    const result = await transaction.query<ClaimedTask>(
+      `with due as (
+         select id from operational_worker_tasks
+         where ((
+           status = 'pending' and next_attempt_at <= clock_timestamp()
+         ) or (
+           status = 'running' and lease_expires_at <= clock_timestamp()
+         ))
+         and ($3::text[] is null or task_type = any($3::text[]))
+         order by case when $3::text[] is null then 1
+           else array_position($3::text[], task_type) end,
+           next_attempt_at, id
+         for update skip locked
+         limit $4
+       )
+       update operational_worker_tasks task
+       set status = 'running', attempts = task.attempts + 1, lease_token = $1,
+         lease_expires_at = clock_timestamp() + ($2::text || ' seconds')::interval,
+         updated_at = clock_timestamp()
+       from due where task.id = due.id
+       returning task.id, task.task_type, task.resource_ref, task.attempts, task.lease_token`,
+      [leaseToken, leaseSeconds, taskTypes ? [...taskTypes] : null, batchSize],
+    );
+    return result.rows;
+  });
+}
+
+async function processClaimedTask(
+  task: ClaimedTask,
+  results: { claimed: number; failed: number; stale: number; succeeded: number },
+  dependencies: Parameters<typeof runOperationalWorker>[1],
+) {
+  const trace = createOperationTrace(dependencies.recordEvent);
+  const handler = dependencies.handlers[task.task_type];
+  if (!handler) {
+    const fenced = await retryTask(task, "handler_unavailable", dependencies.db);
+    if (fenced) results.failed += 1;
+    else results.stale += 1;
+    return;
+  }
+  try {
+    await trace.record({ index: 0, operation: task.task_type, result: "started" });
+    await handler({ resourceRef: task.resource_ref, trace });
+    const fenced = await succeedTask(task, dependencies.db);
+    if (fenced) {
+      results.succeeded += 1;
+      await trace.record({ index: 0, operation: task.task_type, result: "succeeded" });
+    } else {
+      results.stale += 1;
+    }
+  } catch {
+    const fenced = await retryTask(task, "task_failed", dependencies.db);
+    if (fenced) {
+      results.failed += 1;
+      await trace.record({ index: 0, operation: task.task_type, result: "failed" });
+      if (task.attempts >= 3) {
+        await dependencies.onRepeatedFailure?.({
+          attempts: task.attempts,
+          resourceRef: task.resource_ref,
+          taskKey: opaqueTaskKey(task.id),
+          taskType: task.task_type,
+        });
+      }
+    } else {
+      results.stale += 1;
+    }
+  }
+}
+
+function validateWorkerInput(input: { batchSize: number; leaseSeconds: number }) {
+  if (!Number.isInteger(input.batchSize) || input.batchSize < 1) {
+    throw new Error("invalid_batch_size");
+  }
+  if (!Number.isInteger(input.leaseSeconds) || input.leaseSeconds < 1) {
+    throw new Error("invalid_lease_seconds");
+  }
 }
 
 async function succeedTask(task: ClaimedTask, db: DatabaseQueryClient) {

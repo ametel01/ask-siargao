@@ -18,6 +18,7 @@ import type { StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
 import { readLemonSqueezyEnvironment } from "@/server/trip-pass/catalog";
+import { runCheckoutReturnLookup } from "@/server/trip-pass/checkout-return-lookup";
 import {
   createLemonSqueezyCheckoutClient,
   type LemonSqueezyCheckoutClient,
@@ -43,6 +44,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
   commerceReaders?: Partial<Record<"stripe" | "lemon_squeezy", AuthoritativeCommerceReader>>;
   db: DatabaseQueryClient;
   lemonRefundClient?: LemonSqueezyCheckoutClient;
+  lemonCheckoutClient?: Pick<LemonSqueezyCheckoutClient, "retrieveOrder">;
   refundClient?: StripeRefundClient;
 }): OperationalTaskHandlers {
   const { db } = dependencies;
@@ -66,6 +68,19 @@ export function createProductionOperationalTaskHandlers(dependencies: {
         throw new Error(result.retrying > 0 ? "closure_task_retryable" : "closure_task_incomplete");
       }
       await trace.record({ index: 0, operation: "account_closure_cleanup", result: "succeeded" });
+    },
+    checkout_return_lookup: async ({ resourceRef, trace }) => {
+      await trace.record({ index: 0, operation: "payment_event_application", result: "started" });
+      await runCheckoutReturnLookup(resourceRef, {
+        client: dependencies.lemonCheckoutClient,
+        db,
+        env: process.env,
+      });
+      await trace.record({
+        index: 0,
+        operation: "payment_event_application",
+        result: "succeeded",
+      });
     },
     pending_payment_event: async ({ resourceRef, trace }) => {
       await trace.record({ index: 0, operation: "payment_event_application", result: "started" });

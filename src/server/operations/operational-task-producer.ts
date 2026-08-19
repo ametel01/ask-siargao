@@ -30,6 +30,7 @@ export async function enqueueDueOperationalTasks(
 
   const enqueued: Record<OperationalTaskType, number> = {
     account_closure: 0,
+    checkout_return_lookup: 0,
     commerce_reconciliation: 0,
     pending_payment_event: 0,
     paid_after_closure_refund: 0,
@@ -100,6 +101,27 @@ async function loadDueTargets(
            status = 'running' and lease_expires_at <= clock_timestamp()
          )
          order by resource_ref
+         limit $1`,
+        [limit],
+      )
+    ).rows;
+  }
+  if (taskType === "checkout_return_lookup") {
+    return (
+      await db.query<DueTarget>(
+        `select orders.id as resource_ref from trip_pass_orders orders
+         where orders.payment_provider = 'lemon_squeezy'
+           and orders.accepted_payment_fact_id is null
+           and orders.checkout_return_lookup_attempts > 0
+           and orders.checkout_return_lookup_status = 'pending'
+           and orders.checkout_return_provider_order_id is not null
+           and orders.checkout_return_provider_order_identifier is not null
+           and not exists (
+             select 1 from operational_worker_tasks task
+             where task.task_type = 'checkout_return_lookup'
+               and task.resource_ref = orders.id
+           )
+         order by orders.updated_at, orders.id
          limit $1`,
         [limit],
       )
@@ -190,10 +212,14 @@ async function loadDueTargets(
            and not exists (
              select 1 from operational_worker_tasks task
              where task.task_type = 'commerce_reconciliation'
-               and task.resource_ref = (
-                 case when o.status in ('pending', 'checkout_created', 'paid', 'disputed')
-                   then 'risk' else 'daily' end
-                 || ':' || $2 || ':' || o.id
+               and (
+                 (task.status in ('pending', 'running')
+                   and substring(task.resource_ref from '^[^:]+:[^:]+:(.*)$') = o.id)
+                 or task.resource_ref = (
+                   case when o.status in ('pending', 'checkout_created', 'paid', 'disputed')
+                     then 'risk' else 'daily' end
+                   || ':' || $2 || ':' || o.id
+                 )
                )
            )
            and (

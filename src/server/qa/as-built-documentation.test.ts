@@ -258,6 +258,9 @@ test("reconciliation docs match the exact finding scope and keep mutation at the
     expect(reference).not.toContain(overclaim);
   }
   expect(reference).toContain("read-only `operations:worker -- --task=commerce_reconciliation`");
+  expect(reference).toMatch(/concurrently claims at most 50 reconciliation\s+tasks/);
+  expect(reference).toContain("less than 46 seconds remain");
+  expect(reference).not.toContain("drains that lane");
   expect(reference).toContain("`buildTripPassDiagnostics`");
   expect(reference).toContain("no `mode`");
   expect(await Bun.file("src/server/trip-pass/diagnostics.ts").exists()).toBe(true);

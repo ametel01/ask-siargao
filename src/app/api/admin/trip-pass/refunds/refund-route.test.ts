@@ -55,15 +55,17 @@ describe("Operator refund route", () => {
     });
   });
 
-  test("converts a pending partial-refund deadline into one operator refund", async () => {
+  test("preserves an ambiguously attempted partial-refund provider key during conversion", async () => {
     await withDb(async (db) => {
       await seedRefundOrder(db, "order_partial_to_full", "review");
       await db.query(
         `insert into trip_pass_refund_operations (
            id, order_id, provider, provider_order_id, reason, amount_minor,
-           provider_captured_amount_minor, idempotency_key, next_attempt_at
+           provider_captured_amount_minor, idempotency_key, attempts, last_error_code,
+           next_attempt_at
          ) values ('partial_to_full_deadline', 'order_partial_to_full', 'lemon_squeezy',
-           'provider_order', 'partial_refund_deadline', 699, 999, 'partial:to-full', $1)`,
+           'provider_order', 'partial_refund_deadline', 699, 999, 'partial:to-full', 1,
+           'lemon_squeezy_refund_TypeError', $1)`,
         [new Date(now.getTime() + 86_400_000)],
       );
       const dependencies = {
@@ -96,9 +98,11 @@ describe("Operator refund route", () => {
         amount_minor: number;
         count: string;
         id: string;
+        idempotency_key: string;
         reason: string;
       }>(
-        `select min(id) as id, min(reason) as reason, min(amount_minor)::int as amount_minor,
+        `select min(id) as id, min(reason) as reason, min(idempotency_key) as idempotency_key,
+           min(amount_minor)::int as amount_minor,
            count(*)::text as count
          from trip_pass_refund_operations
          where order_id = 'order_partial_to_full' and status in ('pending', 'running')`,
@@ -107,6 +111,7 @@ describe("Operator refund route", () => {
         amount_minor: 699,
         count: "1",
         id: "partial_to_full_deadline",
+        idempotency_key: "partial:to-full",
         reason: "operator_refund",
       });
       await expect(

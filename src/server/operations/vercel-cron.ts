@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { pruneGooglePlacesContent } from "@/server/jobs/prune-google-places";
-import { type OperationalTaskHandlers, operationalTaskTypes } from "@/server/operations/contracts";
+import type { OperationalTaskHandlers, operationalTaskTypes } from "@/server/operations/contracts";
 import {
   evaluateOperationalSchedules,
   runTrackedOperationalSchedule,
@@ -23,7 +23,7 @@ import {
   type SentryCronSink,
   sentryEnvironment,
 } from "@/server/operations/sentry-cron";
-import { drainOperationalWorker, runOperationalWorker } from "@/server/operations/worker-runner";
+import { runOperationalWorkerConcurrently } from "@/server/operations/worker-runner";
 import { buildOpenMeteoIngestionBatch } from "@/server/providers/open-meteo";
 import { buildOpenMeteoMarineIngestionBatch } from "@/server/providers/open-meteo-marine";
 import { readOpenMeteoApiMode } from "@/server/providers/production-provider-mode";
@@ -44,17 +44,25 @@ export function authorizeVercelCron(request: Request, secret = process.env.CRON_
 export async function runOperationalCron(
   dependencies: { db?: DatabaseQueryClient; now?: Date; sentry?: SentryOperationalSink } = {},
 ) {
+  const startedAt = performance.now();
   const db = dependencies.db ?? getDefaultDatabaseQueryClient();
   const sentry = dependencies.sentry ?? sentryFromEnvironment();
   if (!sentry) {
     throw new Error("sentry_configuration_unavailable");
   }
-  const { enqueued, worker } = await enqueueAndRunOperationalWorker({ db, sentry });
+  const workerPromise = enqueueAndRunOperationalWorker({
+    db,
+    deadlineAt: startedAt + 55_000,
+    sentry,
+  });
   const alertsAndSchedules = Promise.all([
     deliverPendingPageWorthyAlerts({ db, sink: sentry }),
     evaluateOperationalSchedules({ db, now: dependencies.now }),
   ]);
-  const [alerts, schedules] = await alertsAndSchedules;
+  const [{ enqueued, worker }, [alerts, schedules]] = await Promise.all([
+    workerPromise,
+    alertsAndSchedules,
+  ]);
   const scheduleAlerts = await Promise.all(
     schedules.issues.map((issue) =>
       deliverOperationalAlertOnce(
@@ -78,16 +86,27 @@ export async function runOperationalCron(
 
 export async function enqueueAndRunOperationalWorker({
   db,
+  deadlineAt,
   handlers = createProductionOperationalTaskHandlers({ db }),
+  now,
   sentry,
 }: {
   db: DatabaseQueryClient;
+  deadlineAt?: number;
   handlers?: OperationalTaskHandlers;
+  now?: () => number;
   sentry: SentryOperationalSink;
 }) {
-  const nonReconciliationTaskTypes = operationalTaskTypes.filter(
-    (taskType) => taskType !== "commerce_reconciliation",
-  );
+  const recoveryTaskTypes = [
+    "account_closure",
+    "checkout_return_lookup",
+    "pending_payment_event",
+    "pending_stripe_event",
+    "paid_after_closure_refund",
+    "lemon_squeezy_refund",
+  ] as const;
+  const maintenanceTaskTypes = ["retention_purge"] as const;
+  const nonReconciliationTaskTypes = [...recoveryTaskTypes, ...maintenanceTaskTypes];
   const enqueued = await enqueueDueOperationalTasks(
     { limitPerType: 25, taskTypes: nonReconciliationTaskTypes },
     db,
@@ -116,27 +135,59 @@ export async function enqueueAndRunOperationalWorker({
       );
     },
   };
-  const reconciliationWorker = await drainOperationalWorker(
-    { batchSize: 100, leaseSeconds: 60, taskTypes: ["commerce_reconciliation"] },
-    workerDependencies,
-  );
-  const otherWorker = await runOperationalWorker(
-    { batchSize: 100, leaseSeconds: 60, taskTypes: nonReconciliationTaskTypes },
-    workerDependencies,
-  );
+  const workerResults = await Promise.all([
+    runOperationalWorkerConcurrently(
+      {
+        batchSize: 50,
+        deadlineAt,
+        leaseSeconds: 60,
+        minimumStartBudgetMs: 46_000,
+        now,
+        taskTypes: ["commerce_reconciliation"],
+      },
+      workerDependencies,
+    ),
+    ...recoveryTaskTypes.map((taskType) =>
+      runOperationalWorkerConcurrently(
+        {
+          batchSize: 25,
+          deadlineAt,
+          leaseSeconds: 60,
+          minimumStartBudgetMs: 46_000,
+          now,
+          taskTypes: [taskType],
+        },
+        workerDependencies,
+      ),
+    ),
+    runOperationalWorkerConcurrently(
+      {
+        batchSize: 25,
+        deadlineAt,
+        leaseSeconds: 60,
+        minimumStartBudgetMs: 46_000,
+        now,
+        taskTypes: maintenanceTaskTypes,
+      },
+      workerDependencies,
+    ),
+  ]);
   return {
     enqueued,
-    // Reconciliation is drained first so unrelated worker backlog cannot starve this cycle.
-    worker: {
-      claimed: reconciliationWorker.claimed + otherWorker.claimed,
-      failed: reconciliationWorker.failed + otherWorker.failed,
-      stale: reconciliationWorker.stale + otherWorker.stale,
-      succeeded: reconciliationWorker.succeeded + otherWorker.succeeded,
-    },
+    worker: workerResults.reduce(
+      (total, result) => ({
+        claimed: total.claimed + result.claimed,
+        failed: total.failed + result.failed,
+        stale: total.stale + result.stale,
+        succeeded: total.succeeded + result.succeeded,
+      }),
+      { claimed: 0, failed: 0, stale: 0, succeeded: 0 },
+    ),
   };
 }
 
 function taskTypeOperation(taskType: (typeof operationalTaskTypes)[number]) {
+  if (taskType === "checkout_return_lookup") return "payment_event_application" as const;
   if (taskType === "pending_payment_event") return "payment_event_application" as const;
   if (taskType === "pending_stripe_event") return "stripe_application" as const;
   if (taskType === "lemon_squeezy_refund") return "paid_after_closure_refund" as const;

@@ -330,10 +330,18 @@ async function createRefundOperation(
     .slice(0, 32)}`;
   const updated = await db.query<{ id: string }>(
     `update trip_pass_refund_operations set
-       amount_minor = case when status = 'pending' then $1 else amount_minor end,
-       next_attempt_at = case when status = 'pending' then least(next_attempt_at, $2)
+       status = case when status = 'cancelled' and reason = 'partial_refund_deadline'
+         then 'pending' else status end,
+       amount_minor = case when status in ('pending', 'cancelled') then $1 else amount_minor end,
+       next_attempt_at = case
+         when status = 'pending' then least(next_attempt_at, $2)
+         when status = 'cancelled' and reason = 'partial_refund_deadline' then $2
          else next_attempt_at end,
        provider_captured_amount_minor = coalesce(provider_captured_amount_minor, $3),
+       completed_at = case when status = 'cancelled' and reason = 'partial_refund_deadline'
+         then null else completed_at end,
+       last_error_code = case when status = 'cancelled' and reason = 'partial_refund_deadline'
+         then null else last_error_code end,
        updated_at = $4
      where idempotency_key = $5
      returning id`,
@@ -372,6 +380,13 @@ function remainingRefundAmount(fact: NormalizedPaymentFact) {
 }
 
 function isStaleProviderFact(order: TripPassOrderRow, fact: NormalizedPaymentFact) {
+  if (
+    order.refund_state === "partial_final" &&
+    fact.status === "partial_refund" &&
+    (fact.refundedAmountMinor ?? 0) <= (order.successful_refund_amount_minor ?? 0)
+  ) {
+    return true;
+  }
   if (!order.provider_updated_at) return false;
   const current = new Date(order.provider_updated_at).getTime();
   const incoming = new Date(fact.providerUpdatedAt).getTime();
