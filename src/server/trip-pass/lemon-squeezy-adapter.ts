@@ -209,10 +209,8 @@ export function validateLemonSqueezyCheckout(input: {
     previewTotal == null ||
     input.checkout.previewSubtotal !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor ||
     input.checkout.previewDiscountTotal !== 0 ||
-    previewTax === undefined ||
-    previewTax < 0 ||
-    previewTotal === undefined ||
-    previewTotal < input.checkout.previewSubtotal
+    previewTax !== 0 ||
+    previewTotal !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor
   ) {
     throw new Error("Lemon Squeezy checkout commercial preview is incomplete or invalid.");
   }
