@@ -9,10 +9,12 @@ import type {
 } from "@/server/operations/live-reconciliation";
 import { reconcileLiveCommerce } from "@/server/operations/live-reconciliation";
 import { createStripeCommerceReader } from "@/server/operations/stripe-commerce-reader";
+import { applyPendingLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
 import type { StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
 import { readLemonSqueezyEnvironment } from "@/server/trip-pass/catalog";
+import { applyLemonSqueezyPaymentFact } from "@/server/trip-pass/lemon-squeezy-webhook-application";
 import { runPaidAfterClosureRefundBatch } from "@/server/trip-pass/paid-after-closure-refund";
 import { purgeExpiredPaidAnswerDetails } from "@/server/trip-pass/paid-answer-reservations";
 import {
@@ -53,6 +55,26 @@ export function createProductionOperationalTaskHandlers(dependencies: {
         throw new Error(result.retrying > 0 ? "closure_task_retryable" : "closure_task_incomplete");
       }
       await trace.record({ index: 0, operation: "account_closure_cleanup", result: "succeeded" });
+    },
+    pending_payment_event: async ({ resourceRef, trace }) => {
+      await trace.record({ index: 0, operation: "payment_event_application", result: "started" });
+      const result = await applyPendingLemonSqueezyPaymentEvent(resourceRef, {
+        applyFact: ({ fact, db: factDb, now }) =>
+          applyLemonSqueezyPaymentFact(fact, { db: factDb, now, env: process.env }),
+        db,
+      });
+      if (
+        result.status !== "applied" &&
+        result.status !== "duplicate" &&
+        result.status !== "blocked"
+      ) {
+        throw new Error("payment_event_application_retryable");
+      }
+      await trace.record({
+        index: 0,
+        operation: "payment_event_application",
+        result: "succeeded",
+      });
     },
     pending_stripe_event: async ({ resourceRef, trace }) => {
       await trace.record({ index: 0, operation: "stripe_inbox_preparation", result: "started" });

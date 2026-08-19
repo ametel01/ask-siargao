@@ -396,6 +396,16 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
        'native_producer_request', 'native_producer_lease', 'settled',
        clock_timestamp() - interval '1 day', clock_timestamp() - interval '1 hour',
        clock_timestamp() - interval '2 days', clock_timestamp() - interval '1 day'
+    )`,
+  );
+  await db.query(
+    `insert into trip_pass_payment_event_receipts (
+       id, fingerprint, provider, event_name, object_id, provider_updated_at,
+       status, normalized_facts_json
+     ) values (
+       'native_producer_payment_receipt', 'native_producer_payment_fingerprint',
+       'lemon_squeezy', 'order_created', 'native_producer_payment_object',
+       clock_timestamp(), 'pending', '{"provider":"lemon_squeezy"}'::jsonb
      )`,
   );
 
@@ -412,6 +422,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }
   const expected = [
     ["account_closure", "native_producer_closure"],
+    ["pending_payment_event", "native_producer_payment_receipt"],
     ["pending_stripe_event", "native_producer_stripe_event"],
     ["paid_after_closure_refund", "native_producer_refund"],
     ["retention_purge", "native_producer_reservation"],
@@ -423,7 +434,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
      order by task_type`,
     [`all:${cycleKey}`],
   );
-  assert(queued.rows.length === 5, "native producer did not create exactly five tasks");
+  assert(queued.rows.length === 6, "native producer did not create exactly six tasks");
   for (const [taskType, resourceRef] of expected) {
     assert(
       queued.rows.some(
@@ -442,12 +453,13 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   );
 
   const drained = await runOperationalWorker(
-    { batchSize: 5, leaseSeconds: 60 },
+    { batchSize: 6, leaseSeconds: 60 },
     {
       db,
       handlers: {
         account_closure: async () => undefined,
         commerce_reconciliation: async () => undefined,
+        pending_payment_event: async () => undefined,
         paid_after_closure_refund: async () => undefined,
         pending_stripe_event: async () => undefined,
         retention_purge: async () => Promise.reject(new Error("native_producer_crash")),
@@ -485,7 +497,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     [`all:${cycleKey}`],
   );
   assert(
-    terminalBeforeReplay.rows.length === 5 &&
+    terminalBeforeReplay.rows.length === 6 &&
       terminalBeforeReplay.rows.every((row) => row.status === "succeeded"),
     "native producer tasks did not reach terminal success",
   );

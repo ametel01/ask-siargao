@@ -383,6 +383,7 @@ describe("Step 3 database migration", () => {
       "0023_agent_turn_recovery_status.sql",
       "0024_google_places_source_profile.sql",
       "0025_lemon_squeezy_provider_neutral_commerce.sql",
+      "0026_pending_payment_event_worker.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -471,6 +472,7 @@ describe("Step 3 database migration", () => {
       "0023_agent_turn_recovery_status.sql",
       "0024_google_places_source_profile.sql",
       "0025_lemon_squeezy_provider_neutral_commerce.sql",
+      "0026_pending_payment_event_worker.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -545,6 +547,7 @@ describe("Step 3 database migration", () => {
       "0023_agent_turn_recovery_status.sql",
       "0024_google_places_source_profile.sql",
       "0025_lemon_squeezy_provider_neutral_commerce.sql",
+      "0026_pending_payment_event_worker.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -670,6 +673,7 @@ describe("Step 3 database migration", () => {
       "0023_agent_turn_recovery_status.sql",
       "0024_google_places_source_profile.sql",
       "0025_lemon_squeezy_provider_neutral_commerce.sql",
+      "0026_pending_payment_event_worker.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),

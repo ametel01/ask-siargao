@@ -147,6 +147,40 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
       expect(order.rows[0]?.accepted_payment_fact_id).toBeTruthy();
     });
   });
+
+  test("retries a pending receipt instead of treating it as an applied duplicate", async () => {
+    await withTestDb(async (db) => {
+      const payload = {
+        meta: { event_name: "order_created", custom_data: { order_id: "trip_pass_order_retry" } },
+        data: {
+          id: "provider_order_retry",
+          attributes: {
+            status: "paid",
+            total: 999,
+            refunded: 0,
+            currency: "usd",
+            store_id: "store_test",
+            variant_id: "variant_test",
+            updated_at: "2026-08-19T00:00:00Z",
+            test_mode: false,
+          },
+        },
+      };
+      let attempts = 0;
+      const applyFact = async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("activation temporarily unavailable");
+        return { status: "applied" as const };
+      };
+
+      const first = await receiveLemonSqueezyPaymentEvent(payload, { db, applyFact, now });
+      const second = await receiveLemonSqueezyPaymentEvent(payload, { db, applyFact, now });
+
+      expect(first).toMatchObject({ status: "pending" });
+      expect(second).toMatchObject({ status: "applied" });
+      expect(attempts).toBe(2);
+    });
+  });
 });
 
 function fakeClient(

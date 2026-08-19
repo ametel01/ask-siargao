@@ -25,6 +25,7 @@ export function createOperationTrace(recorder?: OperationEventRecorder): Operati
 
 export const operationalTaskTypes = [
   "account_closure",
+  "pending_payment_event",
   "pending_stripe_event",
   "paid_after_closure_refund",
   "retention_purge",
