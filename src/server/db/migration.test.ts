@@ -388,6 +388,8 @@ describe("Step 3 database migration", () => {
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
       "0030_commerce_reconciliation_schedule.sql",
+      "0031_checkout_return_lookup_claim.sql",
+      "0032_preserve_checkout_attempt_history.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -481,6 +483,8 @@ describe("Step 3 database migration", () => {
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
       "0030_commerce_reconciliation_schedule.sql",
+      "0031_checkout_return_lookup_claim.sql",
+      "0032_preserve_checkout_attempt_history.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -560,6 +564,8 @@ describe("Step 3 database migration", () => {
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
       "0030_commerce_reconciliation_schedule.sql",
+      "0031_checkout_return_lookup_claim.sql",
+      "0032_preserve_checkout_attempt_history.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -690,6 +696,8 @@ describe("Step 3 database migration", () => {
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
       "0030_commerce_reconciliation_schedule.sql",
+      "0031_checkout_return_lookup_claim.sql",
+      "0032_preserve_checkout_attempt_history.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -1806,6 +1814,8 @@ describe("Step 3 database migration", () => {
       ["refund_remaining_amount_minor", "integer", "YES", null],
       ["refund_review_deadline_at", "timestamp with time zone", "YES", null],
       ["refund_review_alerted_at", "timestamp with time zone", "YES", null],
+      ["checkout_return_lookup_attempts", "integer", "NO", "0"],
+      ["checkout_return_lookup_claimed_at", "timestamp with time zone", "YES", null],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [

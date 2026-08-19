@@ -231,16 +231,21 @@ async function markLemonOrderCreated(input: {
     `update trip_pass_orders set status = 'checkout_created', provider_checkout_id = $2,
       checkout_session_status = 'open', checkout_attempt_id = $3, updated_at = $4
      where id = $1 and status in ('pending', 'checkout_created')`,
-    [input.order.id, input.checkout.id, `checkout_attempt_${input.order.id}`, input.now],
+    [
+      input.order.id,
+      input.checkout.id,
+      `checkout_attempt_${input.order.id}_${input.checkout.id}`,
+      input.now,
+    ],
   );
   await input.db.query(
     `insert into trip_pass_checkout_attempts (
       id, order_id, provider, provider_checkout_id, idempotency_key, checkout_url, expires_at, status, created_at, updated_at
     ) values ($1, $2, 'lemon_squeezy', $3, $4, $5, $6, 'created', $7, $7)
-    on conflict (idempotency_key) do update set provider_checkout_id = excluded.provider_checkout_id,
+    on conflict (id) do update set provider_checkout_id = excluded.provider_checkout_id,
       checkout_url = excluded.checkout_url, status = 'created', updated_at = excluded.updated_at`,
     [
-      `checkout_attempt_${input.order.id}`,
+      `checkout_attempt_${input.order.id}_${input.checkout.id}`,
       input.order.id,
       input.checkout.id,
       input.order.checkoutIdempotencyKey,

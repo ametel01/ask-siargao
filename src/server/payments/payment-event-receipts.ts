@@ -5,7 +5,7 @@ import {
   paymentFactFingerprint,
 } from "@/server/payments/lemon-squeezy";
 
-const supportedLemonSqueezyEvents = new Set(["order_created", "order_refunded"]);
+const supportedLemonSqueezyEvents = new Set(["order_created", "order_refunded", "order_lookup"]);
 
 export type PaymentEventReceiptResult =
   | {

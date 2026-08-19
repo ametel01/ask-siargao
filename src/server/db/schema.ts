@@ -634,6 +634,10 @@ export const tripPassOrders = pgTable(
     stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
     checkoutSessionExpiresAt: timestamp("checkout_session_expires_at", { withTimezone: true }),
     checkoutSessionStatus: text("checkout_session_status"),
+    checkoutReturnLookupAttempts: integer("checkout_return_lookup_attempts").notNull().default(0),
+    checkoutReturnLookupClaimedAt: timestamp("checkout_return_lookup_claimed_at", {
+      withTimezone: true,
+    }),
     checkoutCancellationConfirmedAt: timestamp("checkout_cancellation_confirmed_at", {
       withTimezone: true,
     }),
@@ -714,7 +718,7 @@ export const tripPassCheckoutAttempts = pgTable(
       .references(() => tripPassOrders.id),
     provider: text("provider").notNull(),
     providerCheckoutId: text("provider_checkout_id"),
-    idempotencyKey: text("idempotency_key").notNull().unique(),
+    idempotencyKey: text("idempotency_key").notNull(),
     checkoutUrl: text("checkout_url"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     status: text("status").notNull().default("pending"),
@@ -723,6 +727,7 @@ export const tripPassCheckoutAttempts = pgTable(
   },
   (table) => [
     index("trip_pass_checkout_attempts_order_idx").on(table.orderId, table.createdAt),
+    index("trip_pass_checkout_attempts_idempotency_idx").on(table.idempotencyKey),
     uniqueIndex("trip_pass_checkout_attempts_provider_checkout_idx")
       .on(table.provider, table.providerCheckoutId)
       .where(sql`${table.providerCheckoutId} is not null`),
@@ -848,6 +853,10 @@ export const tripPassRefundOperations = pgTable(
     check(
       "trip_pass_refund_operations_status_check",
       sql`${table.status} in ('pending', 'running', 'succeeded', 'failed')`,
+    ),
+    check(
+      "trip_pass_refund_operations_lease_check",
+      sql`(${table.status} = 'running' and ${table.leaseToken} is not null and ${table.leaseExpiresAt} is not null) or (${table.status} <> 'running' and ${table.leaseToken} is null and ${table.leaseExpiresAt} is null)`,
     ),
   ],
 );

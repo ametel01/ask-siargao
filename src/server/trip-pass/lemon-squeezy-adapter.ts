@@ -62,6 +62,7 @@ export type LemonSqueezyCheckoutClient = {
     options: { idempotencyKey: string },
   ) => Promise<LemonSqueezyCheckoutSummary>;
   retrieveOrder: (providerOrderId: string) => Promise<LemonSqueezyOrder>;
+  lookupOrderByCheckoutId?: (checkoutId: string) => Promise<LemonSqueezyOrder | null>;
   refundOrder: (
     providerOrderId: string,
     input: { amountMinor?: number; idempotencyKey: string },
@@ -100,6 +101,13 @@ export function createLemonSqueezyCheckoutClient(
         path: `/v1/orders/${encodeURIComponent(providerOrderId)}`,
       });
       return parseOrder(response);
+    },
+    async lookupOrderByCheckoutId(checkoutId) {
+      const response = await http.request({
+        method: "GET",
+        path: `/v1/orders?filter[checkout_id]=${encodeURIComponent(checkoutId)}&page[size]=1`,
+      });
+      return parseOrderCollection(response);
     },
     async refundOrder(providerOrderId, input) {
       const response = await http.request({
@@ -268,6 +276,19 @@ export function summarizeCheckout(response: unknown): LemonSqueezyCheckoutSummar
 
 function parseOrder(response: unknown): LemonSqueezyOrder {
   const fact = parseLemonSqueezyOrderFact({ eventName: "order_lookup", payload: response });
+  if (!fact.providerOrderId)
+    throw new Error("Lemon Squeezy Order response is missing its identifier.");
+  return { ...fact, providerOrderId: fact.providerOrderId };
+}
+
+function parseOrderCollection(response: unknown): LemonSqueezyOrder | null {
+  const root = record(response);
+  const data = Array.isArray(root.data) ? root.data[0] : null;
+  if (!data) return null;
+  const fact = parseLemonSqueezyOrderFact({
+    eventName: "order_lookup",
+    payload: { ...root, data },
+  });
   if (!fact.providerOrderId)
     throw new Error("Lemon Squeezy Order response is missing its identifier.");
   return { ...fact, providerOrderId: fact.providerOrderId };

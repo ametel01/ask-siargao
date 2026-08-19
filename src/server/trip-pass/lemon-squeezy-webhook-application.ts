@@ -56,7 +56,7 @@ export async function applyLemonSqueezyPaymentFact(
         `select id, user_id, status, product_code, product_version, amount_total_minor, currency,
         payment_provider,
           provider_store_id, provider_product_id, provider_variant_id, provider_order_id, accepted_payment_fact_id,
-        provider_updated_at, payment_suspension_state, refund_state,
+        provider_updated_at, payment_suspension_state, refund_state, successful_refund_amount_minor,
         refund_review_alerted_at
        from trip_pass_orders where id = $1 for update`,
         [orderId],
@@ -65,6 +65,32 @@ export async function applyLemonSqueezyPaymentFact(
       if (!order) return { status: "rejected", reason: "trip_pass_order_not_found", orderId };
       if (order.payment_provider !== "lemon_squeezy") {
         return { status: "rejected", reason: "trip_pass_provider_mismatch", orderId };
+      }
+      const isAdditionalProviderPayment =
+        Boolean(order.provider_order_id) &&
+        Boolean(fact.providerOrderId) &&
+        order.provider_order_id !== fact.providerOrderId;
+      if (order.provider_order_id && !fact.providerOrderId) {
+        return { status: "rejected", reason: "trip_pass_provider_order_id_missing", orderId };
+      }
+      if (isAdditionalProviderPayment) {
+        const inserted = await recordPaymentFact(db, {
+          order,
+          fact,
+          receiptId: factFingerprintForFact(fact),
+          now,
+        });
+        if (!inserted) return { status: "duplicate", orderId };
+        if (fact.status !== "refunded" && remainingRefundAmount(fact) !== 0) {
+          await createRefundOperation(db, {
+            order,
+            fact,
+            reason: "duplicate_payment",
+            amountMinor: remainingRefundAmount(fact),
+            now,
+          });
+        }
+        return { status: "applied", action: "refunded", orderId };
       }
       if (
         order.product_code !== tripPassProductCatalog.code ||
@@ -84,13 +110,6 @@ export async function applyLemonSqueezyPaymentFact(
       ) {
         return { status: "rejected", reason: "trip_pass_product_mismatch", orderId };
       }
-      const isAdditionalProviderPayment =
-        Boolean(order.provider_order_id) &&
-        Boolean(fact.providerOrderId) &&
-        order.provider_order_id !== fact.providerOrderId;
-      if (order.provider_order_id && !fact.providerOrderId) {
-        return { status: "rejected", reason: "trip_pass_provider_order_id_missing", orderId };
-      }
       if (
         !fact.variantId ||
         !order.provider_variant_id ||
@@ -100,26 +119,6 @@ export async function applyLemonSqueezyPaymentFact(
       }
       if (!fact.storeId || !order.provider_store_id || fact.storeId !== order.provider_store_id) {
         return { status: "rejected", reason: "trip_pass_store_mismatch", orderId };
-      }
-
-      if (isAdditionalProviderPayment) {
-        const inserted = await recordPaymentFact(db, {
-          order,
-          fact,
-          receiptId: factFingerprintForFact(fact),
-          now,
-        });
-        if (!inserted) return { status: "duplicate", orderId };
-        if (fact.status !== "refunded" && remainingRefundAmount(fact) !== 0) {
-          await createRefundOperation(db, {
-            order,
-            fact,
-            reason: "duplicate_payment",
-            amountMinor: remainingRefundAmount(fact),
-            now,
-          });
-        }
-        return { status: "applied", action: "refunded", orderId };
       }
 
       const factId = `payment_fact_${factFingerprintForFact(fact).slice(0, 32)}`;
@@ -256,6 +255,7 @@ type TripPassOrderRow = {
   payment_suspension_state: string;
   refund_state: string;
   refund_review_alerted_at: Date | string | null;
+  successful_refund_amount_minor: number | null;
   payment_provider: string;
   provider_updated_at: Date | string | null;
 };
@@ -323,7 +323,8 @@ async function createRefundOperation(
       amount_minor = case when trip_pass_refund_operations.status = 'pending'
         then excluded.amount_minor else trip_pass_refund_operations.amount_minor end,
       next_attempt_at = case when trip_pass_refund_operations.status = 'pending'
-        then excluded.next_attempt_at else trip_pass_refund_operations.next_attempt_at end,
+        then least(trip_pass_refund_operations.next_attempt_at, excluded.next_attempt_at)
+        else trip_pass_refund_operations.next_attempt_at end,
       updated_at = excluded.updated_at`,
     [
       operationId,
@@ -347,7 +348,27 @@ function isStaleProviderFact(order: TripPassOrderRow, fact: NormalizedPaymentFac
   if (!order.provider_updated_at) return false;
   const current = new Date(order.provider_updated_at).getTime();
   const incoming = new Date(fact.providerUpdatedAt).getTime();
-  return Number.isFinite(current) && Number.isFinite(incoming) && incoming <= current;
+  if (!Number.isFinite(current) || !Number.isFinite(incoming)) return false;
+  if (incoming < current) return true;
+  if (incoming > current) return false;
+  const currentRank = paymentStateRank(order.status, order.refund_state);
+  const incomingRank = paymentStateRank(
+    fact.status,
+    fact.status === "partial_refund" ? "review" : "none",
+  );
+  if (incomingRank !== currentRank) return incomingRank < currentRank;
+  return (
+    fact.status === "partial_refund" &&
+    (fact.refundedAmountMinor ?? 0) <= (order.successful_refund_amount_minor ?? 0)
+  );
+}
+
+function paymentStateRank(status: string, refundState: string) {
+  if (status === "refunded" || refundState === "full") return 4;
+  if (status === "fraudulent") return 3;
+  if (status === "partial_refund" || refundState === "review") return 2;
+  if (status === "paid") return 1;
+  return 0;
 }
 
 async function revokePass(

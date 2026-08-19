@@ -216,26 +216,37 @@ export async function postTripPassCheckoutReturnResponse(
       { status: 400, headers: responseHeaders },
     );
   }
-  const order = await dependencies.db.query<{
-    id: string;
-    provider_order_id: string | null;
-    payment_provider: string;
-  }>(
-    `select id, provider_order_id, payment_provider from trip_pass_orders
-     where id = $1 and user_id = $2 limit 1`,
-    [orderId, currentUser.userId],
-  );
-  if (!order.rows[0])
-    return Response.json(
-      { error: "checkout_return_not_found" },
-      { status: 404, headers: responseHeaders },
-    );
-  if (order.rows[0].payment_provider !== "lemon_squeezy" || !order.rows[0].provider_order_id) {
+  const order = await claimCheckoutReturnLookup(dependencies.db, {
+    orderId,
+    userId: currentUser.userId,
+    now: dependencies.now(),
+  });
+  if (!order) {
+    return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
+  }
+  if (order.providerOrderId === null && !order.providerCheckoutId) {
     return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
   }
   try {
     const client = dependencies.lemonCheckoutClient ?? createLemonSqueezyCheckoutClient();
-    const fact = await client.retrieveOrder(order.rows[0].provider_order_id);
+    let providerOrderId = order.providerOrderId;
+    if (!providerOrderId) {
+      if (!client.lookupOrderByCheckoutId || !order.providerCheckoutId) {
+        return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
+      }
+      const lookedUp = await client.lookupOrderByCheckoutId(order.providerCheckoutId);
+      if (!lookedUp) {
+        return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
+      }
+      providerOrderId = lookedUp.providerOrderId;
+      await dependencies.db.query(
+        `update trip_pass_orders set provider_order_id = $2,
+          checkout_return_lookup_claimed_at = null, updated_at = $3
+         where id = $1 and user_id = $4 and provider_order_id is null`,
+        [orderId, providerOrderId, dependencies.now(), currentUser.userId],
+      );
+    }
+    const fact = await client.retrieveOrder(providerOrderId);
     const result = await receiveLemonSqueezyPaymentEvent(toLemonPaymentPayload(fact), {
       db: dependencies.db,
       now: dependencies.now(),
@@ -249,6 +260,45 @@ export async function postTripPassCheckoutReturnResponse(
   } catch {
     return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
   }
+}
+
+async function claimCheckoutReturnLookup(
+  db: DatabaseQueryClient,
+  input: { orderId: string; userId: string; now: Date },
+) {
+  const run = async (transaction: DatabaseQueryClient) => {
+    const result = await transaction.query<{
+      provider_order_id: string | null;
+      provider_checkout_id: string | null;
+      checkout_return_lookup_claimed_at: Date | string | null;
+    }>(
+      `select provider_order_id, provider_checkout_id, checkout_return_lookup_claimed_at
+       from trip_pass_orders where id = $1 and user_id = $2 and payment_provider = 'lemon_squeezy' for update`,
+      [input.orderId, input.userId],
+    );
+    const row = result.rows[0];
+    if (!row || row.provider_order_id) {
+      return row
+        ? { providerOrderId: row.provider_order_id, providerCheckoutId: row.provider_checkout_id }
+        : null;
+    }
+    const claimedAt = row.checkout_return_lookup_claimed_at
+      ? new Date(row.checkout_return_lookup_claimed_at).getTime()
+      : 0;
+    if (claimedAt > input.now.getTime() - 60_000) return null;
+    const claimed = await transaction.query<{ provider_checkout_id: string | null }>(
+      `update trip_pass_orders set checkout_return_lookup_attempts = checkout_return_lookup_attempts + 1,
+        checkout_return_lookup_claimed_at = $3, updated_at = $3
+       where id = $1 and user_id = $2 and provider_order_id is null
+       returning provider_checkout_id`,
+      [input.orderId, input.userId, input.now],
+    );
+    return {
+      providerOrderId: null,
+      providerCheckoutId: claimed.rows[0]?.provider_checkout_id ?? null,
+    };
+  };
+  return db.transaction ? db.transaction(run) : run(db);
 }
 
 function toLemonPaymentPayload(
@@ -267,7 +317,10 @@ function toLemonPaymentPayload(
         variant_id: fact.variantId,
         updated_at: fact.providerUpdatedAt,
         test_mode: fact.testMode,
-        first_order_item: fact.productId ? { product_id: fact.productId } : undefined,
+        first_order_item:
+          fact.productId || fact.variantId
+            ? { product_id: fact.productId, variant_id: fact.variantId }
+            : undefined,
       },
     },
   };

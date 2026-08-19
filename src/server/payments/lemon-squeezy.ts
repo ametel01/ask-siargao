@@ -76,11 +76,12 @@ export class LemonSqueezyWebhookBodyTooLargeError extends Error {
 }
 
 export function createLemonSqueezyHttpClient(
-  input: { apiKey?: string; fetch?: typeof fetch; origin?: string } = {},
+  input: { apiKey?: string; fetch?: typeof fetch; origin?: string; timeoutMs?: number } = {},
 ): LemonSqueezyHttpClient {
   const apiKey = input.apiKey ?? lemonSqueezyApiKeyFromEnv();
   const fetchLike = input.fetch ?? fetch;
   const origin = input.origin ?? LEMON_SQUEEZY_API_ORIGIN;
+  const timeoutMs = input.timeoutMs ?? 45_000;
 
   return {
     async request(request) {
@@ -93,6 +94,7 @@ export function createLemonSqueezyHttpClient(
           ...(request.idempotencyKey ? { "Idempotency-Key": request.idempotencyKey } : {}),
         },
         ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       const text = await response.text();
       let body: unknown = null;
@@ -194,6 +196,20 @@ export function lemonSqueezyWebhookSecretFromEnv(
   if (!secret)
     throw new Error("LEMON_SQUEEZY_WEBHOOK_SECRET is required for webhook verification.");
   return secret;
+}
+
+export function lemonSqueezyWebhookSecretsFromEnv(
+  env: Record<string, string | undefined> = process.env,
+  now = new Date(),
+) {
+  const current = lemonSqueezyWebhookSecretFromEnv(env);
+  const previous = env.LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS?.trim();
+  const expiresAt = env.LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS_EXPIRES_AT
+    ? Date.parse(env.LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS_EXPIRES_AT)
+    : Number.NaN;
+  return previous && Number.isFinite(expiresAt) && expiresAt > now.getTime()
+    ? [current, previous]
+    : [current];
 }
 
 export function parseLemonSqueezyOrderFact(input: {
