@@ -1,6 +1,7 @@
 # Trip Pass Reconciliation and Repair Reference
 
-Live reconciliation observes authoritative Stripe payment facts and records opaque Findings. It
+Live reconciliation observes authoritative provider payment facts (Lemon Squeezy for launched
+Orders, Stripe only for retained historical evidence) and records opaque Findings. It
 does not mutate Trip Pass orders, access, grants, meters, or provider state. Repair is a separate
 same-origin Operator API action.
 
@@ -10,8 +11,8 @@ durable Finding lifecycle.
 
 ## Authority and ordering
 
-Stripe is the authority for payment state, amount, and currency. The Ask Siargao ledger is the
-authority for access. For every order, the authoritative Stripe lookup completes before the
+The configured payment provider is the authority for payment state, amount, and currency. The Ask
+Siargao ledger is the authority for access. For every order, the authoritative provider lookup completes before the
 finding transaction begins. Tests assert this semantic order; a broadly green suite is not a
 substitute.
 
@@ -39,14 +40,14 @@ Checkout URLs, provider payloads, emails, or provider object IDs.
 
 The current comparison emits only these four Finding kinds:
 
-- `paid_without_pass`: Stripe reports `paid` and the local order has no pass.
-- `access_without_payment`: Stripe reports `unpaid` or `pending` while local access exists.
+- `paid_without_pass`: the provider reports `paid` and the local order has no pass.
+- `access_without_payment`: the provider reports `unpaid` or `pending` while local access exists.
 - `payment_state_mismatch`: the authoritative amount or currency differs from the local order.
-- `pending_payment_stale`: Stripe still reports `pending` at least 30 minutes after local creation.
+- `pending_payment_stale`: the provider still reports `pending` at least 30 minutes after local creation.
 
 Refund and dispute lifecycle application, webhook retry, Account Closure ordering, and paid-answer
 usage have their own handlers and diagnostics. They are not findings produced by this comparison.
-If Stripe lookup is ambiguous or unavailable, reconciliation fails and retries instead of
+If provider lookup is ambiguous or unavailable, reconciliation fails and retries instead of
 inventing a Finding from incomplete provider truth.
 
 ## Trip Pass diagnostics
