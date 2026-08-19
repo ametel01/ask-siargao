@@ -638,6 +638,10 @@ export const tripPassOrders = pgTable(
     checkoutReturnLookupClaimedAt: timestamp("checkout_return_lookup_claimed_at", {
       withTimezone: true,
     }),
+    checkoutReturnLookupStatus: text("checkout_return_lookup_status").notNull().default("pending"),
+    checkoutReturnLookupCompletedAt: timestamp("checkout_return_lookup_completed_at", {
+      withTimezone: true,
+    }),
     checkoutCancellationConfirmedAt: timestamp("checkout_cancellation_confirmed_at", {
       withTimezone: true,
     }),
@@ -833,6 +837,7 @@ export const tripPassRefundOperations = pgTable(
     providerOrderId: text("provider_order_id").notNull(),
     reason: text("reason").notNull(),
     amountMinor: integer("amount_minor"),
+    providerCapturedAmountMinor: integer("provider_captured_amount_minor"),
     status: text("status").notNull().default("pending"),
     idempotencyKey: text("idempotency_key").notNull().unique(),
     attempts: integer("attempts").notNull().default(0),
@@ -848,7 +853,7 @@ export const tripPassRefundOperations = pgTable(
     check("trip_pass_refund_operations_provider_check", sql`${table.provider} = 'lemon_squeezy'`),
     check(
       "trip_pass_refund_operations_reason_check",
-      sql`${table.reason} in ('duplicate_payment', 'paid_after_closure', 'partial_refund_deadline')`,
+      sql`${table.reason} in ('duplicate_payment', 'paid_after_closure', 'partial_refund_deadline', 'operator_refund')`,
     ),
     check(
       "trip_pass_refund_operations_status_check",
@@ -2401,7 +2406,7 @@ export const operatorRepairActions = pgTable(
     index("operator_repair_actions_finding_id_idx").on(table.findingId),
     check(
       "operator_repair_actions_action_check",
-      sql`${table.actionType} in ('grant_missing_trip_pass', 'initialize_missing_meters', 'release_stale_reservation', 'manual_commerce_transition', 'goodwill_grant', 'account_recovery')`,
+      sql`${table.actionType} in ('grant_missing_trip_pass', 'initialize_missing_meters', 'release_stale_reservation', 'manual_commerce_transition', 'goodwill_grant', 'account_recovery', 'refund_trip_pass')`,
     ),
   ],
 );

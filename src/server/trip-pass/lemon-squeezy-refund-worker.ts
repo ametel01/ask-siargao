@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+import type { NormalizedPaymentFact } from "@/server/payments/lemon-squeezy";
 import type { LemonSqueezyCheckoutClient } from "@/server/trip-pass/lemon-squeezy-adapter";
 
 type RefundOperationClaim = {
@@ -28,6 +29,7 @@ export async function runLemonSqueezyRefundBatch(input: {
   leaseMs?: number;
   operationId?: string;
   createLeaseToken?: () => string;
+  applyFact?: (fact: NormalizedPaymentFact) => Promise<void>;
 }): Promise<LemonSqueezyRefundBatchResult> {
   const result: LemonSqueezyRefundBatchResult = {
     claimed: 0,
@@ -47,6 +49,7 @@ export async function runLemonSqueezyRefundBatch(input: {
     );
     if (!claim) break;
     result.claimed += 1;
+    const startedAt = performance.now();
     try {
       const fact = await input.client.refundOrder(claim.provider_order_id, {
         amountMinor: claim.amount_minor ?? undefined,
@@ -60,19 +63,31 @@ export async function runLemonSqueezyRefundBatch(input: {
         }
         continue;
       }
+      if (input.applyFact) {
+        await input.applyFact({ ...fact, orderId: fact.orderId ?? claim.order_id });
+      }
       if (await markRefundConfirmed(input.db, claim)) result.confirmed += 1;
       else result.stale += 1;
     } catch (error) {
       if (isAmbiguousProviderError(error)) {
-        try {
-          const authoritative = await input.client.retrieveOrder(claim.provider_order_id);
-          if (isVerifiedRefund(claim, authoritative)) {
-            if (await markRefundConfirmed(input.db, claim)) result.confirmed += 1;
-            else result.stale += 1;
-            continue;
+        const elapsed = performance.now() - startedAt;
+        if (leaseMs - elapsed > 46_000) {
+          try {
+            const authoritative = await input.client.retrieveOrder(claim.provider_order_id);
+            if (isVerifiedRefund(claim, authoritative)) {
+              if (input.applyFact) {
+                await input.applyFact({
+                  ...authoritative,
+                  orderId: authoritative.orderId ?? claim.order_id,
+                });
+              }
+              if (await markRefundConfirmed(input.db, claim)) result.confirmed += 1;
+              else result.stale += 1;
+              continue;
+            }
+          } catch {
+            // Preserve the retry path when the authoritative lookup is unavailable.
           }
-        } catch {
-          // Preserve the retry path when the authoritative lookup is unavailable.
         }
       }
       if (await markRefundRetryable(input.db, claim, errorCode(error))) result.retrying += 1;
@@ -103,9 +118,8 @@ async function claimRefundOperation(
   return db.transaction(async (transaction) => {
     const result = await transaction.query<RefundOperationClaim>(
       `with candidate as (
-         select operation.id, order_row.captured_amount_minor as captured_total_minor
+         select operation.id, operation.provider_captured_amount_minor as captured_total_minor
          from trip_pass_refund_operations operation
-         join trip_pass_orders order_row on order_row.id = operation.order_id
          where ($3::text is null or operation.id = $3)
            and (
              (operation.status = 'pending' and (operation.next_attempt_at is null or operation.next_attempt_at <= clock_timestamp()))

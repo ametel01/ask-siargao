@@ -282,6 +282,11 @@ describe("Trip Pass account API routes", () => {
             refundedAmountMinor: 0,
             currency: "usd",
             testMode: false,
+            quantity: 1,
+            discountEnabled: false,
+            discountTotalMinor: 0,
+            customPriceMinor: null,
+            licenseKey: null,
           };
         },
         refundOrder: async () => {

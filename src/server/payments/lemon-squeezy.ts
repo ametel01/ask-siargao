@@ -291,9 +291,15 @@ export function parseLemonSqueezyOrderFact(input: {
     quantity,
     discountEnabled,
     discountTotalMinor,
-    customPriceMinor: integerValue(attributes.custom_price),
-    licenseKey: stringValue(attributes.license_key),
+    customPriceMinor: hasOwn(attributes, "custom_price")
+      ? integerValue(attributes.custom_price)
+      : undefined,
+    licenseKey: hasOwn(attributes, "license_key") ? stringValue(attributes.license_key) : undefined,
   };
+}
+
+function hasOwn(record: Record<string, unknown>, key: string) {
+  return Object.hasOwn(record, key);
 }
 
 function normalizeOrderStatus(

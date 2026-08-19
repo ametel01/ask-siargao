@@ -62,7 +62,11 @@ export type LemonSqueezyCheckoutClient = {
     options: { idempotencyKey: string },
   ) => Promise<LemonSqueezyCheckoutSummary>;
   retrieveOrder: (providerOrderId: string) => Promise<LemonSqueezyOrder>;
-  lookupOrderByCheckoutId?: (checkoutId: string) => Promise<LemonSqueezyOrder | null>;
+  lookupOrderByCheckoutId?: (input: {
+    checkoutId: string;
+    storeId?: string | null;
+    customerEmail?: string | null;
+  }) => Promise<LemonSqueezyOrder | null>;
   refundOrder: (
     providerOrderId: string,
     input: { amountMinor?: number; idempotencyKey: string },
@@ -102,12 +106,16 @@ export function createLemonSqueezyCheckoutClient(
       });
       return parseOrder(response);
     },
-    async lookupOrderByCheckoutId(checkoutId) {
+    async lookupOrderByCheckoutId(input) {
+      const filters = [
+        input.storeId ? `filter[store_id]=${encodeURIComponent(input.storeId)}` : "",
+        input.customerEmail ? `filter[user_email]=${encodeURIComponent(input.customerEmail)}` : "",
+      ].filter(Boolean);
       const response = await http.request({
         method: "GET",
-        path: `/v1/orders?filter[checkout_id]=${encodeURIComponent(checkoutId)}&page[size]=1`,
+        path: `/v1/orders?${[...filters, "page[size]=50"].join("&")}`,
       });
-      return parseOrderCollection(response);
+      return parseOrderCollection(response, input.checkoutId);
     },
     async refundOrder(providerOrderId, input) {
       const response = await http.request({
@@ -283,17 +291,16 @@ function parseOrder(response: unknown): LemonSqueezyOrder {
   return { ...fact, providerOrderId: fact.providerOrderId };
 }
 
-function parseOrderCollection(response: unknown): LemonSqueezyOrder | null {
+function parseOrderCollection(response: unknown, checkoutId: string): LemonSqueezyOrder | null {
   const root = record(response);
-  const data = Array.isArray(root.data) ? root.data[0] : null;
-  if (!data) return null;
-  const fact = parseLemonSqueezyOrderFact({
-    eventName: "order_lookup",
-    payload: { ...root, data },
-  });
-  if (!fact.providerOrderId)
-    throw new Error("Lemon Squeezy Order response is missing its identifier.");
-  return { ...fact, providerOrderId: fact.providerOrderId };
+  const rows = Array.isArray(root.data) ? root.data : [];
+  const matches = rows
+    .map((data) =>
+      parseLemonSqueezyOrderFact({ eventName: "order_lookup", payload: { ...root, data } }),
+    )
+    .filter((fact) => fact.checkoutId === checkoutId);
+  if (matches.length !== 1 || !matches[0]?.providerOrderId) return null;
+  return { ...matches[0], providerOrderId: matches[0].providerOrderId };
 }
 
 function isAmbiguousCheckoutError(error: unknown) {

@@ -127,6 +127,12 @@ export function createProductionOperationalTaskHandlers(dependencies: {
         db,
         limit: 1,
         operationId: resourceRef,
+        applyFact: async (fact) => {
+          const applied = await applyLemonSqueezyPaymentFact(fact, { db, env: process.env });
+          if (applied.status === "rejected") {
+            throw new Error(`refund_payment_fact_rejected:${applied.reason}`);
+          }
+        },
       });
       if (result.claimed !== 1 || result.confirmed !== 1) {
         const operation = await db.query<{ status: string }>(
