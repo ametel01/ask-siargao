@@ -5,6 +5,7 @@ import {
   deleteTripPassCheckoutResponse,
   getTripPassAccountResponse,
   postTripPassCheckoutResponse,
+  postTripPassCheckoutReturnResponse,
   type TripPassAccountRouteDependencies,
 } from "@/app/api/me/trip-pass/trip-pass-route";
 import type { CurrentUserAuthSnapshot } from "@/server/auth/clerk-users";
@@ -233,6 +234,69 @@ describe("Trip Pass account API routes", () => {
       expect(dependencies.cancelCalls).toHaveLength(0);
     });
   });
+
+  test("converges one provider lookup after the checkout return grace period", async () => {
+    await withRouteDb(async (db) => {
+      await insertUser(db, "user_return");
+      await db.query(
+        `insert into trip_pass_orders (
+          id, user_id, email, status, product_code, product_family, product_version,
+          amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+          provider_store_id, provider_variant_id, provider_order_id, created_at, updated_at
+        ) values ('order_return', 'user_return', 'user_return@example.com', 'checkout_created',
+          $1, 'siargao_trip_pass', $2, 999, 'usd', 'return:key', 'lemon_squeezy',
+          'store_test', 'variant_test', 'provider_return', $3, $3)`,
+        [tripPassProductCode, tripPassProductVersion, now],
+      );
+      const dependencies = routeDependencies(db, {
+        env: {
+          TRIP_PASS_CHECKOUT_MODE: "on",
+          LEMON_SQUEEZY_STORE_ID: "store_test",
+          LEMON_SQUEEZY_PRODUCT_ID: "product_test",
+          LEMON_SQUEEZY_VARIANT_ID: "variant_test",
+          LEMON_SQUEEZY_API_KEY: "test_key",
+        },
+        userId: "user_return",
+      });
+      let lookups = 0;
+      dependencies.lemonCheckoutClient = {
+        createCheckout: async () => {
+          throw new Error("not used");
+        },
+        retrieveOrder: async () => {
+          lookups += 1;
+          return {
+            provider: "lemon_squeezy",
+            eventName: "order_created",
+            objectId: "provider_return",
+            providerUpdatedAt: now.toISOString(),
+            orderId: "order_return",
+            providerOrderId: "provider_return",
+            checkoutId: null,
+            paymentId: "payment_return",
+            storeId: "store_test",
+            productId: "product_test",
+            variantId: "variant_test",
+            status: "paid",
+            amountTotalMinor: 999,
+            refundedAmountMinor: 0,
+            currency: "usd",
+            testMode: false,
+          };
+        },
+        refundOrder: async () => {
+          throw new Error("not used");
+        },
+      };
+      const response = await postTripPassCheckoutReturnResponse(
+        checkoutReturnRequest("order_return"),
+        dependencies,
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: "applied" });
+      expect(lookups).toBe(1);
+    });
+  });
 });
 
 type TestRouteDependencies = TripPassAccountRouteDependencies & {
@@ -248,6 +312,7 @@ function routeDependencies(
     cancelResult?: Awaited<ReturnType<TripPassAccountRouteDependencies["cancelTripPassCheckout"]>>;
     checkoutError?: Error;
     checkoutResult?: Awaited<ReturnType<TripPassAccountRouteDependencies["startTripPassCheckout"]>>;
+    env?: Record<string, string | undefined>;
     userId: string | null;
   },
 ): TestRouteDependencies {
@@ -267,7 +332,7 @@ function routeDependencies(
     cancelCalls,
     checkoutCalls,
     db,
-    env: availableEnv,
+    env: input.env ?? availableEnv,
     events,
     now: () => now,
     cancelTripPassCheckout: async (cancelInput) => {
@@ -326,6 +391,18 @@ function checkoutRequest(input: { origin?: string; secFetchSite?: string } = {})
       origin: input.origin ?? "https://siargao.test",
       "sec-fetch-site": input.secFetchSite ?? "same-origin",
     },
+  });
+}
+
+function checkoutReturnRequest(orderId: string) {
+  return new Request("https://siargao.test/api/me/trip-pass/checkout/return", {
+    method: "POST",
+    headers: {
+      origin: "https://siargao.test",
+      "sec-fetch-site": "same-origin",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ orderId }),
   });
 }
 
