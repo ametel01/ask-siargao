@@ -208,6 +208,12 @@ export const clerkRoutePolicyEntries = [
     "authenticated Trip Pass checkout API",
   ),
   api(
+    "src/app/api/me/trip-pass/checkout/return/route.ts",
+    "/api/me/trip-pass/checkout/return",
+    "protected",
+    "authenticated Lemon Squeezy checkout return convergence API",
+  ),
+  api(
     "src/app/api/me/trip-pass/route.ts",
     "/api/me/trip-pass",
     "protected",
