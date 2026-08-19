@@ -374,6 +374,15 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
      )`,
   );
   await db.query(
+    `insert into trip_pass_refund_operations (
+       id, order_id, provider, provider_order_id, reason, amount_minor, idempotency_key
+     ) values (
+       'native_producer_lemon_refund', 'native_operations_order', 'lemon_squeezy',
+       'native_producer_lemon_order', 'duplicate_payment', 999,
+       'native_producer_lemon_refund_key'
+     )`,
+  );
+  await db.query(
     `insert into trip_passes (
        id, user_id, status, starts_at, expires_at
      ) values (
@@ -425,6 +434,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     ["pending_payment_event", "native_producer_payment_receipt"],
     ["pending_stripe_event", "native_producer_stripe_event"],
     ["paid_after_closure_refund", "native_producer_refund"],
+    ["lemon_squeezy_refund", "native_producer_lemon_refund"],
     ["retention_purge", "native_producer_reservation"],
     ["commerce_reconciliation", `all:${cycleKey}`],
   ] as const;
@@ -434,7 +444,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
      order by task_type`,
     [`all:${cycleKey}`],
   );
-  assert(queued.rows.length === 6, "native producer did not create exactly six tasks");
+  assert(queued.rows.length === 7, "native producer did not create exactly seven tasks");
   for (const [taskType, resourceRef] of expected) {
     assert(
       queued.rows.some(
@@ -453,7 +463,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   );
 
   const drained = await runOperationalWorker(
-    { batchSize: 6, leaseSeconds: 60 },
+    { batchSize: 7, leaseSeconds: 60 },
     {
       db,
       handlers: {
@@ -461,14 +471,15 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
         commerce_reconciliation: async () => undefined,
         pending_payment_event: async () => undefined,
         paid_after_closure_refund: async () => undefined,
+        lemon_squeezy_refund: async () => undefined,
         pending_stripe_event: async () => undefined,
         retention_purge: async () => Promise.reject(new Error("native_producer_crash")),
       },
     },
   );
   assert(
-    drained.succeeded === 5 && drained.failed === 1,
-    "native producer worker did not drain five tasks and retain one retry",
+    drained.succeeded === 6 && drained.failed === 1,
+    "native producer worker did not drain six tasks and retain one retry",
   );
   await db.query(
     `update operational_worker_tasks set next_attempt_at = clock_timestamp()
@@ -497,7 +508,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     [`all:${cycleKey}`],
   );
   assert(
-    terminalBeforeReplay.rows.length === 6 &&
+    terminalBeforeReplay.rows.length === 7 &&
       terminalBeforeReplay.rows.every((row) => row.status === "succeeded"),
     "native producer tasks did not reach terminal success",
   );
