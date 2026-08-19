@@ -25,70 +25,86 @@ const env = {
 
 describe("Lemon Squeezy Trip Pass commerce", () => {
   test("persists a pending Order and Checkout Attempt before exposing the URL", async () => {
-    await withTestDb(async (db) => {
-      await db.query("insert into users (id, email) values ($1, $2)", [
-        "account_lemon_1",
-        "traveler@example.com",
-      ]);
-      const calls: string[] = [];
-      const client = fakeClient({
-        createCheckout: async ({ order }) => {
-          const pending = await db.query<{ count: string }>(
-            "select count(*)::text as count from trip_pass_orders where id = $1 and status = 'pending'",
-            [order.id],
-          );
-          calls.push(`pending:${pending.rows[0]?.count}`);
-          return {
-            id: "checkout_test_1",
-            url: "https://checkout.lemonsqueezy.test/1",
-            orderId: order.id,
-            storeId: order.storeId,
-            variantId: order.variantId,
-          };
-        },
-      });
-
-      await expect(
-        startLemonSqueezyTripPassCheckout(
-          {
-            userId: "account_lemon_1",
-            email: "traveler@example.com",
-            appUrl: "https://www.asksiargao.com",
+    const queries: string[] = [];
+    await withTestDb(
+      async (db) => {
+        await db.query("insert into users (id, email) values ($1, $2)", [
+          "account_lemon_1",
+          "traveler@example.com",
+        ]);
+        const calls: string[] = [];
+        const client = fakeClient({
+          createCheckout: async ({ order }) => {
+            const pending = await db.query<{ count: string }>(
+              "select count(*)::text as count from trip_pass_orders where id = $1 and status = 'pending'",
+              [order.id],
+            );
+            calls.push(`pending:${pending.rows[0]?.count}`);
+            return {
+              id: "checkout_test_1",
+              url: "https://checkout.lemonsqueezy.test/1",
+              orderId: order.id,
+              storeId: order.storeId,
+              variantId: order.variantId,
+            };
           },
-          { db, env, now, createId: () => "trip_pass_order_lemon_1", client },
-        ),
-      ).resolves.toEqual({
-        status: "started",
-        orderId: "trip_pass_order_lemon_1",
-        checkoutUrl: "https://checkout.lemonsqueezy.test/1",
-      });
-      expect(calls).toEqual(["pending:1"]);
-      const order = await db.query<{
-        payment_provider: string;
-        provider_store_id: string;
-        provider_variant_id: string;
-        provider_checkout_id: string;
-        email: string | null;
-      }>(
-        "select payment_provider, provider_store_id, provider_variant_id, provider_checkout_id, email from trip_pass_orders where id = $1",
-        ["trip_pass_order_lemon_1"],
-      );
-      expect(order.rows[0]).toEqual({
-        payment_provider: "lemon_squeezy",
-        provider_store_id: "store_test",
-        provider_variant_id: "variant_test",
-        provider_checkout_id: "checkout_test_1",
-        email: "traveler@example.com",
-      });
-      const attempt = await db.query<{ status: string; checkout_url: string }>(
-        "select status, checkout_url from trip_pass_checkout_attempts where order_id = $1",
-        ["trip_pass_order_lemon_1"],
-      );
-      expect(attempt.rows[0]).toEqual({
-        status: "created",
-        checkout_url: "https://checkout.lemonsqueezy.test/1",
-      });
-    });
+        });
+
+        await expect(
+          startLemonSqueezyTripPassCheckout(
+            {
+              userId: "account_lemon_1",
+              email: "traveler@example.com",
+              appUrl: "https://www.asksiargao.com",
+            },
+            { db, env, now, createId: () => "trip_pass_order_lemon_1", client },
+          ),
+        ).resolves.toEqual({
+          status: "started",
+          orderId: "trip_pass_order_lemon_1",
+          checkoutUrl: "https://checkout.lemonsqueezy.test/1",
+        });
+        expect(calls).toEqual(["pending:1"]);
+        const familyLockQueryIndex = queries.findIndex((query) =>
+          query.includes("pg_advisory_xact_lock"),
+        );
+        const activePassQueryIndex = queries.findIndex((query) =>
+          query.includes("from trip_passes p left join trip_usage_meters"),
+        );
+        const pendingOrderQueryIndex = queries.findIndex((query) =>
+          query.includes("from trip_pass_orders"),
+        );
+        expect(familyLockQueryIndex).toBeGreaterThanOrEqual(0);
+        expect(familyLockQueryIndex).toBeLessThan(activePassQueryIndex);
+        expect(familyLockQueryIndex).toBeLessThan(pendingOrderQueryIndex);
+        const order = await db.query<{
+          payment_provider: string;
+          provider_store_id: string;
+          provider_variant_id: string;
+          provider_checkout_id: string;
+          email: string | null;
+        }>(
+          "select payment_provider, provider_store_id, provider_variant_id, provider_checkout_id, email from trip_pass_orders where id = $1",
+          ["trip_pass_order_lemon_1"],
+        );
+        expect(order.rows[0]).toEqual({
+          payment_provider: "lemon_squeezy",
+          provider_store_id: "store_test",
+          provider_variant_id: "variant_test",
+          provider_checkout_id: "checkout_test_1",
+          email: "traveler@example.com",
+        });
+        const attempt = await db.query<{ status: string; checkout_url: string }>(
+          "select status, checkout_url from trip_pass_checkout_attempts where order_id = $1",
+          ["trip_pass_order_lemon_1"],
+        );
+        expect(attempt.rows[0]).toEqual({
+          status: "created",
+          checkout_url: "https://checkout.lemonsqueezy.test/1",
+        });
+      },
+      { queryLog: queries },
+    );
   });
 
   test("applies one paid fact to one local Grant and deduplicates the exact receipt", async () => {
@@ -204,12 +220,15 @@ function fakeClient(
   };
 }
 
-async function withTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
+async function withTestDb(
+  work: (db: DatabaseQueryClient) => Promise<void>,
+  options: { queryLog?: string[] } = {},
+) {
   await resetTestDatabase();
   const database = await openTestDatabase();
   try {
     await runInitialMigration(database);
-    await work(createPgliteQueryClient(database));
+    await work(createPgliteQueryClient(database, options.queryLog));
   } finally {
     await database.close();
   }
@@ -227,9 +246,10 @@ async function insertLemonOrder(db: DatabaseQueryClient, orderId: string, userId
   );
 }
 
-function createPgliteQueryClient(database: PGlite): DatabaseQueryClient {
+function createPgliteQueryClient(database: PGlite, queryLog: string[] = []): DatabaseQueryClient {
   const client: DatabaseQueryClient = {
     async query<T>(query: string, params: unknown[] = []) {
+      queryLog.push(query);
       return database.query<T>(query, params);
     },
     async transaction<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>) {

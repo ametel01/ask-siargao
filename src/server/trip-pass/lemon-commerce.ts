@@ -6,6 +6,7 @@ import {
   readTripPassEnvironment,
   tripPassProductFamily,
 } from "@/server/trip-pass/catalog";
+import { acquireFamilyReservationLock } from "@/server/trip-pass/commerce";
 import {
   createLemonSqueezyCheckoutClient,
   type LemonSqueezyCheckoutClient,
@@ -132,6 +133,10 @@ async function ensureLemonOrder(input: {
   db: DatabaseQueryClient;
 }): Promise<LemonOrder | { reason: string }> {
   return withTransaction(input.db, async (db) => {
+    await acquireFamilyReservationLock(
+      { productFamily: tripPassProductFamily, userId: input.userId },
+      db,
+    );
     const now = input.now ?? (await readDatabaseNow(db));
     const blocking = await db.query<{ id: string }>(
       `select p.id from trip_passes p left join trip_usage_meters m on m.trip_pass_id = p.id and m.meter_type = 'chat_message'
