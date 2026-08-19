@@ -421,8 +421,8 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   const cycleKey = "native-cycle-20260808T12";
   const reconciliationRef = `risk:${cycleKey}:native_operations_order`;
   const concurrent = await Promise.all([
-    enqueueDueOperationalTasks({ cycleKey }, db),
-    enqueueDueOperationalTasks({ cycleKey }, db),
+    enqueueDueOperationalTasks({ cycleKey, limitPerType: 1_000 }, db),
+    enqueueDueOperationalTasks({ cycleKey, limitPerType: 1_000 }, db),
   ]);
   for (const taskType of Object.keys(concurrent[0]) as (keyof (typeof concurrent)[0])[]) {
     assert(
