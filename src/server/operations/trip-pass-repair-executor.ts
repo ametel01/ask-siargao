@@ -176,7 +176,11 @@ function refundTripPassAction(): TripPassRepairAction {
     },
     async preview({ db, finding }) {
       const state = await loadRefundState(finding.local_entity_ref, db);
-      if (!state.providerOrderId || state.capturedAmountMinor === null) {
+      if (
+        state.paymentProvider !== "lemon_squeezy" ||
+        !state.providerOrderId ||
+        state.capturedAmountMinor === null
+      ) {
         throw new Error("refund_provider_terms_unavailable");
       }
       return {
@@ -186,7 +190,11 @@ function refundTripPassAction(): TripPassRepairAction {
     },
     async apply({ db, finding }) {
       const state = await loadRefundState(finding.local_entity_ref, db);
-      if (!state.providerOrderId || state.capturedAmountMinor === null) {
+      if (
+        state.paymentProvider !== "lemon_squeezy" ||
+        !state.providerOrderId ||
+        state.capturedAmountMinor === null
+      ) {
         throw new Error("refund_provider_terms_unavailable");
       }
       const idempotencyKey = `operator_refund:${finding.id}`;
@@ -570,11 +578,12 @@ async function loadUsageEventState(eventId: string, db: DatabaseQueryClient) {
 async function loadRefundState(orderId: string, db: DatabaseQueryClient) {
   const result = await db.query<{
     status: string;
+    payment_provider: string;
     provider_order_id: string | null;
     captured_amount_minor: number | null;
     currency: string | null;
   }>(
-    `select status, provider_order_id, captured_amount_minor, currency
+    `select status, payment_provider, provider_order_id, captured_amount_minor, currency
      from trip_pass_orders where id = $1`,
     [orderId],
   );
@@ -582,6 +591,7 @@ async function loadRefundState(orderId: string, db: DatabaseQueryClient) {
   if (!row) throw new Error("refund_order_unavailable");
   return {
     status: row.status,
+    paymentProvider: row.payment_provider,
     providerOrderId: row.provider_order_id,
     capturedAmountMinor: row.captured_amount_minor,
     currency: row.currency,
