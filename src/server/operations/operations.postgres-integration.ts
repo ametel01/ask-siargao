@@ -562,8 +562,17 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
       db,
     ),
   ]);
+  const nextReconciliationRef = `risk:${nextCycleKey}:native_operations_order`;
+  const nextOrderTasks = await db.query<{ id: string }>(
+    `select id from operational_worker_tasks
+     where task_type = 'commerce_reconciliation' and resource_ref = $1`,
+    [nextReconciliationRef],
+  );
   assert(
-    nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0) === 1,
+    nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0) >= 1 &&
+      nextOrderTasks.rows.length === 1 &&
+      nextOrderTasks.rows[0]?.id ===
+        stableOperationalTaskId("commerce_reconciliation", nextReconciliationRef),
     "native producer did not create exactly one task per due Order for a new reconciliation cycle",
   );
   await db.query(
