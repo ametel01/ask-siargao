@@ -160,8 +160,11 @@ async function loadDueTargets(
 
 async function readDatabaseCycleKey(db: DatabaseQueryClient) {
   const result = await db.query<{ cycle_key: string }>(
-    `select to_char(date_trunc('hour', clock_timestamp() at time zone 'UTC'),
-       'YYYYMMDDHH24') as cycle_key`,
+    `select to_char(
+       date_trunc('hour', clock_timestamp() at time zone 'UTC')
+         + floor(extract(minute from clock_timestamp() at time zone 'UTC') / 5) * interval '5 minutes',
+       'YYYYMMDDHH24MI'
+     ) as cycle_key`,
   );
   const cycleKey = result.rows[0]?.cycle_key;
   if (!cycleKey) throw new Error("operational_cycle_key_unavailable");
