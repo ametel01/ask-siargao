@@ -55,7 +55,7 @@ export async function applyLemonSqueezyPaymentFact(
       const orderResult = await db.query<TripPassOrderRow>(
         `select id, user_id, status, product_code, product_version, amount_total_minor, currency,
         payment_provider,
-        provider_store_id, provider_variant_id, provider_order_id, accepted_payment_fact_id,
+          provider_store_id, provider_product_id, provider_variant_id, provider_order_id, accepted_payment_fact_id,
         provider_updated_at, payment_suspension_state, refund_state,
         refund_review_alerted_at
        from trip_pass_orders where id = $1 for update`,
@@ -77,6 +77,12 @@ export async function applyLemonSqueezyPaymentFact(
       }
       if (!fact.currency || fact.currency.toLowerCase() !== order.currency?.toLowerCase()) {
         return { status: "rejected", reason: "trip_pass_payment_fact_currency_mismatch", orderId };
+      }
+      if (
+        order.provider_product_id &&
+        (!fact.productId || fact.productId !== order.provider_product_id)
+      ) {
+        return { status: "rejected", reason: "trip_pass_product_mismatch", orderId };
       }
       const isAdditionalProviderPayment =
         Boolean(order.provider_order_id) &&
@@ -243,6 +249,7 @@ type TripPassOrderRow = {
   amount_total_minor: number | null;
   currency: string | null;
   provider_store_id: string | null;
+  provider_product_id: string | null;
   provider_variant_id: string | null;
   provider_order_id: string | null;
   accepted_payment_fact_id: string | null;

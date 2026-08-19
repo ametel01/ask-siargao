@@ -56,7 +56,9 @@ export async function startLemonSqueezyTripPassCheckout(
     userId: input.userId,
     email: input.email,
     storeId: lemonEnvironment.storeId,
+    productId: lemonEnvironment.productId,
     variantId: lemonEnvironment.variantId,
+    testMode: env.LEMON_SQUEEZY_ALLOW_TEST_MODE === "true",
     createId: options.createId ?? defaultCreateId,
     now: options.now,
     db: options.db,
@@ -127,7 +129,9 @@ async function ensureLemonOrder(input: {
   userId: string;
   email?: string | null;
   storeId: string;
+  productId?: string;
   variantId: string;
+  testMode: boolean;
   createId: (prefix: string) => string;
   now?: Date;
   db: DatabaseQueryClient;
@@ -147,7 +151,7 @@ async function ensureLemonOrder(input: {
     if (blocking.rows[0]) return { reason: "trip_pass_family_active" };
     const reusable = await db.query<LemonOrderRow>(
       `select id, user_id, product_family, checkout_idempotency_key, checkout_session_expires_at,
-        provider_store_id, provider_variant_id from trip_pass_orders
+        provider_store_id, provider_product_id, provider_variant_id from trip_pass_orders
        where user_id = $1 and product_family = $2 and payment_provider = 'lemon_squeezy'
        and status in ('pending', 'checkout_created') and checkout_session_expires_at > $3
        order by created_at desc, id desc limit 1`,
@@ -163,7 +167,9 @@ async function ensureLemonOrder(input: {
         checkoutIdempotencyKey: row.checkout_idempotency_key,
         checkoutSessionExpiresAt: new Date(row.checkout_session_expires_at),
         storeId: row.provider_store_id ?? input.storeId,
+        productId: row.provider_product_id ?? input.productId,
         variantId: row.provider_variant_id ?? input.variantId,
+        testMode: input.testMode,
         createdForRequest: false,
       };
     }
@@ -175,8 +181,8 @@ async function ensureLemonOrder(input: {
         id, user_id, email, status, product_code, product_family, product_version,
         stripe_price_id, amount_total_minor, currency, checkout_idempotency_key,
         checkout_session_expires_at, metadata_json, payment_provider, provider_store_id,
-        provider_variant_id, created_at, updated_at
-      ) values ($1, $2, $3, 'pending', $4, $5, $6, null, $7, $8, $9, $10, $11::jsonb, 'lemon_squeezy', $12, $13, $14, $14)`,
+        provider_product_id, provider_variant_id, created_at, updated_at
+      ) values ($1, $2, $3, 'pending', $4, $5, $6, null, $7, $8, $9, $10, $11::jsonb, 'lemon_squeezy', $12, $13, $14, $15, $15)`,
       [
         id,
         input.userId,
@@ -194,6 +200,7 @@ async function ensureLemonOrder(input: {
           policyVersions: tripPassLemonSqueezyProductSnapshot.policyVersions,
         }),
         input.storeId,
+        input.productId,
         input.variantId,
         now,
       ],
@@ -206,7 +213,9 @@ async function ensureLemonOrder(input: {
       checkoutIdempotencyKey: idempotencyKey,
       checkoutSessionExpiresAt: expiresAt,
       storeId: input.storeId,
+      productId: input.productId,
       variantId: input.variantId,
+      testMode: input.testMode,
       createdForRequest: true,
     };
   });
@@ -275,5 +284,6 @@ type LemonOrderRow = {
   checkout_idempotency_key: string;
   checkout_session_expires_at: Date | string;
   provider_store_id: string | null;
+  provider_product_id: string | null;
   provider_variant_id: string | null;
 };

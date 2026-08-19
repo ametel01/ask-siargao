@@ -39,11 +39,11 @@ describe("Lemon Squeezy refund worker", () => {
       });
 
       const result = await runLemonSqueezyRefundBatch({
-          client,
-          createLeaseToken: () => "lease_1",
-          db,
-          limit: 1,
-        });
+        client,
+        createLeaseToken: () => "lease_1",
+        db,
+        limit: 1,
+      });
       expect(result).toEqual({ claimed: 1, confirmed: 1, retrying: 0, stale: 0 });
       expect(calls).toEqual(["provider_order_refund:999:refund:refund_operation_1"]);
       const operation = await db.query<{ status: string; completed_at: Date | null }>(
