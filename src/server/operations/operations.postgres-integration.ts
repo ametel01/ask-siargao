@@ -488,6 +488,19 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
      )`,
   );
   await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_family, product_version,
+       amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+       checkout_return_lookup_attempts, checkout_return_lookup_status,
+       checkout_return_provider_order_id, checkout_return_provider_order_identifier
+     ) values (
+       'native_producer_checkout_return', 'native_operations_account', 'checkout_created',
+       'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+       'native_producer_checkout_return_key', 'lemon_squeezy', 1, 'pending', '123456789',
+       '12345678-1234-4123-8123-123456789abc'
+     )`,
+  );
+  await db.query(
     `update operational_reconciliation_observations
      set observed_at = clock_timestamp() - interval '6 minutes'
      where local_entity_type = 'trip_pass_order'
@@ -508,6 +521,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }
   const expected = [
     ["account_closure", "native_producer_closure"],
+    ["checkout_return_lookup", "native_producer_checkout_return"],
     ["pending_payment_event", "native_producer_payment_receipt"],
     ["pending_stripe_event", "native_producer_stripe_event"],
     ["paid_after_closure_refund", "native_producer_refund"],
@@ -521,7 +535,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
      order by task_type`,
     [reconciliationRef],
   );
-  assert(queued.rows.length === 7, "native producer did not create exactly seven tasks");
+  assert(queued.rows.length === 8, "native producer did not create exactly eight tasks");
   for (const [taskType, resourceRef] of expected) {
     assert(
       queued.rows.some(
