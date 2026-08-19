@@ -163,7 +163,7 @@ export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequ
         },
         product_options: {
           enabled_variants: [lemonSqueezyNumericVariantId(input.order.variantId)],
-          redirect_url: `${appUrl}/settings?trip_pass_checkout=return&order=${encodeURIComponent(input.order.id)}`,
+          redirect_url: `${appUrl}/settings?trip_pass_checkout=return&order=${encodeURIComponent(input.order.id)}&provider_order=[order_id]&provider_identifier=[order_identifier]`,
           receipt_link_url: `${appUrl}/legal/trip-pass`,
         },
         checkout_options: {

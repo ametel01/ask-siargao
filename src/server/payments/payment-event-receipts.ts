@@ -39,9 +39,21 @@ export async function receiveLemonSqueezyPaymentEvent(
     applyFact?: PaymentFactApplication;
   },
 ): Promise<PaymentEventReceiptResult> {
-  const now = options.now ?? new Date();
   const eventName = options.eventName ?? eventNameFromPayload(payload);
   const fact = parseLemonSqueezyOrderFact({ eventName, payload });
+  return receiveLemonSqueezyPaymentFact(fact, options);
+}
+
+export async function receiveLemonSqueezyPaymentFact(
+  fact: NormalizedPaymentFact,
+  options: {
+    db: DatabaseQueryClient;
+    now?: Date;
+    applyFact?: PaymentFactApplication;
+  },
+): Promise<PaymentEventReceiptResult> {
+  const now = options.now ?? new Date();
+  const eventName = fact.eventName;
   const fingerprint = paymentFactFingerprint(fact);
   const receiptId = `payment_receipt_${fingerprint.slice(0, 32)}`;
   const supported = supportedLemonSqueezyEvents.has(eventName);

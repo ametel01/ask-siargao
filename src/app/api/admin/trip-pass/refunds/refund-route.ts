@@ -62,6 +62,7 @@ export async function postOperatorRefundResponse(
       "operator_refund_idempotency_mismatch",
       "partial_refund_review_unavailable",
       "partial_refund_operation_in_flight",
+      "refund_operation_already_active",
       "refund_amount_unavailable",
       "refund_provider_terms_unavailable",
     ]);

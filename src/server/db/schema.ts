@@ -865,6 +865,9 @@ export const tripPassRefundOperations = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex("trip_pass_refund_operations_active_provider_order_idx")
+      .on(table.orderId, table.provider, table.providerOrderId)
+      .where(sql`${table.status} in ('pending', 'running')`),
     check("trip_pass_refund_operations_provider_check", sql`${table.provider} = 'lemon_squeezy'`),
     check(
       "trip_pass_refund_operations_reason_check",

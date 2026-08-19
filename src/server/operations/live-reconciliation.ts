@@ -311,8 +311,10 @@ async function loadLocalCommerce(
   const filter = orderId
     ? "where o.id = $1"
     : scope === "risk"
-      ? "where o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')"
-      : "where true";
+      ? "where o.status in ('pending', 'checkout_created', 'paid', 'disputed')"
+      : scope === "daily"
+        ? "where o.status not in ('pending', 'checkout_created', 'paid', 'disputed')"
+        : "where true";
   const result = await db.query<LocalCommerceSnapshot>(
     `select o.id, o.user_id, o.product_family, o.status, o.amount_total_minor, o.currency,
        o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.payment_provider,

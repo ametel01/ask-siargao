@@ -2,7 +2,10 @@ import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
-import { applyPendingLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
+import {
+  applyPendingLemonSqueezyPaymentEvent,
+  receiveLemonSqueezyPaymentFact,
+} from "@/server/payments/payment-event-receipts";
 import { isAllowedMutationOrigin } from "@/server/security/request-origin";
 import {
   readLemonSqueezyEnvironment,
@@ -14,6 +17,10 @@ import {
   startTripPassCheckout,
   type TripPassCheckoutResult,
 } from "@/server/trip-pass/commerce";
+import {
+  createLemonSqueezyCheckoutClient,
+  type LemonSqueezyCheckoutClient,
+} from "@/server/trip-pass/lemon-squeezy-adapter";
 import { applyLemonSqueezyPaymentFact } from "@/server/trip-pass/lemon-squeezy-webhook-application";
 import { buildTripPassAccountPresentation } from "@/server/trip-pass/presentation";
 
@@ -25,6 +32,7 @@ export type TripPassAccountRouteDependencies = {
   cancelTripPassCheckout: typeof cancelTripPassCheckout;
   startTripPassCheckout: typeof startTripPassCheckout;
   trackServerEvent: typeof trackServerEvent;
+  retrieveLemonSqueezyOrder?: LemonSqueezyCheckoutClient["retrieveOrder"];
 };
 
 function createDefaultTripPassAccountRouteDependencies(): TripPassAccountRouteDependencies {
@@ -205,6 +213,8 @@ export async function postTripPassCheckoutReturnResponse(
     typeof body.orderId === "string"
       ? body.orderId.trim()
       : "";
+  const providerOrderId = readCheckoutReturnField(body, "providerOrderId");
+  const providerOrderIdentifier = readCheckoutReturnField(body, "providerOrderIdentifier");
   if (!orderId || orderId.length > 200) {
     return Response.json(
       { error: "invalid_checkout_return" },
@@ -233,21 +243,19 @@ export async function postTripPassCheckoutReturnResponse(
       [orderId],
     );
     const receiptId = receipt.rows[0]?.id;
-    if (!receiptId) {
-      await completeCheckoutReturnLookup(dependencies.db, {
-        orderId,
-        userId: currentUser.userId,
-        status: "not_found",
-        now: dependencies.now(),
-      });
-      return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
-    }
-    const result = await applyPendingLemonSqueezyPaymentEvent(receiptId, {
-      db: dependencies.db,
-      now: dependencies.now(),
-      applyFact: ({ fact: normalizedFact, db, now }) =>
-        applyLemonSqueezyPaymentFact(normalizedFact, { db, now, env: dependencies.env }),
-    });
+    const result = receiptId
+      ? await applyPendingLemonSqueezyPaymentEvent(receiptId, {
+          db: dependencies.db,
+          now: dependencies.now(),
+          applyFact: ({ fact: normalizedFact, db, now }) =>
+            applyLemonSqueezyPaymentFact(normalizedFact, { db, now, env: dependencies.env }),
+        })
+      : await recoverCheckoutReturnFromProvider({
+          dependencies,
+          orderId,
+          providerOrderId,
+          providerOrderIdentifier,
+        });
     const applied = await checkoutReturnPaymentApplied(
       dependencies.db,
       orderId,
@@ -256,15 +264,64 @@ export async function postTripPassCheckoutReturnResponse(
     await completeCheckoutReturnLookup(dependencies.db, {
       orderId,
       userId: currentUser.userId,
-      status: applied ? "succeeded" : result.status === "blocked" ? "exhausted" : "not_found",
+      status: applied ? "succeeded" : result?.status === "blocked" ? "exhausted" : "not_found",
       now: dependencies.now(),
     });
     return applied
       ? Response.json({ status: "applied" }, { headers: responseHeaders })
       : Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
   } catch {
+    await completeCheckoutReturnLookup(dependencies.db, {
+      orderId,
+      userId: currentUser.userId,
+      status: "exhausted",
+      now: dependencies.now(),
+    }).catch(() => undefined);
     return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
   }
+}
+
+async function recoverCheckoutReturnFromProvider(input: {
+  dependencies: TripPassAccountRouteDependencies;
+  orderId: string;
+  providerOrderId: string;
+  providerOrderIdentifier: string;
+}) {
+  if (
+    !/^\d{1,32}$/.test(input.providerOrderId) ||
+    !isProviderOrderIdentifier(input.providerOrderIdentifier)
+  ) {
+    return null;
+  }
+  const retrieveOrder =
+    input.dependencies.retrieveLemonSqueezyOrder ??
+    createLemonSqueezyCheckoutClient().retrieveOrder;
+  const providerFact = await retrieveOrder(input.providerOrderId);
+  if (
+    providerFact.providerOrderId !== input.providerOrderId ||
+    providerFact.paymentId !== input.providerOrderIdentifier
+  ) {
+    return null;
+  }
+  return receiveLemonSqueezyPaymentFact(
+    { ...providerFact, orderId: input.orderId },
+    {
+      db: input.dependencies.db,
+      now: input.dependencies.now(),
+      applyFact: ({ fact, db, now }) =>
+        applyLemonSqueezyPaymentFact(fact, { db, env: input.dependencies.env, now }),
+    },
+  );
+}
+
+function readCheckoutReturnField(body: unknown, key: string) {
+  if (typeof body !== "object" || body === null || !(key in body)) return "";
+  const value = (body as Record<string, unknown>)[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isProviderOrderIdentifier(value: string) {
+  return /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 }
 
 async function claimCheckoutReturnLookup(

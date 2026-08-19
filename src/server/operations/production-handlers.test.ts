@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+import { runInitialMigration } from "@/server/db/test-database";
 import { createOperationTrace, operationalTaskTypes } from "@/server/operations/contracts";
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 
@@ -60,6 +62,72 @@ describe("production operational task handlers", () => {
         expect(sql).toContain("operational_reconciliation_runs");
       }
       expect(sql).toContain("opaque_resource");
+    }
+  });
+
+  test("correlates an authoritative Lemon Order lookup before applying a refund", async () => {
+    const db = new PGlite();
+    try {
+      await runInitialMigration(db);
+      await db.query("insert into users (id, email) values ('account_reconcile_refund', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, captured_amount_minor, currency, checkout_idempotency_key,
+           payment_provider, provider_store_id, provider_product_id, provider_variant_id,
+           provider_order_id, checkout_commercial_terms_verified_at, created_at, updated_at
+         ) values ('order_reconcile_refund', 'account_reconcile_refund', 'paid',
+           'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 999, 'usd',
+           'checkout:reconcile-refund', 'lemon_squeezy', '7', '88', '99', '12345',
+           now(), now() - interval '1 hour', now() - interval '1 hour')`,
+      );
+      const handlers = createProductionOperationalTaskHandlers({
+        commerceReader: {
+          readPaymentFact: async () => ({
+            amountMinor: 999,
+            currency: "usd",
+            paymentState: "refunded",
+            providerFact: {
+              provider: "lemon_squeezy",
+              eventName: "order_lookup",
+              objectId: "12345",
+              providerUpdatedAt: "2026-08-20T00:00:00.000Z",
+              orderId: null,
+              providerOrderId: "12345",
+              paymentId: "104e18a2-d755-4d4b-80c4-a6c1dcbe1c10",
+              storeId: "7",
+              productId: "88",
+              variantId: "99",
+              status: "refunded",
+              amountTotalMinor: 999,
+              refundedAmountMinor: 999,
+              currency: "usd",
+              testMode: false,
+              discountTotalMinor: 0,
+            },
+          }),
+        },
+        db,
+      });
+
+      await handlers.commerce_reconciliation?.({
+        resourceRef: "risk:cycle-refund:order_reconcile_refund",
+        trace: createOperationTrace(),
+      });
+
+      const order = await db.query<{ refund_state: string; status: string }>(
+        "select refund_state, status from trip_pass_orders where id = 'order_reconcile_refund'",
+      );
+      expect(order.rows[0]).toEqual({ refund_state: "full", status: "refunded" });
+      const receipt = await db.query<{ event_name: string; order_id: string; status: string }>(
+        `select event_name, order_id, status from trip_pass_payment_event_receipts
+         where order_id = 'order_reconcile_refund'`,
+      );
+      expect(receipt.rows).toEqual([
+        { event_name: "order_lookup", order_id: "order_reconcile_refund", status: "applied" },
+      ]);
+    } finally {
+      await db.close();
     }
   });
 });

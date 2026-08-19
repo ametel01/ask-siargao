@@ -328,22 +328,30 @@ async function createRefundOperation(
     .update(idempotencyKey)
     .digest("hex")
     .slice(0, 32)}`;
+  const updated = await db.query<{ id: string }>(
+    `update trip_pass_refund_operations set
+       amount_minor = case when status = 'pending' then $1 else amount_minor end,
+       next_attempt_at = case when status = 'pending' then least(next_attempt_at, $2)
+         else next_attempt_at end,
+       provider_captured_amount_minor = coalesce(provider_captured_amount_minor, $3),
+       updated_at = $4
+     where idempotency_key = $5
+     returning id`,
+    [
+      input.amountMinor ?? input.fact.amountTotalMinor,
+      input.nextAttemptAt ?? input.now,
+      input.fact.amountTotalMinor,
+      input.now,
+      idempotencyKey,
+    ],
+  );
+  if (updated.rows[0]) return;
   await db.query(
     `insert into trip_pass_refund_operations (
       id, order_id, provider, provider_order_id, reason, amount_minor, idempotency_key,
       provider_captured_amount_minor, next_attempt_at, created_at, updated_at
     ) values ($1, $2, 'lemon_squeezy', $3, $4, $5, $6, $7, $8, $9, $9)
-    on conflict (idempotency_key) do update set
-      amount_minor = case when trip_pass_refund_operations.status = 'pending'
-        then excluded.amount_minor else trip_pass_refund_operations.amount_minor end,
-      next_attempt_at = case when trip_pass_refund_operations.status = 'pending'
-        then least(trip_pass_refund_operations.next_attempt_at, excluded.next_attempt_at)
-        else trip_pass_refund_operations.next_attempt_at end,
-      provider_captured_amount_minor = coalesce(
-        trip_pass_refund_operations.provider_captured_amount_minor,
-        excluded.provider_captured_amount_minor
-      ),
-      updated_at = excluded.updated_at`,
+    on conflict do nothing`,
     [
       operationId,
       input.order.id,
@@ -390,7 +398,9 @@ function isStaleProviderFact(order: TripPassOrderRow, fact: NormalizedPaymentFac
 function paymentStateRank(status: string, refundState: string, suspensionState = "none") {
   if (status === "refunded" || refundState === "full") return 4;
   if (status === "fraudulent" || suspensionState === "fraudulent") return 3;
-  if (status === "partial_refund" || refundState === "review") return 2;
+  if (status === "partial_refund" || refundState === "review" || refundState === "partial_final") {
+    return 2;
+  }
   if (status === "paid") return 1;
   return 0;
 }

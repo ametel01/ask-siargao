@@ -1003,19 +1003,24 @@ describe("durable provider-neutral workers", () => {
     await withTestDb(async (db) => {
       await seedOrder(db, "order_risk_due");
       await seedOrder(db, "order_daily_due");
+      await seedOrder(db, "order_refunded_daily_due");
       await db.query("update trip_pass_orders set status = 'failed' where id = 'order_daily_due'");
+      await db.query(
+        "update trip_pass_orders set status = 'refunded' where id = 'order_refunded_daily_due'",
+      );
       const input = {
         cycleKey: "cycle-20260808T12",
         taskTypes: ["commerce_reconciliation"] as const,
       };
       expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
-        commerce_reconciliation: 2,
+        commerce_reconciliation: 3,
       });
       expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
         commerce_reconciliation: 0,
       });
       const resourceRefs = [
         "daily:cycle-20260808T12:order_daily_due",
+        "daily:cycle-20260808T12:order_refunded_daily_due",
         "risk:cycle-20260808T12:order_risk_due",
       ];
       const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(

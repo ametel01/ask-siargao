@@ -7,7 +7,11 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
-import { receiveLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
+import { executeOperatorRefund, previewOperatorRefund } from "@/server/operations/operator-refunds";
+import {
+  receiveLemonSqueezyPaymentEvent,
+  receiveLemonSqueezyPaymentFact,
+} from "@/server/payments/payment-event-receipts";
 import {
   type LemonTripPassCheckoutOptions,
   startLemonSqueezyTripPassCheckout,
@@ -412,6 +416,53 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
         now.getTime() + 24 * 60 * 60_000,
       );
       expect(reviews).toHaveLength(1);
+
+      const preview = await previewOperatorRefund(
+        { decision: "accept_partial_refund", orderId: "trip_pass_order_partial_refund" },
+        db,
+      );
+      await executeOperatorRefund(
+        {
+          auth: { accountId: "operator_partial_final", mfaFresh: true },
+          confirmation: "APPLY REFUND",
+          decision: "accept_partial_refund",
+          idempotencyKey: "partial-final-idempotency-key",
+          orderId: "trip_pass_order_partial_refund",
+          previewDigest: preview.digest,
+          reasonCode: "accept_partial_resolution",
+        },
+        { allowlist: new Set(["operator_partial_final"]), db },
+      );
+      const lookup = await receiveLemonSqueezyPaymentFact(
+        {
+          provider: "lemon_squeezy",
+          eventName: "order_lookup",
+          objectId: "provider_order_partial",
+          providerUpdatedAt: "2026-08-19T00:00:00.000Z",
+          orderId: "trip_pass_order_partial_refund",
+          providerOrderId: "provider_order_partial",
+          paymentId: null,
+          storeId: "store_test",
+          variantId: "variant_test",
+          status: "partial_refund",
+          amountTotalMinor: 999,
+          refundedAmountMinor: 300,
+          currency: "usd",
+          testMode: false,
+          discountTotalMinor: 0,
+        },
+        { db, applyFact, now },
+      );
+      expect(lookup).toMatchObject({
+        status: "applied",
+        applicationResult: { status: "duplicate" },
+      });
+      const final = await db.query<{ refund_state: string; status: string }>(
+        `select o.refund_state, operation.status from trip_pass_orders o
+         join trip_pass_refund_operations operation on operation.order_id = o.id
+         where o.id = 'trip_pass_order_partial_refund'`,
+      );
+      expect(final.rows[0]).toEqual({ refund_state: "partial_final", status: "cancelled" });
     });
   });
 

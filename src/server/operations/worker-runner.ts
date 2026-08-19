@@ -103,6 +103,25 @@ export async function runOperationalWorker(
   return results;
 }
 
+export async function drainOperationalWorker(
+  input: {
+    batchSize: number;
+    leaseSeconds: number;
+    taskTypes?: readonly OperationalTaskType[];
+  },
+  dependencies: Parameters<typeof runOperationalWorker>[1],
+) {
+  const totals = { claimed: 0, failed: 0, stale: 0, succeeded: 0 };
+  while (true) {
+    const batch = await runOperationalWorker(input, dependencies);
+    totals.claimed += batch.claimed;
+    totals.failed += batch.failed;
+    totals.stale += batch.stale;
+    totals.succeeded += batch.succeeded;
+    if (batch.claimed < input.batchSize) return totals;
+  }
+}
+
 async function claimTask(
   db: DatabaseQueryClient,
   leaseSeconds: number,

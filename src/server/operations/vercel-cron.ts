@@ -2,12 +2,15 @@ import { timingSafeEqual } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { pruneGooglePlacesContent } from "@/server/jobs/prune-google-places";
-import { operationalTaskTypes } from "@/server/operations/contracts";
+import { type OperationalTaskHandlers, operationalTaskTypes } from "@/server/operations/contracts";
 import {
   evaluateOperationalSchedules,
   runTrackedOperationalSchedule,
 } from "@/server/operations/operational-schedule-sentinel";
-import { enqueueDueOperationalTasks } from "@/server/operations/operational-task-producer";
+import {
+  enqueueAllDueReconciliationTasks,
+  enqueueDueOperationalTasks,
+} from "@/server/operations/operational-task-producer";
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   createSentryHttpSink,
@@ -20,7 +23,7 @@ import {
   type SentryCronSink,
   sentryEnvironment,
 } from "@/server/operations/sentry-cron";
-import { runOperationalWorker } from "@/server/operations/worker-runner";
+import { drainOperationalWorker, runOperationalWorker } from "@/server/operations/worker-runner";
 import { buildOpenMeteoIngestionBatch } from "@/server/providers/open-meteo";
 import { buildOpenMeteoMarineIngestionBatch } from "@/server/providers/open-meteo-marine";
 import { readOpenMeteoApiMode } from "@/server/providers/production-provider-mode";
@@ -73,38 +76,63 @@ export async function runOperationalCron(
   };
 }
 
-async function enqueueAndRunOperationalWorker({
+export async function enqueueAndRunOperationalWorker({
   db,
+  handlers = createProductionOperationalTaskHandlers({ db }),
   sentry,
 }: {
   db: DatabaseQueryClient;
+  handlers?: OperationalTaskHandlers;
   sentry: SentryOperationalSink;
 }) {
+  const nonReconciliationTaskTypes = operationalTaskTypes.filter(
+    (taskType) => taskType !== "commerce_reconciliation",
+  );
   const enqueued = await enqueueDueOperationalTasks(
-    { limitPerType: 25, taskTypes: operationalTaskTypes },
+    { limitPerType: 25, taskTypes: nonReconciliationTaskTypes },
     db,
+  );
+  enqueued.commerce_reconciliation = await enqueueAllDueReconciliationTasks({ pageSize: 100 }, db);
+  const workerDependencies = {
+    db,
+    handlers,
+    onRepeatedFailure: async ({
+      attempts,
+      taskKey,
+      taskType,
+    }: {
+      attempts: number;
+      taskKey: string;
+      taskType: (typeof operationalTaskTypes)[number];
+    }) => {
+      await deliverOperationalAlertOnce(
+        {
+          alertKey: `worker:${taskKey}:tier:${attempts >= 5 ? "high" : "warning"}`,
+          errorCode: "operational_worker_repeated_failure",
+          impact: attempts >= 5 ? "high" : "warning",
+          operation: taskTypeOperation(taskType),
+        },
+        { db, sink: sentry },
+      );
+    },
+  };
+  const reconciliationWorker = await drainOperationalWorker(
+    { batchSize: 100, leaseSeconds: 60, taskTypes: ["commerce_reconciliation"] },
+    workerDependencies,
+  );
+  const otherWorker = await runOperationalWorker(
+    { batchSize: 100, leaseSeconds: 60, taskTypes: nonReconciliationTaskTypes },
+    workerDependencies,
   );
   return {
     enqueued,
-    // The worker must start after enqueueing so it can claim this cycle's tasks.
-    worker: await runOperationalWorker(
-      { batchSize: 100, leaseSeconds: 60, taskTypes: operationalTaskTypes },
-      {
-        db,
-        handlers: createProductionOperationalTaskHandlers({ db }),
-        onRepeatedFailure: async ({ attempts, taskKey, taskType }) => {
-          await deliverOperationalAlertOnce(
-            {
-              alertKey: `worker:${taskKey}:tier:${attempts >= 5 ? "high" : "warning"}`,
-              errorCode: "operational_worker_repeated_failure",
-              impact: attempts >= 5 ? "high" : "warning",
-              operation: taskTypeOperation(taskType),
-            },
-            { db, sink: sentry },
-          );
-        },
-      },
-    ),
+    // Reconciliation is drained first so unrelated worker backlog cannot starve this cycle.
+    worker: {
+      claimed: reconciliationWorker.claimed + otherWorker.claimed,
+      failed: reconciliationWorker.failed + otherWorker.failed,
+      stale: reconciliationWorker.stale + otherWorker.stale,
+      succeeded: reconciliationWorker.succeeded + otherWorker.succeeded,
+    },
   };
 }
 

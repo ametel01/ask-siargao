@@ -15,21 +15,26 @@ type RefundPreview = {
   orderId: string;
 };
 
+type PreparedRefund = {
+  idempotencyKey: string;
+  preview: RefundPreview;
+};
+
 export function OperatorRefundPanel() {
   const [orderId, setOrderId] = useState("");
   const [decision, setDecision] = useState<RefundPreview["decision"]>("full_refund");
-  const [preview, setPreview] = useState<RefundPreview | null>(null);
+  const [preparedRefund, setPreparedRefund] = useState<PreparedRefund | null>(null);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
-  const executeWithFreshMfa = useReverification(async (confirmedPreview: RefundPreview) =>
+  const executeWithFreshMfa = useReverification(async (prepared: PreparedRefund) =>
     fetch("/api/admin/trip-pass/refunds", {
       body: JSON.stringify({
         confirmation: "APPLY REFUND",
-        decision: confirmedPreview.decision,
-        idempotencyKey: crypto.randomUUID(),
+        decision: prepared.preview.decision,
+        idempotencyKey: prepared.idempotencyKey,
         mode: "execute",
-        orderId: confirmedPreview.orderId,
-        previewDigest: confirmedPreview.digest,
+        orderId: prepared.preview.orderId,
+        previewDigest: prepared.preview.digest,
         reasonCode: "operator_requested_refund",
       }),
       headers: { "content-type": "application/json" },
@@ -48,9 +53,9 @@ export function OperatorRefundPanel() {
       });
       const body = (await response.json()) as { error?: string; preview?: RefundPreview };
       if (!response.ok || !body.preview) throw new Error(body.error ?? "preview_failed");
-      setPreview(body.preview);
+      setPreparedRefund({ idempotencyKey: crypto.randomUUID(), preview: body.preview });
     } catch (error) {
-      setPreview(null);
+      setPreparedRefund(null);
       setMessage(error instanceof Error ? error.message : "preview_failed");
     } finally {
       setPending(false);
@@ -58,18 +63,18 @@ export function OperatorRefundPanel() {
   }
 
   async function executeRefund() {
-    if (!preview) return;
+    if (!preparedRefund) return;
     setPending(true);
     setMessage("");
     try {
-      const response = await executeWithFreshMfa(preview);
+      const response = await executeWithFreshMfa(preparedRefund);
       if (!response) throw new Error("fresh_mfa_required");
       const body = (await response.json()) as { error?: string; result?: { status?: string } };
       if (!response.ok) throw new Error(body.error ?? "refund_failed");
       setMessage(
         body.result?.status === "applied" ? "Operator decision recorded." : "Request replayed.",
       );
-      setPreview(null);
+      setPreparedRefund(null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "refund_failed");
     } finally {
@@ -88,7 +93,7 @@ export function OperatorRefundPanel() {
           aria-label="Trip Pass Order ID"
           onChange={(event) => {
             setOrderId(event.target.value);
-            setPreview(null);
+            setPreparedRefund(null);
           }}
           placeholder="trip_pass_order_…"
           value={orderId}
@@ -98,7 +103,7 @@ export function OperatorRefundPanel() {
           className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
           onChange={(event) => {
             setDecision(event.target.value as RefundPreview["decision"]);
-            setPreview(null);
+            setPreparedRefund(null);
           }}
           value={decision}
         >
@@ -113,12 +118,12 @@ export function OperatorRefundPanel() {
           Preview
         </Button>
       </div>
-      {preview ? (
+      {preparedRefund ? (
         <div className="space-y-3 rounded-md border border-border-default p-4">
           <p className={appBodyClass}>
-            Before: {JSON.stringify(preview.before)}
+            Before: {JSON.stringify(preparedRefund.preview.before)}
             <br />
-            After: {JSON.stringify(preview.after)}
+            After: {JSON.stringify(preparedRefund.preview.after)}
           </p>
           <Button disabled={pending} onClick={executeRefund} type="button" variant="destructive">
             Confirm with fresh MFA

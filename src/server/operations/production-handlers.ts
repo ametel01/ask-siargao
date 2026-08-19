@@ -10,7 +10,10 @@ import type {
 import { reconcileLiveCommerce } from "@/server/operations/live-reconciliation";
 import { runTrackedOperationalSchedule } from "@/server/operations/operational-schedule-sentinel";
 import { createStripeCommerceReader } from "@/server/operations/stripe-commerce-reader";
-import { applyPendingLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
+import {
+  applyPendingLemonSqueezyPaymentEvent,
+  receiveLemonSqueezyPaymentFact,
+} from "@/server/payments/payment-event-receipts";
 import type { StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
@@ -170,14 +173,24 @@ export function createProductionOperationalTaskHandlers(dependencies: {
               source: "worker",
             },
             {
-              applyVerifiedPaymentFact: async ({ fact }) => {
+              applyVerifiedPaymentFact: async ({ fact, local }) => {
                 if (fact.provider !== "lemon_squeezy") return;
-                const result = await applyLemonSqueezyPaymentFact(fact, {
-                  db,
-                  env: process.env,
-                });
-                if (result.status === "rejected") {
-                  throw new Error(`reconciliation_payment_fact_rejected:${result.reason}`);
+                const result = await receiveLemonSqueezyPaymentFact(
+                  { ...fact, orderId: local.id },
+                  {
+                    applyFact: ({ fact: correlatedFact, db: factDb, now }) =>
+                      applyLemonSqueezyPaymentFact(correlatedFact, {
+                        db: factDb,
+                        env: process.env,
+                        now,
+                      }),
+                    db,
+                  },
+                );
+                if (result.status === "pending" || result.status === "blocked") {
+                  throw new Error(
+                    `reconciliation_payment_fact_${result.status}:${result.reason ?? "unknown"}`,
+                  );
                 }
               },
               commerceReader: dependencies.commerceReader ?? createDefaultCommerceReader(),

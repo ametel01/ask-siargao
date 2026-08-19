@@ -11,6 +11,8 @@ export const operatorRefundDecisions = ["full_refund", "accept_partial_refund"] 
 export type OperatorRefundDecision = (typeof operatorRefundDecisions)[number];
 
 type RefundState = {
+  activeRefundOperationReason: string | null;
+  activeRefundOperationStatus: string | null;
   capturedAmountMinor: number | null;
   meterUsed: number;
   orderStatus: string;
@@ -24,6 +26,8 @@ type RefundState = {
 };
 
 type RefundOrderRow = {
+  active_refund_operation_reason: string | null;
+  active_refund_operation_status: string | null;
   captured_amount_minor: number | null;
   payment_provider: string;
   product_family: string;
@@ -119,15 +123,13 @@ export async function executeOperatorRefund(
       db,
     );
     if (replayAfterLock) return replayAfterLock;
-    if (input.decision === "accept_partial_refund") {
-      await db.query(
-        `select id from trip_pass_refund_operations
-         where order_id = $1 and reason = 'partial_refund_deadline'
-           and status in ('pending', 'running')
-         order by created_at desc, id desc limit 1 for update`,
-        [input.orderId],
-      );
-    }
+    await db.query(
+      `select id from trip_pass_refund_operations
+       where order_id = $1 and provider = 'lemon_squeezy' and provider_order_id = $2
+         and status in ('pending', 'running')
+       order by created_at, id for update`,
+      [input.orderId, lockedOrder.provider_order_id],
+    );
 
     const before = await loadRefundState(input.orderId, db);
     const after = projectRefundOutcome(input.decision, before);
@@ -161,21 +163,42 @@ export async function executeOperatorRefund(
 
     if (input.decision === "full_refund") {
       const amountMinor = refundAmount(before);
-      await db.query(
-        `insert into trip_pass_refund_operations (
-           id, order_id, provider, provider_order_id, reason, amount_minor,
-           provider_captured_amount_minor, idempotency_key, created_at, updated_at
-         ) values ($1, $2, 'lemon_squeezy', $3, 'operator_refund', $4, $5, $6,
-           clock_timestamp(), clock_timestamp())`,
-        [
-          `refund_operation_${actionId}`,
-          input.orderId,
-          lockedOrder.provider_order_id,
-          amountMinor,
-          before.capturedAmountMinor,
-          `operator_refund:${actionId}`,
-        ],
-      );
+      if (
+        before.activeRefundOperationReason === "partial_refund_deadline" &&
+        before.activeRefundOperationStatus === "pending"
+      ) {
+        await db.query(
+          `update trip_pass_refund_operations set reason = 'operator_refund', amount_minor = $3,
+             provider_captured_amount_minor = $4, idempotency_key = $5,
+             next_attempt_at = clock_timestamp(), last_error_code = null,
+             updated_at = clock_timestamp()
+           where order_id = $1 and provider_order_id = $2
+             and reason = 'partial_refund_deadline' and status = 'pending'`,
+          [
+            input.orderId,
+            lockedOrder.provider_order_id,
+            amountMinor,
+            before.capturedAmountMinor,
+            `operator_refund:${actionId}`,
+          ],
+        );
+      } else {
+        await db.query(
+          `insert into trip_pass_refund_operations (
+             id, order_id, provider, provider_order_id, reason, amount_minor,
+             provider_captured_amount_minor, idempotency_key, created_at, updated_at
+           ) values ($1, $2, 'lemon_squeezy', $3, 'operator_refund', $4, $5, $6,
+             clock_timestamp(), clock_timestamp())`,
+          [
+            `refund_operation_${actionId}`,
+            input.orderId,
+            lockedOrder.provider_order_id,
+            amountMinor,
+            before.capturedAmountMinor,
+            `operator_refund:${actionId}`,
+          ],
+        );
+      }
     } else {
       await db.query(
         `update trip_pass_refund_operations set status = 'cancelled', next_attempt_at = clock_timestamp(),
@@ -198,6 +221,15 @@ export async function executeOperatorRefund(
 
 function projectRefundOutcome(decision: OperatorRefundDecision, before: RefundState) {
   if (decision === "full_refund") {
+    if (
+      before.activeRefundOperationStatus &&
+      before.activeRefundOperationReason !== "partial_refund_deadline"
+    ) {
+      throw new Error("refund_operation_already_active");
+    }
+    if (before.activeRefundOperationStatus === "running") {
+      throw new Error("partial_refund_operation_in_flight");
+    }
     return {
       ...before,
       amountMinor: refundAmount(before),
@@ -239,6 +271,16 @@ async function loadRefundOrder(orderId: string, db: DatabaseQueryClient) {
       `select user_id, product_family, status, payment_provider, provider_order_id,
          captured_amount_minor, successful_refund_amount_minor, refund_state,
          refund_remaining_amount_minor,
+         (select operation.reason from trip_pass_refund_operations operation
+          where operation.order_id = trip_pass_orders.id
+            and operation.provider_order_id = trip_pass_orders.provider_order_id
+            and operation.status in ('pending', 'running')
+          order by operation.created_at, operation.id limit 1) as active_refund_operation_reason,
+         (select operation.status from trip_pass_refund_operations operation
+          where operation.order_id = trip_pass_orders.id
+            and operation.provider_order_id = trip_pass_orders.provider_order_id
+            and operation.status in ('pending', 'running')
+          order by operation.created_at, operation.id limit 1) as active_refund_operation_status,
          (select operation.status from trip_pass_refund_operations operation
           where operation.order_id = trip_pass_orders.id
             and operation.reason = 'partial_refund_deadline'
@@ -262,6 +304,8 @@ async function loadRefundState(orderId: string, db: DatabaseQueryClient): Promis
     [orderId],
   );
   return {
+    activeRefundOperationReason: order.active_refund_operation_reason,
+    activeRefundOperationStatus: order.active_refund_operation_status,
     capturedAmountMinor: order.captured_amount_minor,
     meterUsed: Number(access.rows[0]?.meter_used ?? 0),
     orderStatus: order.status,

@@ -56,6 +56,26 @@ export async function enqueueDueOperationalTasks(
   return enqueued;
 }
 
+export async function enqueueAllDueReconciliationTasks(
+  input: { cycleKey?: string; pageSize?: number },
+  db: DatabaseQueryClient,
+) {
+  const pageSize = input.pageSize ?? 100;
+  let enqueued = 0;
+  while (true) {
+    const page = await enqueueDueOperationalTasks(
+      {
+        cycleKey: input.cycleKey,
+        limitPerType: pageSize,
+        taskTypes: ["commerce_reconciliation"],
+      },
+      db,
+    );
+    enqueued += page.commerce_reconciliation;
+    if (page.commerce_reconciliation === 0) return enqueued;
+  }
+}
+
 export function stableOperationalTaskId(taskType: OperationalTaskType, resourceRef: string) {
   return `operational_task_${createHash("sha256")
     .update(`${taskType}\u001f${resourceRef}`)
@@ -160,7 +180,7 @@ async function loadDueTargets(
     const rows = (
       await db.query<DueReconciliationOrder>(
         `select o.id as order_id,
-           case when o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')
+           case when o.status in ('pending', 'checkout_created', 'paid', 'disputed')
              then 'risk' else 'daily' end as cadence
          from trip_pass_orders o
          left join operational_reconciliation_observations observation
@@ -171,17 +191,17 @@ async function loadDueTargets(
              select 1 from operational_worker_tasks task
              where task.task_type = 'commerce_reconciliation'
                and task.resource_ref = (
-                 case when o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')
+                 case when o.status in ('pending', 'checkout_created', 'paid', 'disputed')
                    then 'risk' else 'daily' end
                  || ':' || $2 || ':' || o.id
                )
            )
            and (
-             (o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')
+             (o.status in ('pending', 'checkout_created', 'paid', 'disputed')
                and (observation.observed_at is null
                  or observation.observed_at <= clock_timestamp() - interval '5 minutes'))
              or
-             (o.status not in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')
+             (o.status not in ('pending', 'checkout_created', 'paid', 'disputed')
                and (observation.observed_at is null
                  or observation.observed_at <= clock_timestamp() - interval '24 hours'))
            )

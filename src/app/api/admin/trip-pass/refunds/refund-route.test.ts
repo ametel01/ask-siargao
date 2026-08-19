@@ -41,7 +41,10 @@ describe("Operator refund route", () => {
 
       mfaFresh = true;
       const executeResponse = await postOperatorRefundResponse(request(command), dependencies);
+      const replayResponse = await postOperatorRefundResponse(request(command), dependencies);
       expect(executeResponse.status).toBe(200);
+      expect(replayResponse.status).toBe(200);
+      expect(await replayResponse.json()).toMatchObject({ result: { status: "replayed" } });
       const records = await db.query<{ action_count: string; operation_count: string }>(
         `select
            (select count(*)::text from operator_refund_actions where order_id = 'order_full_refund') as action_count,
@@ -49,6 +52,72 @@ describe("Operator refund route", () => {
              and reason = 'operator_refund' and amount_minor = 999) as operation_count`,
       );
       expect(records.rows[0]).toEqual({ action_count: "1", operation_count: "1" });
+    });
+  });
+
+  test("converts a pending partial-refund deadline into one operator refund", async () => {
+    await withDb(async (db) => {
+      await seedRefundOrder(db, "order_partial_to_full", "review");
+      await db.query(
+        `insert into trip_pass_refund_operations (
+           id, order_id, provider, provider_order_id, reason, amount_minor,
+           provider_captured_amount_minor, idempotency_key, next_attempt_at
+         ) values ('partial_to_full_deadline', 'order_partial_to_full', 'lemon_squeezy',
+           'provider_order', 'partial_refund_deadline', 699, 999, 'partial:to-full', $1)`,
+        [new Date(now.getTime() + 86_400_000)],
+      );
+      const dependencies = {
+        allowlist: new Set([operatorId]),
+        auth: async () => ({ accountId: operatorId, mfaFresh: true }),
+        db,
+      };
+      const preview = (await (
+        await postOperatorRefundResponse(
+          request({ decision: "full_refund", mode: "preview", orderId: "order_partial_to_full" }),
+          dependencies,
+        )
+      ).json()) as { preview: { digest: string } };
+
+      const response = await postOperatorRefundResponse(
+        request({
+          confirmation: "APPLY REFUND",
+          decision: "full_refund",
+          idempotencyKey: "operator-refund-partial-to-full",
+          mode: "execute",
+          orderId: "order_partial_to_full",
+          previewDigest: preview.preview.digest,
+          reasonCode: "traveler_requested_full_refund",
+        }),
+        dependencies,
+      );
+
+      expect(response.status).toBe(200);
+      const operations = await db.query<{
+        amount_minor: number;
+        count: string;
+        id: string;
+        reason: string;
+      }>(
+        `select min(id) as id, min(reason) as reason, min(amount_minor)::int as amount_minor,
+           count(*)::text as count
+         from trip_pass_refund_operations
+         where order_id = 'order_partial_to_full' and status in ('pending', 'running')`,
+      );
+      expect(operations.rows[0]).toEqual({
+        amount_minor: 699,
+        count: "1",
+        id: "partial_to_full_deadline",
+        reason: "operator_refund",
+      });
+      await expect(
+        db.query(
+          `insert into trip_pass_refund_operations (
+             id, order_id, provider, provider_order_id, reason, amount_minor,
+             idempotency_key, next_attempt_at
+           ) values ('forbidden_second_refund', 'order_partial_to_full', 'lemon_squeezy',
+             'provider_order', 'operator_refund', 699, 'forbidden:second', now())`,
+        ),
+      ).rejects.toThrow();
     });
   });
 

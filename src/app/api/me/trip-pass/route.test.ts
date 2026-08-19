@@ -360,6 +360,130 @@ describe("Trip Pass account API routes", () => {
       });
     });
   });
+
+  test("performs one bounded provider lookup when the paid webhook is lost", async () => {
+    await withRouteDb(async (db) => {
+      await insertUser(db, "user_return_lookup");
+      const createdAt = new Date(now.getTime() - 11_000);
+      await db.query(
+        `insert into trip_pass_orders (
+          id, user_id, email, status, product_code, product_family, product_version,
+          amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+          provider_store_id, provider_product_id, provider_variant_id,
+          checkout_commercial_terms_verified_at, created_at, updated_at
+        ) values ('order_return_lookup', 'user_return_lookup', 'lookup@example.com',
+          'checkout_created', $1, 'siargao_trip_pass', $2, 999, 'usd', 'return:lookup',
+          'lemon_squeezy', '7', 'product_test', 'variant_test', $3, $3, $3)`,
+        [tripPassProductCode, tripPassProductVersion, createdAt],
+      );
+      const identifier = "104e18a2-d755-4d4b-80c4-a6c1dcbe1c10";
+      const lookupCalls: string[] = [];
+      const dependencies = routeDependencies(db, {
+        env: {
+          TRIP_PASS_CHECKOUT_MODE: "on",
+          LEMON_SQUEEZY_STORE_ID: "7",
+          LEMON_SQUEEZY_PRODUCT_ID: "product_test",
+          LEMON_SQUEEZY_VARIANT_ID: "variant_test",
+          LEMON_SQUEEZY_API_KEY: "test_key",
+        },
+        retrieveLemonSqueezyOrder: async (providerOrderId) => {
+          lookupCalls.push(providerOrderId);
+          return {
+            provider: "lemon_squeezy",
+            eventName: "order_lookup",
+            objectId: providerOrderId,
+            providerUpdatedAt: now.toISOString(),
+            orderId: null,
+            providerOrderId,
+            paymentId: identifier,
+            storeId: "7",
+            productId: "product_test",
+            variantId: "variant_test",
+            status: "paid",
+            amountTotalMinor: 999,
+            refundedAmountMinor: 0,
+            currency: "usd",
+            testMode: false,
+            discountTotalMinor: 0,
+          };
+        },
+        userId: "user_return_lookup",
+      });
+      const request = () =>
+        checkoutReturnRequest("order_return_lookup", {
+          providerOrderId: "12345",
+          providerOrderIdentifier: identifier,
+        });
+
+      const first = await postTripPassCheckoutReturnResponse(request(), dependencies);
+      const second = await postTripPassCheckoutReturnResponse(request(), dependencies);
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(await first.json()).toEqual({ status: "applied" });
+      expect(await second.json()).toEqual({ status: "applied" });
+      expect(lookupCalls).toEqual(["12345"]);
+      const receipts = await db.query<{ event_name: string; status: string }>(
+        "select event_name, status from trip_pass_payment_event_receipts where order_id = $1",
+        ["order_return_lookup"],
+      );
+      expect(receipts.rows).toEqual([{ event_name: "order_lookup", status: "applied" }]);
+    });
+  });
+
+  test("does not bind a provider lookup with a mismatched order identifier", async () => {
+    await withRouteDb(async (db) => {
+      await insertUser(db, "user_return_mismatch");
+      const createdAt = new Date(now.getTime() - 11_000);
+      await db.query(
+        `insert into trip_pass_orders (
+          id, user_id, status, product_code, product_family, product_version,
+          amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+          created_at, updated_at
+        ) values ('order_return_mismatch', 'user_return_mismatch', 'checkout_created', $1,
+          'siargao_trip_pass', $2, 999, 'usd', 'return:mismatch', 'lemon_squeezy', $3, $3)`,
+        [tripPassProductCode, tripPassProductVersion, createdAt],
+      );
+      let lookupCount = 0;
+      const dependencies = routeDependencies(db, {
+        retrieveLemonSqueezyOrder: async (providerOrderId) => {
+          lookupCount += 1;
+          return {
+            provider: "lemon_squeezy",
+            eventName: "order_lookup",
+            objectId: providerOrderId,
+            providerUpdatedAt: now.toISOString(),
+            orderId: null,
+            providerOrderId,
+            paymentId: "104e18a2-d755-4d4b-80c4-a6c1dcbe1c10",
+            storeId: "7",
+            variantId: "variant_test",
+            status: "paid",
+            amountTotalMinor: 999,
+            refundedAmountMinor: 0,
+            currency: "usd",
+            testMode: false,
+          };
+        },
+        userId: "user_return_mismatch",
+      });
+      const response = await postTripPassCheckoutReturnResponse(
+        checkoutReturnRequest("order_return_mismatch", {
+          providerOrderId: "12345",
+          providerOrderIdentifier: "58e39cb8-8d7e-4e9f-9eaf-e3eb974e91f2",
+        }),
+        dependencies,
+      );
+
+      expect(response.status).toBe(202);
+      expect(lookupCount).toBe(1);
+      const state = await db.query<{ checkout_return_lookup_status: string }>(
+        "select checkout_return_lookup_status from trip_pass_orders where id = $1",
+        ["order_return_mismatch"],
+      );
+      expect(state.rows[0]?.checkout_return_lookup_status).toBe("not_found");
+    });
+  });
 });
 
 type TestRouteDependencies = TripPassAccountRouteDependencies & {
@@ -376,6 +500,7 @@ function routeDependencies(
     checkoutError?: Error;
     checkoutResult?: Awaited<ReturnType<TripPassAccountRouteDependencies["startTripPassCheckout"]>>;
     env?: Record<string, string | undefined>;
+    retrieveLemonSqueezyOrder?: TripPassAccountRouteDependencies["retrieveLemonSqueezyOrder"];
     userId: string | null;
   },
 ): TestRouteDependencies {
@@ -398,6 +523,7 @@ function routeDependencies(
     env: input.env ?? availableEnv,
     events,
     now: () => now,
+    retrieveLemonSqueezyOrder: input.retrieveLemonSqueezyOrder,
     cancelTripPassCheckout: async (cancelInput) => {
       cancelCalls.push({ userId: cancelInput.userId });
       if (input.cancelError) {
@@ -457,7 +583,13 @@ function checkoutRequest(input: { origin?: string; secFetchSite?: string } = {})
   });
 }
 
-function checkoutReturnRequest(orderId: string) {
+function checkoutReturnRequest(
+  orderId: string,
+  provider: { providerOrderId: string; providerOrderIdentifier: string } = {
+    providerOrderId: "",
+    providerOrderIdentifier: "",
+  },
+) {
   return new Request("https://siargao.test/api/me/trip-pass/checkout/return", {
     method: "POST",
     headers: {
@@ -465,7 +597,7 @@ function checkoutReturnRequest(orderId: string) {
       "sec-fetch-site": "same-origin",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ orderId }),
+    body: JSON.stringify({ orderId, ...provider }),
   });
 }
 

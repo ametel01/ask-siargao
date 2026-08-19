@@ -9,6 +9,7 @@ import {
   enqueueDueOperationalTasks,
   stableOperationalTaskId,
 } from "@/server/operations/operational-task-producer";
+import { executeOperatorRefund, previewOperatorRefund } from "@/server/operations/operator-refunds";
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   executeRepairAction,
@@ -111,6 +112,7 @@ export async function runOperationsPostgresIntegration(
 
   await runRepairActionRegressions(db);
   await runReconciliationRepairLockOrderingRegressions(db, createQueryClient);
+  await runOperatorRefundConcurrencyRegression(db, createQueryClient);
   await runOperationalProducerRegressions(db);
   await runClosureTaskCompletionRegression(db);
 
@@ -332,6 +334,74 @@ export async function runOperationsPostgresIntegration(
     nativeEventIds[0] === nativeEventIds[1] && nativeEventIds[2] !== nativeEventIds[0],
     "native alert retries did not reuse one event identity per lifecycle",
   );
+}
+
+async function runOperatorRefundConcurrencyRegression(
+  db: DatabaseQueryClient,
+  createQueryClient: () => NativeOperationsClient,
+) {
+  await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_family, product_version,
+       amount_total_minor, captured_amount_minor, successful_refund_amount_minor,
+       refund_state, currency, checkout_idempotency_key, payment_provider,
+       provider_order_id, created_at, updated_at
+     ) values ('native_operator_refund_order', 'native_operations_account', 'paid',
+       'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 999, 0, 'none', 'usd',
+       'native_operator_refund_checkout', 'lemon_squeezy', 'native_provider_order',
+       clock_timestamp(), clock_timestamp())`,
+  );
+  const preview = await previewOperatorRefund(
+    { decision: "full_refund", orderId: "native_operator_refund_order" },
+    db,
+  );
+  const firstDb = createQueryClient();
+  const secondDb = createQueryClient();
+  try {
+    const command = (idempotencyKey: string) => ({
+      auth: { accountId: "native_operator", mfaFresh: true },
+      confirmation: "APPLY REFUND",
+      decision: "full_refund" as const,
+      idempotencyKey,
+      orderId: "native_operator_refund_order",
+      previewDigest: preview.digest,
+      reasonCode: "native_concurrent_refund",
+    });
+    const outcomes = await Promise.allSettled([
+      executeOperatorRefund(command("native-operator-refund-key-one"), {
+        allowlist: new Set(["native_operator"]),
+        db: firstDb,
+      }),
+      executeOperatorRefund(command("native-operator-refund-key-two"), {
+        allowlist: new Set(["native_operator"]),
+        db: secondDb,
+      }),
+    ]);
+    assert(
+      outcomes.filter((outcome) => outcome.status === "fulfilled").length === 1 &&
+        outcomes.filter(
+          (outcome) =>
+            outcome.status === "rejected" &&
+            outcome.reason instanceof Error &&
+            outcome.reason.message === "refund_operation_already_active",
+        ).length === 1,
+      "concurrent operator refunds did not fence the second command",
+    );
+    const records = await db.query<{ actions: string; active_operations: string }>(
+      `select
+         (select count(*)::text from operator_refund_actions
+          where order_id = 'native_operator_refund_order') as actions,
+         (select count(*)::text from trip_pass_refund_operations
+          where order_id = 'native_operator_refund_order'
+            and status in ('pending', 'running')) as active_operations`,
+    );
+    assert(
+      records.rows[0]?.actions === "1" && records.rows[0]?.active_operations === "1",
+      "concurrent operator refunds persisted duplicate active work",
+    );
+  } finally {
+    await Promise.all([firstDb.end(), secondDb.end()]);
+  }
 }
 
 async function runOperationalProducerRegressions(db: DatabaseQueryClient) {

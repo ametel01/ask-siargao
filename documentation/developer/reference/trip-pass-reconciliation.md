@@ -1,9 +1,10 @@
 # Trip Pass Reconciliation and Repair Reference
 
 Live reconciliation observes authoritative provider payment facts (Lemon Squeezy for launched
-Orders, Stripe only for retained historical evidence) and records opaque Findings. It
-does not mutate Trip Pass orders, access, grants, meters, or provider state. Repair is a separate
-same-origin Operator API action.
+Orders, Stripe only for retained historical evidence) and records opaque Findings. The production
+worker also routes verified Lemon Squeezy facts through the durable receipt and payment-lifecycle
+boundary; it never applies provider state directly. Repair is a separate same-origin Operator API
+action.
 
 This is the only module called reconciliation. `reconcileLiveCommerce` in
 `src/server/operations/live-reconciliation.ts` owns the provider-authoritative comparison and its
@@ -31,16 +32,17 @@ it does not select a repair executor.
 bun run operations:worker -- --task=commerce_reconciliation --batch=25 --lease-seconds=60
 ```
 
-Both paths are read-only with respect to commerce. The worker may claim a task and the reconciler
-may insert/update reconciliation runs, observations, Findings, and scrubbed alerts; neither path
-applies a repair. Output is limited to redacted counts and opaque Finding references, never full
-Checkout URLs, provider payloads, emails, or provider object IDs.
+Neither path applies an Operator repair. The production worker can apply a verified provider fact
+through the same receipt boundary as a webhook, while the direct reconciliation command remains
+read-only with respect to commerce. Output is limited to redacted counts and opaque Finding
+references, never full Checkout URLs, provider payloads, emails, or provider object IDs.
 
 The producer emits one durable `risk:<cycle>:<order>` task for each due active or nonterminal Order
-and one `daily:<cycle>:<order>` task for each other retained Order. Risk observations become due
-after five minutes and daily observations after 24 hours. Repeated producer calls durably page past
-already-enqueued tasks in the same cycle, so no fixed row cap can starve later Orders. Each worker
-lease performs at most one provider lookup.
+and one `daily:<cycle>:<order>` task for each terminal Order, including refunded Orders. Risk
+observations become due after five minutes and terminal observations after 24 hours. Each production
+cron invocation pages through every due reconciliation Order and drains that lane before processing
+the bounded general-worker backlog, so neither a fixed producer cap nor unrelated work can starve a
+due Order. Each worker lease performs at most one provider lookup.
 
 ## Exact finding scope
 
