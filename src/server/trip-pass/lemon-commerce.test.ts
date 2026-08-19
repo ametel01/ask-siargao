@@ -267,10 +267,11 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
         },
       });
 
-      await receiveLemonSqueezyPaymentEvent(
-        payload("paid", "2026-08-19T00:00:00Z", "paid"),
-        { db, applyFact, now },
-      );
+      await receiveLemonSqueezyPaymentEvent(payload("paid", "2026-08-19T00:00:00Z", "paid"), {
+        db,
+        applyFact,
+        now,
+      });
       await receiveLemonSqueezyPaymentEvent(
         payload("fraudulent", "2026-08-19T00:02:00Z", "fraudulent"),
         { db, applyFact, now },
@@ -280,7 +281,10 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
         { db, applyFact, now },
       );
 
-      expect(stale).toMatchObject({ status: "applied", applicationResult: { status: "duplicate" } });
+      expect(stale).toMatchObject({
+        status: "applied",
+        applicationResult: { status: "duplicate" },
+      });
       const state = await db.query<{
         payment_suspension_state: string;
         provider_updated_at: Date | string | null;
@@ -296,6 +300,89 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
         "2026-08-19T00:02:00.000Z",
       );
       expect(state.rows[0]?.pass_status).toBe("suspended");
+    });
+  });
+
+  test("opens a durable partial-refund review and schedules the remaining refund", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ($1, $2)", [
+        "account_lemon_partial_refund",
+        "partial@example.com",
+      ]);
+      await insertLemonOrder(db, "trip_pass_order_partial_refund", "account_lemon_partial_refund");
+      const reviews: Array<{ orderId: string; remainingAmountMinor: number; deadlineAt: Date }> =
+        [];
+      const payload = {
+        meta: {
+          event_name: "order_refunded",
+          custom_data: { order_id: "trip_pass_order_partial_refund" },
+        },
+        data: {
+          id: "provider_order_partial",
+          attributes: {
+            status: "partial_refund",
+            total: 999,
+            refunded_amount: 300,
+            currency: "usd",
+            store_id: "store_test",
+            variant_id: "variant_test",
+            updated_at: "2026-08-19T00:00:00.000Z",
+            test_mode: false,
+          },
+        },
+      };
+      const applyFact = ({
+        fact,
+        db: factDb,
+        now: factNow,
+      }: Parameters<
+        NonNullable<Parameters<typeof receiveLemonSqueezyPaymentEvent>[1]["applyFact"]>
+      >[0]) =>
+        applyLemonSqueezyPaymentFact(fact, {
+          db: factDb,
+          now: factNow,
+          onPartialRefundReview: async (review) => {
+            reviews.push(review);
+          },
+        });
+      const partialResult = await receiveLemonSqueezyPaymentEvent(payload, {
+        db,
+        applyFact,
+        now,
+      });
+      expect(partialResult).toMatchObject({
+        status: "applied",
+        applicationResult: { status: "applied", action: "refund_review" },
+      });
+      const order = await db.query<{
+        refund_state: string;
+        refund_remaining_amount_minor: number;
+        refund_review_deadline_at: Date;
+      }>(
+        "select refund_state, refund_remaining_amount_minor, refund_review_deadline_at from trip_pass_orders where id = $1",
+        ["trip_pass_order_partial_refund"],
+      );
+      expect(order.rows[0]?.refund_state).toBe("review");
+      expect(order.rows[0]?.refund_remaining_amount_minor).toBe(699);
+      expect(new Date(order.rows[0]?.refund_review_deadline_at).getTime()).toBe(
+        now.getTime() + 24 * 60 * 60_000,
+      );
+      const operation = await db.query<{
+        reason: string;
+        amount_minor: number;
+        next_attempt_at: Date;
+      }>(
+        "select reason, amount_minor, next_attempt_at from trip_pass_refund_operations where order_id = $1",
+        ["trip_pass_order_partial_refund"],
+      );
+      expect(operation.rows[0]).toMatchObject({
+        reason: "partial_refund_deadline",
+        amount_minor: 699,
+      });
+      expect(new Date(operation.rows[0]?.next_attempt_at).getTime()).toBe(
+        now.getTime() + 24 * 60 * 60_000,
+      );
+      expect(reviews).toHaveLength(1);
     });
   });
 

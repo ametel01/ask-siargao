@@ -24,9 +24,17 @@ export async function applyLemonSqueezyPaymentFact(
     db: DatabaseQueryClient;
     now?: Date;
     env?: Record<string, string | undefined>;
+    onPartialRefundReview?: (input: {
+      orderId: string;
+      remainingAmountMinor: number;
+      deadlineAt: Date;
+    }) => Promise<void>;
   },
 ): Promise<LemonSqueezyPaymentApplicationResult> {
   const now = options.now ?? new Date();
+  let partialRefundReview:
+    | { orderId: string; remainingAmountMinor: number; deadlineAt: Date }
+    | undefined;
   const orderId = fact.orderId;
   if (!orderId) return { status: "rejected", reason: "missing_trip_pass_order_id" };
   if (fact.testMode === true && options.env?.LEMON_SQUEEZY_ALLOW_TEST_MODE !== "true") {
@@ -41,155 +49,189 @@ export async function applyLemonSqueezyPaymentFact(
     return { status: "ignored", reason: "not_paid", orderId };
   }
 
-  return withTransaction(options.db, async (db) => {
-    const orderResult = await db.query<TripPassOrderRow>(
-      `select id, user_id, status, product_code, product_version, amount_total_minor, currency,
+  const result = await withTransaction<LemonSqueezyPaymentApplicationResult>(
+    options.db,
+    async (db) => {
+      const orderResult = await db.query<TripPassOrderRow>(
+        `select id, user_id, status, product_code, product_version, amount_total_minor, currency,
         payment_provider,
         provider_store_id, provider_variant_id, provider_order_id, accepted_payment_fact_id,
-        provider_updated_at, payment_suspension_state, refund_state
+        provider_updated_at, payment_suspension_state, refund_state,
+        refund_review_alerted_at
        from trip_pass_orders where id = $1 for update`,
-      [orderId],
-    );
-    const order = orderResult.rows[0];
-    if (!order) return { status: "rejected", reason: "trip_pass_order_not_found", orderId };
-    if (order.payment_provider !== "lemon_squeezy") {
-      return { status: "rejected", reason: "trip_pass_provider_mismatch", orderId };
-    }
-    if (
-      order.product_code !== tripPassProductCatalog.code ||
-      order.product_version !== tripPassProductCatalog.version
-    ) {
-      return { status: "rejected", reason: "trip_pass_product_version_mismatch", orderId };
-    }
-    if (fact.amountTotalMinor === null || fact.amountTotalMinor !== order.amount_total_minor) {
-      return { status: "rejected", reason: "trip_pass_payment_fact_amount_mismatch", orderId };
-    }
-    if (!fact.currency || fact.currency.toLowerCase() !== order.currency?.toLowerCase()) {
-      return { status: "rejected", reason: "trip_pass_payment_fact_currency_mismatch", orderId };
-    }
-    const isAdditionalProviderPayment =
-      Boolean(order.provider_order_id) &&
-      Boolean(fact.providerOrderId) &&
-      order.provider_order_id !== fact.providerOrderId;
-    if (order.provider_order_id && !fact.providerOrderId) {
-      return { status: "rejected", reason: "trip_pass_provider_order_id_missing", orderId };
-    }
-    if (
-      !fact.variantId ||
-      !order.provider_variant_id ||
-      fact.variantId !== order.provider_variant_id
-    ) {
-      return { status: "rejected", reason: "trip_pass_variant_mismatch", orderId };
-    }
-    if (!fact.storeId || !order.provider_store_id || fact.storeId !== order.provider_store_id) {
-      return { status: "rejected", reason: "trip_pass_store_mismatch", orderId };
-    }
+        [orderId],
+      );
+      const order = orderResult.rows[0];
+      if (!order) return { status: "rejected", reason: "trip_pass_order_not_found", orderId };
+      if (order.payment_provider !== "lemon_squeezy") {
+        return { status: "rejected", reason: "trip_pass_provider_mismatch", orderId };
+      }
+      if (
+        order.product_code !== tripPassProductCatalog.code ||
+        order.product_version !== tripPassProductCatalog.version
+      ) {
+        return { status: "rejected", reason: "trip_pass_product_version_mismatch", orderId };
+      }
+      if (fact.amountTotalMinor === null || fact.amountTotalMinor !== order.amount_total_minor) {
+        return { status: "rejected", reason: "trip_pass_payment_fact_amount_mismatch", orderId };
+      }
+      if (!fact.currency || fact.currency.toLowerCase() !== order.currency?.toLowerCase()) {
+        return { status: "rejected", reason: "trip_pass_payment_fact_currency_mismatch", orderId };
+      }
+      const isAdditionalProviderPayment =
+        Boolean(order.provider_order_id) &&
+        Boolean(fact.providerOrderId) &&
+        order.provider_order_id !== fact.providerOrderId;
+      if (order.provider_order_id && !fact.providerOrderId) {
+        return { status: "rejected", reason: "trip_pass_provider_order_id_missing", orderId };
+      }
+      if (
+        !fact.variantId ||
+        !order.provider_variant_id ||
+        fact.variantId !== order.provider_variant_id
+      ) {
+        return { status: "rejected", reason: "trip_pass_variant_mismatch", orderId };
+      }
+      if (!fact.storeId || !order.provider_store_id || fact.storeId !== order.provider_store_id) {
+        return { status: "rejected", reason: "trip_pass_store_mismatch", orderId };
+      }
 
-    if (isAdditionalProviderPayment) {
+      if (isAdditionalProviderPayment) {
+        const inserted = await recordPaymentFact(db, {
+          order,
+          fact,
+          receiptId: factFingerprintForFact(fact),
+          now,
+        });
+        if (!inserted) return { status: "duplicate", orderId };
+        if (fact.status !== "refunded" && remainingRefundAmount(fact) !== 0) {
+          await createRefundOperation(db, {
+            order,
+            fact,
+            reason: "duplicate_payment",
+            amountMinor: remainingRefundAmount(fact),
+            now,
+          });
+        }
+        return { status: "applied", action: "refunded", orderId };
+      }
+
+      const factId = `payment_fact_${factFingerprintForFact(fact).slice(0, 32)}`;
       const inserted = await recordPaymentFact(db, {
         order,
         fact,
         receiptId: factFingerprintForFact(fact),
         now,
+        id: factId,
       });
       if (!inserted) return { status: "duplicate", orderId };
-      if (fact.status !== "refunded" && remainingRefundAmount(fact) !== 0) {
+
+      if (isStaleProviderFact(order, fact)) return { status: "duplicate", orderId };
+      if (order.status === "refunded" && fact.status === "paid") {
+        return { status: "rejected", reason: "paid_after_refund", orderId };
+      }
+      if (!order.user_id) {
+        if (fact.status !== "refunded") {
+          await createRefundOperation(db, { order, fact, reason: "paid_after_closure", now });
+        }
+        return { status: "applied", action: "refunded", orderId };
+      }
+
+      if (fact.status === "partial_refund") {
+        const remainingAmountMinor = remainingRefundAmount(fact);
+        if (remainingAmountMinor === null) {
+          return { status: "rejected", reason: "trip_pass_partial_refund_amount_missing", orderId };
+        }
+        const deadlineAt = new Date(now.getTime() + 24 * 60 * 60_000);
+        await db.query(
+          `update trip_pass_orders set refund_state = 'review',
+          successful_refund_amount_minor = greatest(successful_refund_amount_minor, $2),
+          refund_remaining_amount_minor = $3,
+          refund_review_deadline_at = coalesce(refund_review_deadline_at, $4),
+          refund_review_alerted_at = coalesce(refund_review_alerted_at, $5),
+          provider_updated_at = $6, lifecycle_updated_at = $5, updated_at = $5 where id = $1`,
+          [
+            orderId,
+            fact.refundedAmountMinor ?? 0,
+            remainingAmountMinor,
+            deadlineAt,
+            now,
+            fact.providerUpdatedAt,
+          ],
+        );
         await createRefundOperation(db, {
           order,
           fact,
-          reason: "duplicate_payment",
-          amountMinor: remainingRefundAmount(fact),
+          reason: "partial_refund_deadline",
+          amountMinor: remainingAmountMinor,
+          nextAttemptAt: deadlineAt,
           now,
         });
+        if (!order.refund_review_alerted_at) {
+          partialRefundReview = { orderId, remainingAmountMinor, deadlineAt };
+        }
+        return { status: "applied", action: "refund_review", orderId };
       }
-      return { status: "applied", action: "refunded", orderId };
-    }
-
-    const factId = `payment_fact_${factFingerprintForFact(fact).slice(0, 32)}`;
-    const inserted = await recordPaymentFact(db, {
-      order,
-      fact,
-      receiptId: factFingerprintForFact(fact),
-      now,
-      id: factId,
-    });
-    if (!inserted) return { status: "duplicate", orderId };
-
-    if (isStaleProviderFact(order, fact)) return { status: "duplicate", orderId };
-    if (order.status === "refunded" && fact.status === "paid") {
-      return { status: "rejected", reason: "paid_after_refund", orderId };
-    }
-    if (!order.user_id) {
-      if (fact.status !== "refunded") {
-        await createRefundOperation(db, { order, fact, reason: "paid_after_closure", now });
+      if (fact.status === "refunded") {
+        await db.query(
+          "update trip_pass_orders set status = 'refunded', refund_state = 'full', successful_refund_amount_minor = coalesce($2, captured_amount_minor, amount_total_minor), refund_remaining_amount_minor = null, refund_review_deadline_at = null, terminal_revocation_reason = 'full_refund', provider_updated_at = $4, lifecycle_updated_at = $3, updated_at = $3 where id = $1",
+          [orderId, fact.refundedAmountMinor, now, fact.providerUpdatedAt],
+        );
+        await revokePass(db, orderId, now, "full_refund");
+        return { status: "applied", action: "refunded", orderId };
       }
-      return { status: "applied", action: "refunded", orderId };
-    }
+      if (fact.status === "fraudulent") {
+        await db.query(
+          "update trip_pass_orders set payment_suspension_state = 'fraudulent', dispute_state = 'open', provider_updated_at = $3, lifecycle_updated_at = $2, updated_at = $2 where id = $1",
+          [orderId, now, fact.providerUpdatedAt],
+        );
+        await db.query(
+          "update trip_passes set status = 'suspended', suspended_at = $2, updated_at = $2 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status = 'active'",
+          [orderId, now],
+        );
+        return { status: "applied", action: "payment_suspended", orderId };
+      }
 
-    if (fact.status === "partial_refund") {
-      await db.query(
-        "update trip_pass_orders set refund_state = 'review', successful_refund_amount_minor = $2, provider_updated_at = $4, lifecycle_updated_at = $3, updated_at = $3 where id = $1",
-        [orderId, fact.refundedAmountMinor ?? 0, now, fact.providerUpdatedAt],
-      );
-      return { status: "applied", action: "refund_review", orderId };
-    }
-    if (fact.status === "refunded") {
-      await db.query(
-        "update trip_pass_orders set status = 'refunded', refund_state = 'full', successful_refund_amount_minor = coalesce($2, captured_amount_minor, amount_total_minor), terminal_revocation_reason = 'full_refund', provider_updated_at = $4, lifecycle_updated_at = $3, updated_at = $3 where id = $1",
-        [orderId, fact.refundedAmountMinor, now, fact.providerUpdatedAt],
-      );
-      await revokePass(db, orderId, now, "full_refund");
-      return { status: "applied", action: "refunded", orderId };
-    }
-    if (fact.status === "fraudulent") {
-      await db.query(
-        "update trip_pass_orders set payment_suspension_state = 'fraudulent', dispute_state = 'open', provider_updated_at = $3, lifecycle_updated_at = $2, updated_at = $2 where id = $1",
-        [orderId, now, fact.providerUpdatedAt],
-      );
-      await db.query(
-        "update trip_passes set status = 'suspended', suspended_at = $2, updated_at = $2 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status = 'active'",
-        [orderId, now],
-      );
-      return { status: "applied", action: "payment_suspended", orderId };
-    }
-
-    if (order.payment_suspension_state !== "none") {
-      await db.query(
-        "update trip_pass_orders set payment_suspension_state = 'none', dispute_state = 'won', provider_updated_at = $3, lifecycle_updated_at = $2, updated_at = $2 where id = $1",
-        [orderId, now, fact.providerUpdatedAt],
+      if (order.payment_suspension_state !== "none") {
+        await db.query(
+          "update trip_pass_orders set payment_suspension_state = 'none', dispute_state = 'won', provider_updated_at = $3, lifecycle_updated_at = $2, updated_at = $2 where id = $1",
+          [orderId, now, fact.providerUpdatedAt],
+        );
+        await db.query(
+          "update trip_passes set status = case when expires_at > $2 then 'active' else status end, suspended_at = null, updated_at = $2 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status = 'suspended'",
+          [orderId, now],
+        );
+        return { status: "applied", action: "payment_restored", orderId };
+      }
+      if (order.accepted_payment_fact_id) {
+        return { status: "duplicate", orderId };
+      }
+      if (!order.user_id)
+        return { status: "rejected", reason: "trip_pass_order_missing_owner", orderId };
+      const grant = await grantTripPass(
+        {
+          userId: order.user_id,
+          orderId,
+          sourceType: "lemon_squeezy_checkout",
+          sourceEventId: factFingerprintForFact(fact),
+          now,
+        },
+        db,
       );
       await db.query(
-        "update trip_passes set status = case when expires_at > $2 then 'active' else status end, suspended_at = null, updated_at = $2 where id in (select trip_pass_id from trip_pass_grants where order_id = $1) and status = 'suspended'",
-        [orderId, now],
-      );
-      return { status: "applied", action: "payment_restored", orderId };
-    }
-    if (order.accepted_payment_fact_id) {
-      return { status: "duplicate", orderId };
-    }
-    if (!order.user_id)
-      return { status: "rejected", reason: "trip_pass_order_missing_owner", orderId };
-    const grant = await grantTripPass(
-      {
-        userId: order.user_id,
-        orderId,
-        sourceType: "lemon_squeezy_checkout",
-        sourceEventId: factFingerprintForFact(fact),
-        now,
-      },
-      db,
-    );
-    await db.query(
-      `update trip_pass_orders set status = 'paid', payment_provider = 'lemon_squeezy',
+        `update trip_pass_orders set status = 'paid', payment_provider = 'lemon_squeezy',
         provider_order_id = coalesce(provider_order_id, $2), provider_payment_id = coalesce(provider_payment_id, $3),
         accepted_payment_fact_id = $4, captured_amount_minor = coalesce(captured_amount_minor, amount_total_minor),
         provider_updated_at = $5, lifecycle_updated_at = $6, completed_at = coalesce(completed_at, $6), updated_at = $6 where id = $1`,
-      [orderId, fact.providerOrderId, fact.paymentId, factId, fact.providerUpdatedAt, now],
-    );
-    return grant.status === "duplicate"
-      ? { status: "duplicate", orderId }
-      : { status: "applied", action: "activated", orderId };
-  });
+        [orderId, fact.providerOrderId, fact.paymentId, factId, fact.providerUpdatedAt, now],
+      );
+      return grant.status === "duplicate"
+        ? { status: "duplicate", orderId }
+        : { status: "applied", action: "activated", orderId };
+    },
+  );
+  if (partialRefundReview) await options.onPartialRefundReview?.(partialRefundReview);
+  return result;
 }
 
 type TripPassOrderRow = {
@@ -206,6 +248,7 @@ type TripPassOrderRow = {
   accepted_payment_fact_id: string | null;
   payment_suspension_state: string;
   refund_state: string;
+  refund_review_alerted_at: Date | string | null;
   payment_provider: string;
   provider_updated_at: Date | string | null;
 };
@@ -252,8 +295,9 @@ async function createRefundOperation(
   input: {
     order: TripPassOrderRow;
     fact: NormalizedPaymentFact;
-    reason: "duplicate_payment" | "paid_after_closure";
+    reason: "duplicate_payment" | "paid_after_closure" | "partial_refund_deadline";
     amountMinor?: number | null;
+    nextAttemptAt?: Date;
     now: Date;
   },
 ) {
@@ -265,9 +309,15 @@ async function createRefundOperation(
     .slice(0, 32)}`;
   await db.query(
     `insert into trip_pass_refund_operations (
-      id, order_id, provider, provider_order_id, reason, amount_minor, idempotency_key, created_at, updated_at
-    ) values ($1, $2, 'lemon_squeezy', $3, $4, $5, $6, $7, $7)
-    on conflict (idempotency_key) do nothing`,
+      id, order_id, provider, provider_order_id, reason, amount_minor, idempotency_key,
+      next_attempt_at, created_at, updated_at
+    ) values ($1, $2, 'lemon_squeezy', $3, $4, $5, $6, $7, $8, $8)
+    on conflict (idempotency_key) do update set
+      amount_minor = case when trip_pass_refund_operations.status = 'pending'
+        then excluded.amount_minor else trip_pass_refund_operations.amount_minor end,
+      next_attempt_at = case when trip_pass_refund_operations.status = 'pending'
+        then excluded.next_attempt_at else trip_pass_refund_operations.next_attempt_at end,
+      updated_at = excluded.updated_at`,
     [
       operationId,
       input.order.id,
@@ -275,6 +325,7 @@ async function createRefundOperation(
       input.reason,
       input.amountMinor ?? input.fact.amountTotalMinor,
       idempotencyKey,
+      input.nextAttemptAt ?? input.now,
       input.now,
     ],
   );
