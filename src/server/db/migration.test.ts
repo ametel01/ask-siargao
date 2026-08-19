@@ -384,6 +384,9 @@ describe("Step 3 database migration", () => {
       "0024_google_places_source_profile.sql",
       "0025_lemon_squeezy_provider_neutral_commerce.sql",
       "0026_pending_payment_event_worker.sql",
+      "0027_lemon_squeezy_refund_worker.sql",
+      "0028_partial_refund_recovery.sql",
+      "0029_backfill_provider_neutral_stripe_receipts.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -473,6 +476,9 @@ describe("Step 3 database migration", () => {
       "0024_google_places_source_profile.sql",
       "0025_lemon_squeezy_provider_neutral_commerce.sql",
       "0026_pending_payment_event_worker.sql",
+      "0027_lemon_squeezy_refund_worker.sql",
+      "0028_partial_refund_recovery.sql",
+      "0029_backfill_provider_neutral_stripe_receipts.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -548,6 +554,9 @@ describe("Step 3 database migration", () => {
       "0024_google_places_source_profile.sql",
       "0025_lemon_squeezy_provider_neutral_commerce.sql",
       "0026_pending_payment_event_worker.sql",
+      "0027_lemon_squeezy_refund_worker.sql",
+      "0028_partial_refund_recovery.sql",
+      "0029_backfill_provider_neutral_stripe_receipts.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -674,6 +683,9 @@ describe("Step 3 database migration", () => {
       "0024_google_places_source_profile.sql",
       "0025_lemon_squeezy_provider_neutral_commerce.sql",
       "0026_pending_payment_event_worker.sql",
+      "0027_lemon_squeezy_refund_worker.sql",
+      "0028_partial_refund_recovery.sql",
+      "0029_backfill_provider_neutral_stripe_receipts.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -1787,6 +1799,9 @@ describe("Step 3 database migration", () => {
       ["checkout_attempt_id", "text", "YES", null],
       ["accepted_payment_fact_id", "text", "YES", null],
       ["payment_suspension_state", "text", "NO", "'none'::text"],
+      ["refund_remaining_amount_minor", "integer", "YES", null],
+      ["refund_review_deadline_at", "timestamp with time zone", "YES", null],
+      ["refund_review_alerted_at", "timestamp with time zone", "YES", null],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [
