@@ -770,7 +770,7 @@ export const tripPassPaymentEventReceipts = pgTable(
     ),
     check(
       "trip_pass_payment_event_receipts_provider_check",
-      sql`${table.provider} = 'lemon_squeezy'`,
+      sql`${table.provider} in ('lemon_squeezy', 'stripe')`,
     ),
     check(
       "trip_pass_payment_event_receipts_status_check",
