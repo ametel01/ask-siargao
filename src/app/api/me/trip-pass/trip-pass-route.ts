@@ -2,7 +2,7 @@ import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
 import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/auth/clerk-users";
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
-import { receiveLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
+import { applyPendingLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
 import { isAllowedMutationOrigin } from "@/server/security/request-origin";
 import {
   readLemonSqueezyEnvironment,
@@ -14,10 +14,6 @@ import {
   startTripPassCheckout,
   type TripPassCheckoutResult,
 } from "@/server/trip-pass/commerce";
-import {
-  createLemonSqueezyCheckoutClient,
-  type LemonSqueezyCheckoutClient,
-} from "@/server/trip-pass/lemon-squeezy-adapter";
 import { applyLemonSqueezyPaymentFact } from "@/server/trip-pass/lemon-squeezy-webhook-application";
 import { buildTripPassAccountPresentation } from "@/server/trip-pass/presentation";
 
@@ -29,7 +25,6 @@ export type TripPassAccountRouteDependencies = {
   cancelTripPassCheckout: typeof cancelTripPassCheckout;
   startTripPassCheckout: typeof startTripPassCheckout;
   trackServerEvent: typeof trackServerEvent;
-  lemonCheckoutClient?: LemonSqueezyCheckoutClient;
 };
 
 function createDefaultTripPassAccountRouteDependencies(): TripPassAccountRouteDependencies {
@@ -224,77 +219,49 @@ export async function postTripPassCheckoutReturnResponse(
   if (!order) {
     return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
   }
-  if (order.lookupStatus === "not_found" || order.lookupStatus === "exhausted") {
-    return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
-  }
-  if (order.lookupStatus === "succeeded" && order.providerOrderId) {
+  if (order.paymentApplied) {
     return Response.json({ status: "applied" }, { headers: responseHeaders });
   }
-  if (order.providerOrderId === null && !order.providerCheckoutId) {
+  if (!order.claimed) {
     return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
   }
   try {
-    const client = dependencies.lemonCheckoutClient ?? createLemonSqueezyCheckoutClient();
-    let providerOrderId = order.providerOrderId;
-    if (!providerOrderId) {
-      if (!client.lookupOrderByCheckoutId || !order.providerCheckoutId) {
-        return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
-      }
-      const lookedUp = await client.lookupOrderByCheckoutId({
-        checkoutId: order.providerCheckoutId,
-        storeId: order.providerStoreId,
-        customerEmail: order.customerEmail,
+    const receipt = await dependencies.db.query<{ id: string }>(
+      `select id from trip_pass_payment_event_receipts
+       where provider = 'lemon_squeezy' and event_name = 'order_created' and order_id = $1
+       order by created_at desc, id desc limit 1`,
+      [orderId],
+    );
+    const receiptId = receipt.rows[0]?.id;
+    if (!receiptId) {
+      await completeCheckoutReturnLookup(dependencies.db, {
+        orderId,
+        userId: currentUser.userId,
+        status: "not_found",
+        now: dependencies.now(),
       });
-      if (!lookedUp) {
-        await dependencies.db.query(
-          `update trip_pass_orders set checkout_return_lookup_status = 'not_found',
-            checkout_return_lookup_completed_at = $2, checkout_return_lookup_claimed_at = null,
-            updated_at = $2 where id = $1 and user_id = $3 and provider_order_id is null`,
-          [orderId, dependencies.now(), currentUser.userId],
-        );
-        return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
-      }
-      if (
-        lookedUp.checkoutId !== order.providerCheckoutId ||
-        lookedUp.storeId !== order.providerStoreId
-      ) {
-        await dependencies.db.query(
-          `update trip_pass_orders set checkout_return_lookup_status = 'exhausted',
-            checkout_return_lookup_completed_at = $2, checkout_return_lookup_claimed_at = null,
-            updated_at = $2 where id = $1 and user_id = $3 and provider_order_id is null`,
-          [orderId, dependencies.now(), currentUser.userId],
-        );
-        throw new Error("checkout_return_provider_correlation_failed");
-      }
-      providerOrderId = lookedUp.providerOrderId;
-      await dependencies.db.query(
-        `update trip_pass_orders set provider_order_id = $2,
-          checkout_return_lookup_status = 'succeeded', checkout_return_lookup_completed_at = $3,
-          checkout_return_lookup_claimed_at = null, updated_at = $3
-         where id = $1 and user_id = $4 and provider_order_id is null`,
-        [orderId, providerOrderId, dependencies.now(), currentUser.userId],
-      );
+      return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
     }
-    const fact = await client.retrieveOrder(providerOrderId);
-    const result = await receiveLemonSqueezyPaymentEvent(toLemonPaymentPayload(fact), {
+    const result = await applyPendingLemonSqueezyPaymentEvent(receiptId, {
       db: dependencies.db,
       now: dependencies.now(),
       applyFact: ({ fact: normalizedFact, db, now }) =>
         applyLemonSqueezyPaymentFact(normalizedFact, { db, now, env: dependencies.env }),
     });
-    if (result.status === "applied" || result.status === "duplicate") {
-      await dependencies.db.query(
-        `update trip_pass_orders set checkout_return_lookup_status = 'succeeded',
-        checkout_return_lookup_completed_at = coalesce(checkout_return_lookup_completed_at, $2),
-        checkout_return_lookup_claimed_at = null, updated_at = $2
-       where id = $1 and user_id = $3`,
-        [orderId, dependencies.now(), currentUser.userId],
-      );
-    }
-    return Response.json(
-      { status: result.status === "applied" ? "applied" : result.status },
-      { headers: responseHeaders },
+    const applied = await checkoutReturnPaymentApplied(
+      dependencies.db,
+      orderId,
+      currentUser.userId,
     );
+    await completeCheckoutReturnLookup(dependencies.db, {
+      orderId,
+      userId: currentUser.userId,
+      status: applied ? "succeeded" : result.status === "blocked" ? "exhausted" : "not_found",
+      now: dependencies.now(),
+    });
+    return applied
+      ? Response.json({ status: "applied" }, { headers: responseHeaders })
+      : Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
   } catch {
     return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
   }
@@ -306,99 +273,74 @@ async function claimCheckoutReturnLookup(
 ) {
   const run = async (transaction: DatabaseQueryClient) => {
     const result = await transaction.query<{
-      provider_order_id: string | null;
-      provider_checkout_id: string | null;
-      provider_store_id: string | null;
-      customer_email: string | null;
+      accepted_payment_fact_id: string | null;
+      created_at: Date | string;
       checkout_return_lookup_attempts: number | string;
       checkout_return_lookup_claimed_at: Date | string | null;
       checkout_return_lookup_status: string;
     }>(
-      `select o.provider_order_id, o.provider_checkout_id, o.provider_store_id,
-          u.email as customer_email, o.checkout_return_lookup_attempts,
-          o.checkout_return_lookup_claimed_at, o.checkout_return_lookup_status
-       from trip_pass_orders o left join users u on u.id = o.user_id
-       where o.id = $1 and o.user_id = $2 and o.payment_provider = 'lemon_squeezy' for update of o`,
+      `select accepted_payment_fact_id, created_at, checkout_return_lookup_attempts,
+          checkout_return_lookup_claimed_at, checkout_return_lookup_status
+       from trip_pass_orders
+       where id = $1 and user_id = $2 and payment_provider = 'lemon_squeezy' for update`,
       [input.orderId, input.userId],
     );
     const row = result.rows[0];
-    if (!row || row.provider_order_id || row.checkout_return_lookup_status !== "pending") {
-      return row
-        ? {
-            providerOrderId: row.provider_order_id,
-            providerCheckoutId: row.provider_checkout_id,
-            providerStoreId: row.provider_store_id,
-            customerEmail: row.customer_email,
-            lookupStatus: row.checkout_return_lookup_status,
-          }
-        : null;
-    }
-    const created = await transaction.query<{ created_at: Date | string }>(
-      "select created_at from trip_pass_orders where id = $1",
-      [input.orderId],
-    );
-    if (
-      created.rows[0] &&
-      input.now.getTime() < new Date(created.rows[0].created_at).getTime() + 10_000
-    ) {
+    if (!row) return null;
+    const paymentApplied = Boolean(row.accepted_payment_fact_id);
+    if (paymentApplied) return { paymentApplied: true, claimed: false };
+    if (input.now.getTime() < new Date(row.created_at).getTime() + 10_000) {
       return null;
     }
-    if (Number(row.checkout_return_lookup_attempts) >= 1) return null;
+    if (Number(row.checkout_return_lookup_attempts) >= 1) {
+      return { paymentApplied: false, claimed: false };
+    }
     const claimedAt = row.checkout_return_lookup_claimed_at
       ? new Date(row.checkout_return_lookup_claimed_at).getTime()
       : 0;
-    if (claimedAt > input.now.getTime() - 60_000) return null;
-    const claimed = await transaction.query<{ provider_checkout_id: string | null }>(
+    if (claimedAt > input.now.getTime() - 60_000) {
+      return { paymentApplied: false, claimed: false };
+    }
+    const claimed = await transaction.query<{ id: string }>(
       `update trip_pass_orders set checkout_return_lookup_attempts = checkout_return_lookup_attempts + 1,
         checkout_return_lookup_claimed_at = $3, updated_at = $3
-       where id = $1 and user_id = $2 and provider_order_id is null
-       returning provider_checkout_id`,
+       where id = $1 and user_id = $2
+       returning id`,
       [input.orderId, input.userId, input.now],
     );
-    return {
-      providerOrderId: null,
-      providerCheckoutId: claimed.rows[0]?.provider_checkout_id ?? null,
-      providerStoreId: row.provider_store_id,
-      customerEmail: row.customer_email,
-      lookupStatus: "pending",
-    };
+    return { paymentApplied: false, claimed: Boolean(claimed.rows[0]) };
   };
   return db.transaction ? db.transaction(run) : run(db);
 }
 
-function toLemonPaymentPayload(
-  fact: Awaited<ReturnType<LemonSqueezyCheckoutClient["retrieveOrder"]>>,
+async function checkoutReturnPaymentApplied(
+  db: DatabaseQueryClient,
+  orderId: string,
+  userId: string,
 ) {
-  return {
-    meta: { event_name: fact.eventName, custom_data: { order_id: fact.orderId } },
-    data: {
-      id: fact.providerOrderId,
-      attributes: {
-        status: fact.status,
-        total: fact.amountTotalMinor,
-        refunded_amount: fact.refundedAmountMinor,
-        currency: fact.currency,
-        store_id: fact.storeId,
-        variant_id: fact.variantId,
-        updated_at: fact.providerUpdatedAt,
-        test_mode: fact.testMode,
-        first_order_item:
-          fact.productId || fact.variantId
-            ? {
-                product_id: fact.productId,
-                variant_id: fact.variantId,
-                quantity: fact.quantity,
-                test_mode: fact.testMode,
-              }
-            : undefined,
-        quantity: fact.quantity,
-        discount_enabled: fact.discountEnabled,
-        discount_total: fact.discountTotalMinor,
-        ...(fact.customPriceMinor === undefined ? {} : { custom_price: fact.customPriceMinor }),
-        ...(fact.licenseKey === undefined ? {} : { license_key: fact.licenseKey }),
-      },
-    },
-  };
+  const result = await db.query<{ accepted_payment_fact_id: string | null }>(
+    "select accepted_payment_fact_id from trip_pass_orders where id = $1 and user_id = $2",
+    [orderId, userId],
+  );
+  const row = result.rows[0];
+  return Boolean(row?.accepted_payment_fact_id);
+}
+
+async function completeCheckoutReturnLookup(
+  db: DatabaseQueryClient,
+  input: {
+    orderId: string;
+    userId: string;
+    status: "succeeded" | "not_found" | "exhausted";
+    now: Date;
+  },
+) {
+  await db.query(
+    `update trip_pass_orders set checkout_return_lookup_status = $3,
+      checkout_return_lookup_completed_at = $4, checkout_return_lookup_claimed_at = null,
+      updated_at = $4 where id = $1 and user_id = $2`,
+    [input.orderId, input.userId, input.status, input.now],
+  );
 }
 
 export async function deleteTripPassCheckoutResponse(

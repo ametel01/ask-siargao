@@ -93,9 +93,10 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
           provider_store_id: string;
           provider_variant_id: string;
           provider_checkout_id: string;
+          checkout_commercial_terms_verified_at: Date | string | null;
           email: string | null;
         }>(
-          "select payment_provider, provider_store_id, provider_variant_id, provider_checkout_id, email from trip_pass_orders where id = $1",
+          "select payment_provider, provider_store_id, provider_variant_id, provider_checkout_id, checkout_commercial_terms_verified_at, email from trip_pass_orders where id = $1",
           ["trip_pass_order_lemon_1"],
         );
         expect(order.rows[0]).toEqual({
@@ -103,6 +104,7 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
           provider_store_id: "store_test",
           provider_variant_id: "variant_test",
           provider_checkout_id: "checkout_test_1",
+          checkout_commercial_terms_verified_at: now,
           email: "traveler@example.com",
         });
         const attempt = await db.query<{ status: string; checkout_url: string }>(
@@ -504,9 +506,10 @@ async function insertLemonOrder(db: DatabaseQueryClient, orderId: string, userId
     `insert into trip_pass_orders (
       id, user_id, status, product_code, product_family, product_version, stripe_price_id,
       amount_total_minor, currency, checkout_idempotency_key, payment_provider,
-      provider_store_id, provider_variant_id, provider_order_id, created_at, updated_at
+      provider_store_id, provider_variant_id, provider_order_id,
+      checkout_commercial_terms_verified_at, created_at, updated_at
     ) values ($1, $2, 'checkout_created', 'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2,
-      null, 999, 'usd', $3, 'lemon_squeezy', 'store_test', 'variant_test', null, $4, $4)`,
+      null, 999, 'usd', $3, 'lemon_squeezy', 'store_test', 'variant_test', null, $4, $4, $4)`,
     [orderId, userId, `trip_pass_checkout:${orderId}`, now],
   );
 }

@@ -229,6 +229,7 @@ async function markLemonOrderCreated(input: {
 }) {
   await input.db.query(
     `update trip_pass_orders set status = 'checkout_created', provider_checkout_id = $2,
+      checkout_commercial_terms_verified_at = $4,
       checkout_session_status = 'open', checkout_attempt_id = $3, updated_at = $4
      where id = $1 and status in ('pending', 'checkout_created')`,
     [

@@ -5,6 +5,7 @@ import { type OperationalTaskType, operationalTaskTypes } from "@/server/operati
 import { enqueueOperationalTask } from "@/server/operations/worker-runner";
 
 type DueTarget = { resource_ref: string };
+type DueReconciliationOrder = { cadence: "risk" | "daily"; order_id: string };
 
 export async function enqueueDueOperationalTasks(
   input: {
@@ -156,11 +157,42 @@ async function loadDueTargets(
     ).rows;
   }
   if (taskType === "commerce_reconciliation") {
-    const dayKey = /^\d{8}/.test(cycleKey) ? cycleKey.slice(0, 8) : `day-${cycleKey}`;
-    return [
-      { resource_ref: `all:risk:${cycleKey}` },
-      { resource_ref: `all:daily:${dayKey}` },
-    ].slice(0, limit);
+    const rows = (
+      await db.query<DueReconciliationOrder>(
+        `select o.id as order_id,
+           case when o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')
+             then 'risk' else 'daily' end as cadence
+         from trip_pass_orders o
+         left join operational_reconciliation_observations observation
+           on observation.local_entity_type = 'trip_pass_order'
+          and observation.local_entity_ref = o.id
+         where o.updated_at <= statement_timestamp()
+           and not exists (
+             select 1 from operational_worker_tasks task
+             where task.task_type = 'commerce_reconciliation'
+               and task.resource_ref = (
+                 case when o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')
+                   then 'risk' else 'daily' end
+                 || ':' || $2 || ':' || o.id
+               )
+           )
+           and (
+             (o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')
+               and (observation.observed_at is null
+                 or observation.observed_at <= clock_timestamp() - interval '5 minutes'))
+             or
+             (o.status not in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')
+               and (observation.observed_at is null
+                 or observation.observed_at <= clock_timestamp() - interval '24 hours'))
+           )
+         order by observation.observed_at nulls first, o.updated_at, o.created_at, o.id
+         limit $1`,
+        [limit, encodeURIComponent(cycleKey)],
+      )
+    ).rows;
+    return rows.map((row) => ({
+      resource_ref: `${row.cadence}:${encodeURIComponent(cycleKey)}:${row.order_id}`,
+    }));
   }
   return [{ resource_ref: `all:${cycleKey}` }];
 }

@@ -36,6 +36,12 @@ may insert/update reconciliation runs, observations, Findings, and scrubbed aler
 applies a repair. Output is limited to redacted counts and opaque Finding references, never full
 Checkout URLs, provider payloads, emails, or provider object IDs.
 
+The producer emits one durable `risk:<cycle>:<order>` task for each due active or nonterminal Order
+and one `daily:<cycle>:<order>` task for each other retained Order. Risk observations become due
+after five minutes and daily observations after 24 hours. Repeated producer calls durably page past
+already-enqueued tasks in the same cycle, so no fixed row cap can starve later Orders. Each worker
+lease performs at most one provider lookup.
+
 ## Exact finding scope
 
 The current comparison emits only these four Finding kinds:
@@ -79,3 +85,16 @@ command. The route requires same-origin execution, an authenticated Clerk Accoun
 Use `/admin/diagnostics` for scrubbed status. If provider truth is unavailable or the preview has
 changed, leave the Finding open and reconcile again. Never edit commerce rows directly or use a
 shared bearer credential to authorize repair.
+
+## Operator refund API
+
+Normal refunds are not Reconciliation Findings. An allowlisted Operator uses the dedicated panel on
+`/admin/diagnostics`, backed by `POST /api/admin/trip-pass/refunds`:
+
+1. Preview an opaque Order ID with `full_refund` or `accept_partial_refund`.
+2. Reverify with fresh Clerk MFA and execute the unchanged preview with confirmation exactly
+   `APPLY REFUND`, a reason code, and a new idempotency key.
+3. The server records `operator_refund_actions`. A full refund queues a durable provider operation;
+   accepting a partial refund cancels the deadline operation while preserving access and meter use.
+
+Provider-confirmed refund facts remain the only authority that revokes access.

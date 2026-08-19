@@ -20,6 +20,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { OperatorRefundPanel } from "@/features/admin/OperatorRefundPanel";
 import type { AdminAccessResult } from "@/server/admin/access";
 import type { AdminDiagnosticsSnapshot } from "@/server/admin/diagnostics";
 import {
@@ -199,6 +200,13 @@ export function AdminDiagnosticsPage({
             )}
           </div>
         </section>
+
+        {access.mode === "operator" ? (
+          <section className={appPanelClass}>
+            <SectionHeading icon={ReceiptText} title="Operator refunds" />
+            <OperatorRefundPanel />
+          </section>
+        ) : null}
 
         <section className={appPanelClass}>
           <SectionHeading icon={Gauge} title="LLM cost drivers" />

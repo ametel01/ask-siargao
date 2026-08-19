@@ -634,6 +634,9 @@ export const tripPassOrders = pgTable(
     stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
     checkoutSessionExpiresAt: timestamp("checkout_session_expires_at", { withTimezone: true }),
     checkoutSessionStatus: text("checkout_session_status"),
+    checkoutCommercialTermsVerifiedAt: timestamp("checkout_commercial_terms_verified_at", {
+      withTimezone: true,
+    }),
     checkoutReturnLookupAttempts: integer("checkout_return_lookup_attempts").notNull().default(0),
     checkoutReturnLookupClaimedAt: timestamp("checkout_return_lookup_claimed_at", {
       withTimezone: true,
@@ -709,6 +712,18 @@ export const tripPassOrders = pgTable(
     check(
       "trip_pass_orders_payment_suspension_check",
       sql`${table.paymentSuspensionState} in ('none', 'fraudulent', 'disputed')`,
+    ),
+    check(
+      "trip_pass_orders_refund_state_check",
+      sql`${table.refundState} in ('none', 'review', 'partial_final', 'full')`,
+    ),
+    check(
+      "trip_pass_orders_checkout_return_lookup_attempts_check",
+      sql`${table.checkoutReturnLookupAttempts} >= 0`,
+    ),
+    check(
+      "trip_pass_orders_checkout_return_lookup_status_check",
+      sql`${table.checkoutReturnLookupStatus} in ('pending', 'succeeded', 'not_found', 'exhausted')`,
     ),
   ],
 );
@@ -857,7 +872,7 @@ export const tripPassRefundOperations = pgTable(
     ),
     check(
       "trip_pass_refund_operations_status_check",
-      sql`${table.status} in ('pending', 'running', 'succeeded', 'failed')`,
+      sql`${table.status} in ('pending', 'running', 'succeeded', 'failed', 'cancelled')`,
     ),
     check(
       "trip_pass_refund_operations_lease_check",
@@ -2406,7 +2421,36 @@ export const operatorRepairActions = pgTable(
     index("operator_repair_actions_finding_id_idx").on(table.findingId),
     check(
       "operator_repair_actions_action_check",
-      sql`${table.actionType} in ('grant_missing_trip_pass', 'initialize_missing_meters', 'release_stale_reservation', 'manual_commerce_transition', 'goodwill_grant', 'account_recovery', 'refund_trip_pass')`,
+      sql`${table.actionType} in ('grant_missing_trip_pass', 'initialize_missing_meters', 'release_stale_reservation', 'manual_commerce_transition', 'goodwill_grant', 'account_recovery')`,
+    ),
+  ],
+);
+
+export const operatorRefundActions = pgTable(
+  "operator_refund_actions",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => tripPassOrders.id),
+    operatorAccountId: text("operator_account_id").notNull(),
+    idempotencyKeyHash: text("idempotency_key_hash").notNull(),
+    commandHash: text("command_hash").notNull(),
+    decision: text("decision").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown>>().notNull(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("operator_refund_actions_idempotency_key").on(
+      table.operatorAccountId,
+      table.idempotencyKeyHash,
+    ),
+    index("operator_refund_actions_order_id_idx").on(table.orderId, table.createdAt),
+    check(
+      "operator_refund_actions_decision_check",
+      sql`${table.decision} in ('full_refund', 'accept_partial_refund')`,
     ),
   ],
 );

@@ -54,6 +54,7 @@ describe("database authorization boundaries", () => {
     expect(applicationTables).toContain("operational_findings");
     expect(applicationTables).toContain("operational_reconciliation_cursors");
     expect(applicationTables).toContain("operator_repair_actions");
+    expect(applicationTables).toContain("operator_refund_actions");
     expect(applicationTables).toContain("operational_alert_deliveries");
     expect(applicationTables).toContain("operational_worker_tasks");
     expect(applicationTables).toContain("operational_reconciliation_observations");

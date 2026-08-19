@@ -6,3 +6,9 @@ deployed server calls the Payment Authority, but access changes only after verif
 durably applied. Direct provider-dashboard refunds are reserved for emergency or provider-initiated
 cases and must converge through a verified event or read-only Commerce Reconciliation; neither path
 permits manual commerce or access database edits.
+
+The Operator console offers two explicit decisions: queue the remaining amount of a full Lemon
+Squeezy refund, or accept a verified partial refund as final. Accepting a partial refund cancels the
+scheduled remaining-refund operation and records `partial_final`; it does not change the current
+Trip Pass or Usage Meters. A full-refund request similarly leaves access unchanged until a verified
+provider refund fact is applied.

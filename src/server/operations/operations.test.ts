@@ -1001,6 +1001,9 @@ describe("Sentry operational paging", () => {
 describe("durable provider-neutral workers", () => {
   test("producer enqueues risk and daily reconciliation cycles and worker drains them", async () => {
     await withTestDb(async (db) => {
+      await seedOrder(db, "order_risk_due");
+      await seedOrder(db, "order_daily_due");
+      await db.query("update trip_pass_orders set status = 'failed' where id = 'order_daily_due'");
       const input = {
         cycleKey: "cycle-20260808T12",
         taskTypes: ["commerce_reconciliation"] as const,
@@ -1011,9 +1014,12 @@ describe("durable provider-neutral workers", () => {
       expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
         commerce_reconciliation: 0,
       });
-      const resourceRefs = ["all:risk:cycle-20260808T12", "all:daily:day-cycle-20260808T12"];
+      const resourceRefs = [
+        "daily:cycle-20260808T12:order_daily_due",
+        "risk:cycle-20260808T12:order_risk_due",
+      ];
       const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(
-        "select id, resource_ref, task_type from operational_worker_tasks",
+        "select id, resource_ref, task_type from operational_worker_tasks order by resource_ref",
       );
       expect(queued.rows).toEqual(
         resourceRefs.map((resourceRef) => ({
@@ -1034,13 +1040,50 @@ describe("durable provider-neutral workers", () => {
     });
   });
 
+  test("durably pages reconciliation Orders beyond one producer batch", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_reconcile_page', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_version, stripe_price_id,
+           amount_total_minor, currency, checkout_idempotency_key, created_at, updated_at
+         ) select 'order_page_' || value, 'account_reconcile_page', 'pending',
+           'siargao_trip_pass_14d_v2', 2, 'price_test', 999, 'usd',
+           'checkout_page_' || value, clock_timestamp() - interval '1 hour',
+           clock_timestamp() - interval '1 minute'
+         from generate_series(1, 105) value`,
+      );
+      const input = {
+        cycleKey: "cycle-page-all-orders",
+        limitPerType: 40,
+        taskTypes: ["commerce_reconciliation"] as const,
+      };
+      const pages = [
+        await enqueueDueOperationalTasks(input, db),
+        await enqueueDueOperationalTasks(input, db),
+        await enqueueDueOperationalTasks(input, db),
+        await enqueueDueOperationalTasks(input, db),
+      ];
+      expect(pages.map((page) => page.commerce_reconciliation)).toEqual([40, 40, 25, 0]);
+      const queued = await db.query<{ count: string }>(
+        "select count(*)::text as count from operational_worker_tasks where task_type = 'commerce_reconciliation'",
+      );
+      expect(queued.rows[0]?.count).toBe("105");
+    });
+  });
+
   test("producer keys remain terminal-idempotent after every task kind succeeds", async () => {
     await withTestDb(async (db) => {
+      await seedOrder(db, "order_terminal_risk");
+      await seedOrder(db, "order_terminal_daily");
+      await db.query(
+        "update trip_pass_orders set status = 'failed' where id = 'order_terminal_daily'",
+      );
       const cycleKey = "cycle-terminal-idempotency";
       const inputs = operationalTaskTypes.flatMap((taskType) => {
         const resourceRefs =
           taskType === "commerce_reconciliation"
-            ? [`all:risk:${cycleKey}`, `all:daily:day-${cycleKey}`]
+            ? [`risk:${cycleKey}:order_terminal_risk`, `daily:${cycleKey}:order_terminal_daily`]
             : [`opaque:${taskType}`];
         return resourceRefs.map((resourceRef) => ({
           id: stableOperationalTaskId(taskType, resourceRef),
@@ -1085,7 +1128,7 @@ describe("durable provider-neutral workers", () => {
         expect(row.status).toBe("succeeded");
         expect(row.attempts).toBe(1);
         expect(row.completed_at).not.toBeNull();
-        expect(row.resource_ref).toMatch(/^(?:all:(?:risk:|daily:)|opaque:)[a-z_:-]+$/);
+        expect(row.resource_ref).toMatch(/^(?:(?:risk|daily):[a-z_:-]+|opaque:[a-z_:-]+)$/);
       }
 
       const nextCycle = await Promise.all([

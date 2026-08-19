@@ -307,14 +307,12 @@ async function loadLocalCommerce(
   orderId?: string,
   scope: ReconciliationScope = "all",
 ) {
-  const pageSize = 10_000;
-  const params = orderId ? [orderId] : [pageSize];
+  const params = orderId ? [orderId] : [];
   const filter = orderId
     ? "where o.id = $1"
     : scope === "risk"
       ? "where o.status in ('pending', 'checkout_created', 'paid', 'refunded', 'disputed')"
       : "where true";
-  const limit = orderId ? "" : "limit $1";
   const result = await db.query<LocalCommerceSnapshot>(
     `select o.id, o.user_id, o.product_family, o.status, o.amount_total_minor, o.currency,
        o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.payment_provider,
@@ -327,7 +325,7 @@ async function loadLocalCommerce(
      group by o.id
      order by case when o.status in ('paid', 'checkout_created') then 0 else 1 end,
        o.updated_at desc, o.created_at, o.id
-     ${limit}`,
+     `,
     params,
   );
   return result.rows;

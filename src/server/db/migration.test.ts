@@ -52,6 +52,7 @@ import {
   operationalReconciliationRuns,
   operationalScheduleStates,
   operationalWorkerTasks,
+  operatorRefundActions,
   operatorRepairActions,
   paidAnswerReservations,
   paymentEvents,
@@ -394,6 +395,7 @@ describe("Step 3 database migration", () => {
       "0033_reconciliation_cursors.sql",
       "0034_refund_capture_and_return_lookup.sql",
       "0035_operator_refund_action.sql",
+      "0036_checkout_commercial_verification.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -492,6 +494,7 @@ describe("Step 3 database migration", () => {
       "0033_reconciliation_cursors.sql",
       "0034_refund_capture_and_return_lookup.sql",
       "0035_operator_refund_action.sql",
+      "0036_checkout_commercial_verification.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -577,6 +580,7 @@ describe("Step 3 database migration", () => {
       "0033_reconciliation_cursors.sql",
       "0034_refund_capture_and_return_lookup.sql",
       "0035_operator_refund_action.sql",
+      "0036_checkout_commercial_verification.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -712,6 +716,7 @@ describe("Step 3 database migration", () => {
       "0033_reconciliation_cursors.sql",
       "0034_refund_capture_and_return_lookup.sql",
       "0035_operator_refund_action.sql",
+      "0036_checkout_commercial_verification.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -1044,6 +1049,7 @@ describe("Step 3 database migration", () => {
       operationalReconciliationObservations,
       operationalReconciliationCursors,
       operationalFindings,
+      operatorRefundActions,
       operatorRepairActions,
       operationalAlertDeliveries,
       operationalWorkerTasks,
@@ -1834,6 +1840,7 @@ describe("Step 3 database migration", () => {
       ["checkout_return_lookup_claimed_at", "timestamp with time zone", "YES", null],
       ["checkout_return_lookup_status", "text", "NO", "'pending'::text"],
       ["checkout_return_lookup_completed_at", "timestamp with time zone", "YES", null],
+      ["checkout_commercial_terms_verified_at", "timestamp with time zone", "YES", null],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [

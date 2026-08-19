@@ -40,7 +40,9 @@ describe("production operational task handlers", () => {
       });
       const handler = handlers[taskType];
       expect(handler).toBeFunction();
-      const result = handler?.({ resourceRef: "opaque_resource", trace: createOperationTrace() });
+      const resourceRef =
+        taskType === "commerce_reconciliation" ? "risk:cycle:opaque_resource" : "opaque_resource";
+      const result = handler?.({ resourceRef, trace: createOperationTrace() });
       if (taskType === "commerce_reconciliation") await expect(result).resolves.toBeUndefined();
       else await expect(result).rejects.toThrow();
 

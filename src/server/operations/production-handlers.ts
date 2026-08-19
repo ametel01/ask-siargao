@@ -159,19 +159,14 @@ export function createProductionOperationalTaskHandlers(dependencies: {
     },
     commerce_reconciliation: async ({ resourceRef, trace }) => {
       await trace.record({ index: 0, operation: "commerce_reconciliation", result: "started" });
+      const target = parseCommerceReconciliationTarget(resourceRef);
       await runTrackedOperationalSchedule(
         "commerce_reconciliation",
         async () => {
-          const scope = resourceRef.startsWith("all:risk:")
-            ? "risk"
-            : resourceRef.startsWith("all:daily:")
-              ? "daily"
-              : "all";
           await reconcileLiveCommerce(
             {
-              orderId:
-                resourceRef === "all" || resourceRef.startsWith("all:") ? undefined : resourceRef,
-              scope,
+              orderId: target.orderId,
+              scope: target.scope,
               source: "worker",
             },
             {
@@ -198,6 +193,14 @@ export function createProductionOperationalTaskHandlers(dependencies: {
       await trace.record({ index: 0, operation: "commerce_reconciliation", result: "succeeded" });
     },
   };
+}
+
+export function parseCommerceReconciliationTarget(resourceRef: string) {
+  const match = /^(risk|daily):([^:]+):(.+)$/.exec(resourceRef);
+  if (!match) throw new Error("invalid_commerce_reconciliation_target");
+  const orderId = match[3] ?? "";
+  if (!orderId) throw new Error("invalid_commerce_reconciliation_target");
+  return { orderId, scope: match[1] as "risk" | "daily" };
 }
 
 function createDefaultCommerceReader() {

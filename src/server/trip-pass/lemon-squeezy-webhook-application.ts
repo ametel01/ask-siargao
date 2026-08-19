@@ -63,6 +63,7 @@ export async function applyLemonSqueezyPaymentFact(
         payment_provider,
           provider_store_id, provider_product_id, provider_variant_id, provider_order_id, accepted_payment_fact_id,
         provider_updated_at, payment_suspension_state, refund_state, successful_refund_amount_minor,
+        checkout_commercial_terms_verified_at,
         refund_review_alerted_at
        from trip_pass_orders where id = $1 for update`,
         [orderId],
@@ -98,17 +99,11 @@ export async function applyLemonSqueezyPaymentFact(
         }
         return { status: "applied", action: "refunded", orderId };
       }
-      if (fact.quantity !== 1) {
-        return { status: "rejected", reason: "trip_pass_quantity_mismatch", orderId };
+      if (!order.checkout_commercial_terms_verified_at) {
+        return { status: "rejected", reason: "trip_pass_checkout_terms_unverified", orderId };
       }
-      if (fact.discountEnabled !== false || fact.discountTotalMinor !== 0) {
+      if (fact.discountTotalMinor !== 0) {
         return { status: "rejected", reason: "trip_pass_discount_not_allowed", orderId };
-      }
-      if (fact.customPriceMinor !== null || fact.customPriceMinor === undefined) {
-        return { status: "rejected", reason: "trip_pass_custom_price_not_allowed", orderId };
-      }
-      if (fact.licenseKey !== null || fact.licenseKey === undefined) {
-        return { status: "rejected", reason: "trip_pass_license_key_not_allowed", orderId };
       }
       if (
         order.product_code !== tripPassProductCatalog.code ||
@@ -270,6 +265,7 @@ type TripPassOrderRow = {
   provider_variant_id: string | null;
   provider_order_id: string | null;
   accepted_payment_fact_id: string | null;
+  checkout_commercial_terms_verified_at: Date | string | null;
   payment_suspension_state: string;
   refund_state: string;
   refund_review_alerted_at: Date | string | null;

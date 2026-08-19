@@ -54,7 +54,6 @@ function createTripPassRepairActions(dependencies: {
     initialize_missing_meters: initializeMissingMetersAction(),
     manual_commerce_transition: manualCommerceTransitionAction(dependencies.commerceReader),
     release_stale_reservation: releaseStaleReservationAction(),
-    refund_trip_pass: refundTripPassAction(),
   };
 }
 
@@ -161,58 +160,6 @@ function releaseStaleReservationAction(): TripPassRepairAction {
         [finding.local_entity_ref],
       );
       return loadUsageEventState(finding.local_entity_ref, db);
-    },
-  });
-}
-
-function refundTripPassAction(): TripPassRepairAction {
-  return localRepairAction({
-    supports: (finding) =>
-      finding.kind === "refund_required" &&
-      finding.summary_code === "manual_refund_required" &&
-      finding.local_entity_type === "trip_pass_order",
-    async lock({ db, finding }) {
-      await lockOrderAccount(finding.local_entity_ref, db);
-    },
-    async preview({ db, finding }) {
-      const state = await loadRefundState(finding.local_entity_ref, db);
-      if (
-        state.paymentProvider !== "lemon_squeezy" ||
-        !state.providerOrderId ||
-        state.capturedAmountMinor === null
-      ) {
-        throw new Error("refund_provider_terms_unavailable");
-      }
-      return {
-        before: state,
-        after: { ...state, operation: "queued", amountMinor: state.capturedAmountMinor },
-      };
-    },
-    async apply({ db, finding }) {
-      const state = await loadRefundState(finding.local_entity_ref, db);
-      if (
-        state.paymentProvider !== "lemon_squeezy" ||
-        !state.providerOrderId ||
-        state.capturedAmountMinor === null
-      ) {
-        throw new Error("refund_provider_terms_unavailable");
-      }
-      const idempotencyKey = `operator_refund:${finding.id}`;
-      await db.query(
-        `insert into trip_pass_refund_operations (
-          id, order_id, provider, provider_order_id, reason, amount_minor,
-          provider_captured_amount_minor, idempotency_key, created_at, updated_at
-        ) values ($1, $2, 'lemon_squeezy', $3, 'operator_refund', $4, $4, $5, clock_timestamp(), clock_timestamp())
-        on conflict (idempotency_key) do nothing`,
-        [
-          `refund_operation_${finding.id}`,
-          finding.local_entity_ref,
-          state.providerOrderId,
-          state.capturedAmountMinor,
-          idempotencyKey,
-        ],
-      );
-      return { ...state, operation: "queued", amountMinor: state.capturedAmountMinor };
     },
   });
 }
@@ -573,29 +520,6 @@ async function loadUsageEventState(eventId: string, db: DatabaseQueryClient) {
   );
   if (!result.rows[0]) throw new Error("repair_usage_event_unavailable");
   return { eventType: result.rows[0].event_type };
-}
-
-async function loadRefundState(orderId: string, db: DatabaseQueryClient) {
-  const result = await db.query<{
-    status: string;
-    payment_provider: string;
-    provider_order_id: string | null;
-    captured_amount_minor: number | null;
-    currency: string | null;
-  }>(
-    `select status, payment_provider, provider_order_id, captured_amount_minor, currency
-     from trip_pass_orders where id = $1`,
-    [orderId],
-  );
-  const row = result.rows[0];
-  if (!row) throw new Error("refund_order_unavailable");
-  return {
-    status: row.status,
-    paymentProvider: row.payment_provider,
-    providerOrderId: row.provider_order_id,
-    capturedAmountMinor: row.captured_amount_minor,
-    currency: row.currency,
-  };
 }
 
 async function databaseClock(db: DatabaseQueryClient) {

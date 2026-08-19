@@ -354,7 +354,6 @@ function emptyFact(_row: PaymentEventReceiptRow | undefined): NormalizedPaymentF
     providerUpdatedAt: new Date(0).toISOString(),
     orderId: null,
     providerOrderId: null,
-    checkoutId: null,
     paymentId: null,
     storeId: null,
     variantId: null,

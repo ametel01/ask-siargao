@@ -75,7 +75,6 @@ describe("Lemon Squeezy payment authority boundary", () => {
               product_id: 456,
               variant_id: 789,
               price: 999,
-              quantity: 1,
               test_mode: false,
             },
             updated_at: "2026-08-19T00:00:00Z",
@@ -88,9 +87,11 @@ describe("Lemon Squeezy payment authority boundary", () => {
       orderId: "trip_pass_order_1",
       storeId: "1",
       variantId: "789",
-      quantity: 1,
       testMode: false,
     });
+    expect(fact).not.toHaveProperty("quantity");
+    expect(fact).not.toHaveProperty("customPriceMinor");
+    expect(fact).not.toHaveProperty("licenseKey");
   });
 
   test("distinguishes lifecycle updates in the deterministic receipt fingerprint", () => {

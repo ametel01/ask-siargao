@@ -81,6 +81,7 @@ export const applicationTables = [
   "operational_findings",
   "operational_reconciliation_cursors",
   "operator_repair_actions",
+  "operator_refund_actions",
   "operational_alert_deliveries",
   "operational_worker_tasks",
   "operational_reconciliation_observations",

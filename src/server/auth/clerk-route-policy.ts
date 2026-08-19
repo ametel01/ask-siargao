@@ -113,6 +113,12 @@ export const clerkRoutePolicyEntries = [
     "protected",
     "MFA-gated Operator Repair Actions",
   ),
+  api(
+    "src/app/api/admin/trip-pass/refunds/route.ts",
+    "/api/admin/trip-pass/refunds",
+    "protected",
+    "MFA-gated Operator Trip Pass refunds",
+  ),
   api("src/app/api/chat/route.ts", "/api/chat", "public", "anonymous chat API"),
   api(
     "src/app/api/chat/ratings/route.ts",

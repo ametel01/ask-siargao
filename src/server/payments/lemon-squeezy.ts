@@ -18,7 +18,6 @@ export type NormalizedPaymentFact = {
   providerUpdatedAt: string;
   orderId: string | null;
   providerOrderId: string | null;
-  checkoutId: string | null;
   paymentId: string | null;
   storeId: string | null;
   productId?: string | null;
@@ -28,11 +27,7 @@ export type NormalizedPaymentFact = {
   refundedAmountMinor: number | null;
   currency: string | null;
   testMode: boolean | null;
-  quantity?: number | null;
-  discountEnabled?: boolean | null;
   discountTotalMinor?: number | null;
-  customPriceMinor?: number | null;
-  licenseKey?: string | null;
 };
 
 export type LemonSqueezyCheckout = {
@@ -184,11 +179,7 @@ export function paymentFactFingerprint(fact: NormalizedPaymentFact) {
     fact.status,
     String(fact.amountTotalMinor ?? ""),
     String(fact.refundedAmountMinor ?? ""),
-    String(fact.quantity ?? ""),
-    String(fact.discountEnabled ?? ""),
     String(fact.discountTotalMinor ?? ""),
-    String(fact.customPriceMinor ?? ""),
-    fact.licenseKey ?? "",
   ].join("\n");
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
@@ -244,15 +235,9 @@ export function parseLemonSqueezyOrderFact(input: {
   const refundedAmountMinor = integerValue(
     attributes.refunded_amount ?? attributes.refunded_amount_usd,
   );
-  const quantity = integerValue(
-    firstOrderItem.quantity ?? orderItemAttributes.quantity ?? attributes.quantity,
-  );
   const discountTotalMinor = integerValue(
     attributes.discount_total ?? attributes.discount_total_usd,
   );
-  const discountEnabled =
-    booleanValue(attributes.discount_enabled ?? attributes.discount) ??
-    (discountTotalMinor !== null ? discountTotalMinor > 0 : null);
   const status = normalizeOrderStatus(attributes.status ?? attributes.order_status, {
     refunded: attributes.refunded,
     refundedAmountMinor,
@@ -275,7 +260,6 @@ export function parseLemonSqueezyOrderFact(input: {
     providerUpdatedAt: updatedAt,
     orderId: input.orderId ?? customOrderId(root) ?? null,
     providerOrderId,
-    checkoutId: stringValue(attributes.checkout_id),
     paymentId: stringValue(attributes.identifier) ?? stringValue(attributes.payment_id),
     storeId: stringValue(attributes.store_id),
     productId,
@@ -288,18 +272,8 @@ export function parseLemonSqueezyOrderFact(input: {
       booleanValue(attributes.test_mode) ??
       booleanValue(firstOrderItem.test_mode) ??
       booleanValue(orderItemAttributes.test_mode),
-    quantity,
-    discountEnabled,
     discountTotalMinor,
-    customPriceMinor: hasOwn(attributes, "custom_price")
-      ? integerValue(attributes.custom_price)
-      : undefined,
-    licenseKey: hasOwn(attributes, "license_key") ? stringValue(attributes.license_key) : undefined,
   };
-}
-
-function hasOwn(record: Record<string, unknown>, key: string) {
-  return Object.hasOwn(record, key);
 }
 
 function normalizeOrderStatus(

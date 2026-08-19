@@ -119,10 +119,18 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
   });
 
   test("normalizes numeric Store and Variant response attributes", async () => {
-    let capturedRequest: unknown;
+    const capturedRequests: unknown[] = [];
     const client = createLemonSqueezyCheckoutClient({
       request: async (request) => {
-        capturedRequest = request;
+        capturedRequests.push(request);
+        if (request.method === "GET") {
+          return {
+            data: {
+              id: "999",
+              attributes: { has_license_keys: false, test_mode: false },
+            },
+          };
+        }
         return {
           data: {
             id: "checkout_numeric",
@@ -143,9 +151,33 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
     );
     expect(checkout.storeId).toBe("7");
     expect(checkout.variantId).toBe("999");
-    expect(capturedRequest).toMatchObject({
+    expect(capturedRequests[0]).toEqual({ method: "GET", path: "/v1/variants/999" });
+    expect(capturedRequests[1]).toMatchObject({
       body: { data: { attributes: { product_options: { enabled_variants: [999] } } } },
     });
+  });
+
+  test("rejects a configured Variant that issues license keys before checkout creation", async () => {
+    const requests: unknown[] = [];
+    const client = createLemonSqueezyCheckoutClient({
+      request: async (request) => {
+        requests.push(request);
+        return {
+          data: {
+            id: "999",
+            attributes: { has_license_keys: true, test_mode: false },
+          },
+        };
+      },
+    });
+
+    await expect(
+      client.createCheckout(
+        { order, appUrl: "https://siargao.test" },
+        { idempotencyKey: order.checkoutIdempotencyKey },
+      ),
+    ).rejects.toThrow("did not complete");
+    expect(requests).toHaveLength(1);
   });
 
   test("uses the official JSON:API order refund request for partial refunds", async () => {

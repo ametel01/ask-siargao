@@ -10,6 +10,7 @@ import {
 } from "@/app/api/me/trip-pass/trip-pass-route";
 import type { CurrentUserAuthSnapshot } from "@/server/auth/clerk-users";
 import { runInitialMigration } from "@/server/db/test-database";
+import { receiveLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
 import { createActiveTripPassWithMeters } from "@/server/payments/trip-pass";
 import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
 
@@ -235,18 +236,19 @@ describe("Trip Pass account API routes", () => {
     });
   });
 
-  test("converges one provider lookup after the checkout return grace period", async () => {
+  test("applies one signature-verified local receipt after the checkout return grace period", async () => {
     await withRouteDb(async (db) => {
       await insertUser(db, "user_return");
       await db.query(
         `insert into trip_pass_orders (
           id, user_id, email, status, product_code, product_family, product_version,
           amount_total_minor, currency, checkout_idempotency_key, payment_provider,
-          provider_store_id, provider_variant_id, provider_order_id, created_at, updated_at
+          provider_store_id, provider_product_id, provider_variant_id, provider_order_id,
+          checkout_commercial_terms_verified_at, created_at, updated_at
         ) values ('order_return', 'user_return', 'user_return@example.com', 'checkout_created',
           $1, 'siargao_trip_pass', $2, 999, 'usd', 'return:key', 'lemon_squeezy',
-          'store_test', 'variant_test', 'provider_return', $3, $3)`,
-        [tripPassProductCode, tripPassProductVersion, now],
+          '7', 'product_test', 'variant_test', null, $3, $3, $3)`,
+        [tripPassProductCode, tripPassProductVersion, new Date(now.getTime() - 11_000)],
       );
       const dependencies = routeDependencies(db, {
         env: {
@@ -258,48 +260,104 @@ describe("Trip Pass account API routes", () => {
         },
         userId: "user_return",
       });
-      let lookups = 0;
-      dependencies.lemonCheckoutClient = {
-        createCheckout: async () => {
-          throw new Error("not used");
+      await receiveLemonSqueezyPaymentEvent(
+        {
+          meta: { event_name: "order_created", custom_data: { order_id: "order_return" } },
+          data: {
+            type: "orders",
+            id: "provider_return",
+            attributes: {
+              store_id: 7,
+              status: "paid",
+              total: 999,
+              discount_total: 0,
+              currency: "usd",
+              first_order_item: {
+                product_id: "product_test",
+                variant_id: "variant_test",
+                price: 999,
+                test_mode: false,
+              },
+              updated_at: now.toISOString(),
+            },
+          },
         },
-        retrieveOrder: async () => {
-          lookups += 1;
-          return {
-            provider: "lemon_squeezy",
-            eventName: "order_created",
-            objectId: "provider_return",
-            providerUpdatedAt: now.toISOString(),
-            orderId: "order_return",
-            providerOrderId: "provider_return",
-            checkoutId: null,
-            paymentId: "payment_return",
-            storeId: "store_test",
-            productId: "product_test",
-            variantId: "variant_test",
-            status: "paid",
-            amountTotalMinor: 999,
-            refundedAmountMinor: 0,
-            currency: "usd",
-            testMode: false,
-            quantity: 1,
-            discountEnabled: false,
-            discountTotalMinor: 0,
-            customPriceMinor: null,
-            licenseKey: null,
-          };
-        },
-        refundOrder: async () => {
-          throw new Error("not used");
-        },
-      };
+        { db: dependencies.db, now },
+      );
       const response = await postTripPassCheckoutReturnResponse(
         checkoutReturnRequest("order_return"),
         dependencies,
       );
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ status: "applied" });
-      expect(lookups).toBe(1);
+      const state = await db.query<{ accepted_payment_fact_id: string | null }>(
+        "select accepted_payment_fact_id from trip_pass_orders where id = 'order_return'",
+      );
+      expect(state.rows[0]?.accepted_payment_fact_id).toBeTruthy();
+    });
+  });
+
+  test("never reports applied when verified receipt application fails", async () => {
+    await withRouteDb(async (db) => {
+      await insertUser(db, "user_return_failed");
+      const createdAt = new Date(now.getTime() - 11_000);
+      await db.query(
+        `insert into trip_pass_orders (
+          id, user_id, status, product_code, product_family, product_version,
+          amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+          provider_store_id, provider_variant_id, created_at, updated_at
+        ) values ('order_return_failed', 'user_return_failed', 'checkout_created', $1,
+          'siargao_trip_pass', $2, 999, 'usd', 'return:failed', 'lemon_squeezy',
+          '7', 'variant_test', $3, $3)`,
+        [tripPassProductCode, tripPassProductVersion, createdAt],
+      );
+      const dependencies = routeDependencies(db, { userId: "user_return_failed" });
+      await receiveLemonSqueezyPaymentEvent(
+        {
+          meta: {
+            event_name: "order_created",
+            custom_data: { order_id: "order_return_failed" },
+          },
+          data: {
+            type: "orders",
+            id: "provider_return_failed",
+            attributes: {
+              store_id: 7,
+              status: "paid",
+              total: 999,
+              discount_total: 0,
+              currency: "usd",
+              first_order_item: { variant_id: "variant_test", test_mode: false },
+              updated_at: now.toISOString(),
+            },
+          },
+        },
+        { db: dependencies.db, now },
+      );
+
+      const first = await postTripPassCheckoutReturnResponse(
+        checkoutReturnRequest("order_return_failed"),
+        dependencies,
+      );
+      const second = await postTripPassCheckoutReturnResponse(
+        checkoutReturnRequest("order_return_failed"),
+        dependencies,
+      );
+      expect(first.status).toBe(202);
+      expect(second.status).toBe(202);
+      expect(await first.json()).toEqual({ status: "pending" });
+      expect(await second.json()).toEqual({ status: "pending" });
+      const state = await db.query<{
+        accepted_payment_fact_id: string | null;
+        checkout_return_lookup_status: string;
+      }>(
+        `select accepted_payment_fact_id, checkout_return_lookup_status
+         from trip_pass_orders where id = 'order_return_failed'`,
+      );
+      expect(state.rows[0]).toEqual({
+        accepted_payment_fact_id: null,
+        checkout_return_lookup_status: "exhausted",
+      });
     });
   });
 });

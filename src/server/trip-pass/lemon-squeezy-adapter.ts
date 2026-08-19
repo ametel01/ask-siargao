@@ -62,11 +62,6 @@ export type LemonSqueezyCheckoutClient = {
     options: { idempotencyKey: string },
   ) => Promise<LemonSqueezyCheckoutSummary>;
   retrieveOrder: (providerOrderId: string) => Promise<LemonSqueezyOrder>;
-  lookupOrderByCheckoutId?: (input: {
-    checkoutId: string;
-    storeId?: string | null;
-    customerEmail?: string | null;
-  }) => Promise<LemonSqueezyOrder | null>;
   refundOrder: (
     providerOrderId: string,
     input: { amountMinor?: number; idempotencyKey: string },
@@ -84,6 +79,11 @@ export function createLemonSqueezyCheckoutClient(
   return {
     async createCheckout(input, options) {
       try {
+        const variant = await http.request({
+          method: "GET",
+          path: `/v1/variants/${encodeURIComponent(input.order.variantId)}`,
+        });
+        validateLemonSqueezyVariantConfiguration({ variant, order: input.order });
         const response = await http.request({
           method: "POST",
           path: "/v1/checkouts",
@@ -106,17 +106,6 @@ export function createLemonSqueezyCheckoutClient(
       });
       return parseOrder(response);
     },
-    async lookupOrderByCheckoutId(input) {
-      const filters = [
-        input.storeId ? `filter[store_id]=${encodeURIComponent(input.storeId)}` : "",
-        input.customerEmail ? `filter[user_email]=${encodeURIComponent(input.customerEmail)}` : "",
-      ].filter(Boolean);
-      const response = await http.request({
-        method: "GET",
-        path: `/v1/orders?${[...filters, "page[size]=50"].join("&")}`,
-      });
-      return parseOrderCollection(response, input.checkoutId);
-    },
     async refundOrder(providerOrderId, input) {
       const response = await http.request({
         method: "POST",
@@ -135,6 +124,28 @@ export function createLemonSqueezyCheckoutClient(
       return parseLemonSqueezyOrderFact({ eventName: "order_refunded", payload: response });
     },
   };
+}
+
+export function validateLemonSqueezyVariantConfiguration(input: {
+  variant: unknown;
+  order: LemonSqueezyCheckoutOrderSnapshot;
+}) {
+  const data = record(record(input.variant).data);
+  const attributes = record(data.attributes);
+  const variantId = identifierValue(data.id);
+  if (variantId !== input.order.variantId) {
+    throw new Error("Lemon Squeezy Variant configuration does not match checkout configuration.");
+  }
+  const productId = identifierValue(attributes.product_id);
+  if (input.order.productId && productId !== input.order.productId) {
+    throw new Error("Lemon Squeezy Variant Product does not match checkout configuration.");
+  }
+  if (booleanValue(attributes.has_license_keys) !== false) {
+    throw new Error("Lemon Squeezy Variant must have license keys disabled.");
+  }
+  if (booleanValue(attributes.test_mode) !== (input.order.testMode ?? false)) {
+    throw new Error("Lemon Squeezy Variant test/live mode does not match checkout configuration.");
+  }
 }
 
 export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequest) {
@@ -289,18 +300,6 @@ function parseOrder(response: unknown): LemonSqueezyOrder {
   if (!fact.providerOrderId)
     throw new Error("Lemon Squeezy Order response is missing its identifier.");
   return { ...fact, providerOrderId: fact.providerOrderId };
-}
-
-function parseOrderCollection(response: unknown, checkoutId: string): LemonSqueezyOrder | null {
-  const root = record(response);
-  const rows = Array.isArray(root.data) ? root.data : [];
-  const matches = rows
-    .map((data) =>
-      parseLemonSqueezyOrderFact({ eventName: "order_lookup", payload: { ...root, data } }),
-    )
-    .filter((fact) => fact.checkoutId === checkoutId);
-  if (matches.length !== 1 || !matches[0]?.providerOrderId) return null;
-  return { ...matches[0], providerOrderId: matches[0].providerOrderId };
 }
 
 function isAmbiguousCheckoutError(error: unknown) {
