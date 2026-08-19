@@ -122,7 +122,7 @@ export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequ
           ],
         },
         product_options: {
-          enabled_variants: [input.order.variantId],
+          enabled_variants: [lemonSqueezyNumericVariantId(input.order.variantId)],
           redirect_url: `${appUrl}/settings?trip_pass_checkout=return&order=${encodeURIComponent(input.order.id)}`,
           receipt_link_url: `${appUrl}/legal/trip-pass`,
         },
@@ -152,13 +152,22 @@ export function validateLemonSqueezyCheckout(input: {
   order: LemonSqueezyCheckoutOrderSnapshot;
 }) {
   if (!input.checkout.url) throw new Error("Lemon Squeezy did not return a checkout URL.");
-  if (input.checkout.orderId && input.checkout.orderId !== input.order.id) {
+  if (!input.checkout.orderId) {
+    throw new Error("Lemon Squeezy checkout custom order ID is missing.");
+  }
+  if (input.checkout.orderId !== input.order.id) {
     throw new Error("Lemon Squeezy checkout custom order ID does not match the local Order.");
   }
-  if (input.checkout.storeId && input.checkout.storeId !== input.order.storeId) {
+  if (!input.checkout.storeId) {
+    throw new Error("Lemon Squeezy checkout Store is missing.");
+  }
+  if (input.checkout.storeId !== input.order.storeId) {
     throw new Error("Lemon Squeezy checkout Store does not match configuration.");
   }
-  if (input.checkout.variantId && input.checkout.variantId !== input.order.variantId) {
+  if (!input.checkout.variantId) {
+    throw new Error("Lemon Squeezy checkout Variant is missing.");
+  }
+  if (input.checkout.variantId !== input.order.variantId) {
     throw new Error("Lemon Squeezy checkout Variant does not match configuration.");
   }
 }
@@ -173,8 +182,8 @@ export function summarizeCheckout(response: unknown): LemonSqueezyCheckoutSummar
     id: stringValue(data.id) ?? "",
     url: stringValue(attributes.url) ?? stringValue(attributes.checkout_url) ?? "",
     orderId: stringValue(record(record(attributes.checkout_data).custom).order_id),
-    storeId: stringValue(store.id) ?? stringValue(attributes.store_id),
-    variantId: stringValue(variant.id) ?? stringValue(attributes.variant_id),
+    storeId: identifierValue(store.id) ?? identifierValue(attributes.store_id),
+    variantId: identifierValue(variant.id) ?? identifierValue(attributes.variant_id),
   };
 }
 
@@ -200,6 +209,17 @@ function record(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function identifierValue(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    const numeric = Number(value);
+    return Number.isSafeInteger(numeric) && numeric > 0 ? String(numeric) : null;
+  }
+  return stringValue(value);
 }
 
 export const tripPassLemonSqueezyProductSnapshot = {

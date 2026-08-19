@@ -33,7 +33,7 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
     expect(request.data.attributes.checkout_data.variant_quantities).toEqual([
       { variant_id: 999, quantity: 1 },
     ]);
-    expect(request.data.attributes.product_options.enabled_variants).toEqual(["999"]);
+    expect(request.data.attributes.product_options.enabled_variants).toEqual([999]);
     expect(request.data.attributes.checkout_options).toEqual({ discount: false });
     expect(request.data.attributes.expires_at).toBe("2026-08-19T00:30:00.000Z");
     expect(serialized).not.toContain("account_private_1");
@@ -53,6 +53,51 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
         },
       }),
     ).toThrow("Variant does not match");
+  });
+
+  test("rejects a checkout response missing immutable provider identities", () => {
+    expect(() =>
+      validateLemonSqueezyCheckout({
+        order,
+        checkout: {
+          id: "checkout_1",
+          url: "https://lemonsqueezy.test/checkout_1",
+          orderId: order.id,
+          storeId: null,
+          variantId: order.variantId,
+        },
+      }),
+    ).toThrow("Store is missing");
+  });
+
+  test("normalizes numeric Store and Variant response attributes", async () => {
+    let capturedRequest: unknown;
+    const client = createLemonSqueezyCheckoutClient({
+      request: async (request) => {
+        capturedRequest = request;
+        return {
+          data: {
+            id: "checkout_numeric",
+            attributes: {
+              url: "https://lemonsqueezy.test/checkout_numeric",
+              store_id: 7,
+              variant_id: 999,
+              checkout_data: { custom: { order_id: order.id } },
+            },
+          },
+        };
+      },
+    });
+
+    const checkout = await client.createCheckout(
+      { order: { ...order, storeId: "7", variantId: "999" }, appUrl: "https://siargao.test" },
+      { idempotencyKey: order.checkoutIdempotencyKey },
+    );
+    expect(checkout.storeId).toBe("7");
+    expect(checkout.variantId).toBe("999");
+    expect(capturedRequest).toMatchObject({
+      body: { data: { attributes: { product_options: { enabled_variants: [999] } } } },
+    });
   });
 
   test("uses the official JSON:API order refund request for partial refunds", async () => {
