@@ -66,6 +66,8 @@ The app reads these environment variables.
 | `DATABASE_STATEMENT_TIMEOUT_MS` | Server only | Postgres clients | Optional. Integer milliseconds greater than or equal to `0`; `0` disables and omits the connection-level startup parameter for PgBouncer compatibility. Defaults to `30000` for app clients in production, `120000` for CLI/job clients in production, and `0` outside production. |
 | `LEMON_SQUEEZY_API_KEY` | Server only | Lemon Squeezy Trip Pass checkout, lookup, and refund calls | Mode-isolated annual key; never expose or log it. |
 | `LEMON_SQUEEZY_WEBHOOK_SECRET` | Server only | `/api/payments/lemon-squeezy/webhook` | Independent mode-isolated signing secret; rotation uses bounded overlap. |
+| `LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS` | Server only | `/api/payments/lemon-squeezy/webhook` | Optional previous signing secret accepted only during the bounded rotation window. Remove it after expiry. |
+| `LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS_EXPIRES_AT` | Server only | `/api/payments/lemon-squeezy/webhook` | Required ISO timestamp for the previous-secret overlap; secrets after this instant are rejected. |
 | `LEMON_SQUEEZY_STORE_ID` | Server only | Lemon Squeezy Trip Pass checkout | Exact configured Store ID; test and live resources must not mix. |
 | `LEMON_SQUEEZY_PRODUCT_ID` | Server only | Lemon Squeezy Trip Pass catalogue validation | Exact immutable Product ID for the local Product version. |
 | `LEMON_SQUEEZY_VARIANT_ID` | Server only | Lemon Squeezy Trip Pass checkout | Exact immutable tax-inclusive USD 9.99 Variant ID; quantity one, hidden discounts, no custom pricing, and the returned commercial preview are enforced by the adapter. |
