@@ -419,6 +419,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   );
 
   const cycleKey = "native-cycle-20260808T12";
+  const reconciliationRef = `risk:${cycleKey}:native_operations_order`;
   const concurrent = await Promise.all([
     enqueueDueOperationalTasks({ cycleKey }, db),
     enqueueDueOperationalTasks({ cycleKey }, db),
@@ -436,13 +437,13 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     ["paid_after_closure_refund", "native_producer_refund"],
     ["lemon_squeezy_refund", "native_producer_lemon_refund"],
     ["retention_purge", "native_producer_reservation"],
-    ["commerce_reconciliation", `risk:${cycleKey}:native_operations_order`],
+    ["commerce_reconciliation", reconciliationRef],
   ] as const;
   const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(
     `select id, resource_ref, task_type from operational_worker_tasks
-     where resource_ref like 'native_producer_%' or resource_ref like $1
+     where resource_ref like 'native_producer_%' or resource_ref = $1
      order by task_type`,
-    [`%:${cycleKey}:%`],
+    [reconciliationRef],
   );
   assert(queued.rows.length === 7, "native producer did not create exactly seven tasks");
   for (const [taskType, resourceRef] of expected) {
@@ -458,8 +459,8 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }
   await db.query(
     `delete from operational_worker_tasks
-     where resource_ref not like 'native_producer_%' and resource_ref not like $1`,
-    [`%:${cycleKey}:%`],
+     where resource_ref not like 'native_producer_%' and resource_ref <> $1`,
+    [reconciliationRef],
   );
 
   const drained = await runOperationalWorker(
@@ -503,9 +504,9 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }>(
     `select id, resource_ref, status, attempts, completed_at
      from operational_worker_tasks
-     where resource_ref like 'native_producer_%' or resource_ref like $1
+     where resource_ref like 'native_producer_%' or resource_ref = $1
      order by task_type`,
-    [`%:${cycleKey}:%`],
+    [reconciliationRef],
   );
   assert(
     terminalBeforeReplay.rows.length === 7 &&
@@ -535,9 +536,9 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }>(
     `select id, resource_ref, status, attempts, completed_at
      from operational_worker_tasks
-     where resource_ref like 'native_producer_%' or resource_ref like $1
+     where resource_ref like 'native_producer_%' or resource_ref = $1
      order by task_type`,
-    [`%:${cycleKey}:%`],
+    [reconciliationRef],
   );
   assert(
     JSON.stringify(terminalAfterReplay.rows) === JSON.stringify(terminalBeforeReplay.rows),
