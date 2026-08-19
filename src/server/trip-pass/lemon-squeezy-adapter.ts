@@ -117,12 +117,19 @@ export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequ
         checkout_data: {
           ...(input.order.customerEmail ? { email: input.order.customerEmail } : {}),
           custom: { order_id: input.order.id },
+          variant_quantities: [
+            { variant_id: lemonSqueezyNumericVariantId(input.order.variantId), quantity: 1 },
+          ],
         },
         product_options: {
           enabled_variants: [input.order.variantId],
           redirect_url: `${appUrl}/settings?trip_pass_checkout=return&order=${encodeURIComponent(input.order.id)}`,
           receipt_link_url: `${appUrl}/legal/trip-pass`,
         },
+        checkout_options: {
+          discount: false,
+        },
+        expires_at: input.order.checkoutSessionExpiresAt.toISOString(),
       },
       relationships: {
         store: { data: { type: "stores", id: input.order.storeId } },
@@ -130,6 +137,14 @@ export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequ
       },
     },
   } as const;
+}
+
+function lemonSqueezyNumericVariantId(variantId: string) {
+  const numericVariantId = Number(variantId);
+  if (!Number.isSafeInteger(numericVariantId) || numericVariantId <= 0) {
+    throw new Error("Lemon Squeezy Variant ID must be a positive integer.");
+  }
+  return numericVariantId;
 }
 
 export function validateLemonSqueezyCheckout(input: {

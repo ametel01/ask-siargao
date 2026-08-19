@@ -14,7 +14,7 @@ const order = {
   productFamily: "siargao_trip_pass",
   customerEmail: "traveler@example.com",
   storeId: "store_live",
-  variantId: "variant_live_999",
+  variantId: "999",
 } as const;
 
 describe("Lemon Squeezy Trip Pass adapter", () => {
@@ -27,10 +27,15 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
 
     expect(request.data.relationships).toEqual({
       store: { data: { type: "stores", id: "store_live" } },
-      variant: { data: { type: "variants", id: "variant_live_999" } },
+      variant: { data: { type: "variants", id: "999" } },
     });
     expect(request.data.attributes.checkout_data.custom).toEqual({ order_id: "trip_pass_order_1" });
-    expect(request.data.attributes.product_options.enabled_variants).toEqual(["variant_live_999"]);
+    expect(request.data.attributes.checkout_data.variant_quantities).toEqual([
+      { variant_id: 999, quantity: 1 },
+    ]);
+    expect(request.data.attributes.product_options.enabled_variants).toEqual(["999"]);
+    expect(request.data.attributes.checkout_options).toEqual({ discount: false });
+    expect(request.data.attributes.expires_at).toBe("2026-08-19T00:30:00.000Z");
     expect(serialized).not.toContain("account_private_1");
     expect(serialized).toContain("traveler@example.com");
   });
