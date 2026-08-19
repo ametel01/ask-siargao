@@ -47,7 +47,7 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
               storeId: order.storeId,
               variantId: order.variantId,
               productId: order.productId ?? "product_test",
-              customPrice: 999,
+              customPrice: null,
               enabledVariants: [order.variantId],
               quantity: 1,
               discountEnabled: false,

@@ -34,7 +34,7 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
       { variant_id: 999, quantity: 1 },
     ]);
     expect(request.data.attributes.product_options.enabled_variants).toEqual([999]);
-    expect(request.data.attributes.custom_price).toBe(999);
+    expect(request.data.attributes).not.toHaveProperty("custom_price");
     expect(request.data.attributes.checkout_options).toEqual({ discount: false });
     expect(request.data.attributes.preview).toBe(true);
     expect(request.data.attributes.test_mode).toBe(false);
