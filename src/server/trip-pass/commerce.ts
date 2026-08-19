@@ -530,7 +530,7 @@ async function markOrderCheckoutCreationFailed(
   );
 }
 
-async function acquireFamilyReservationLock(
+export async function acquireFamilyReservationLock(
   input: { userId: string; productFamily: string },
   db: DatabaseQueryClient,
 ) {
