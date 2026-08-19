@@ -35,6 +35,9 @@ describe("production operational task handlers", () => {
 
       const sql = queries.join("\n");
       if (taskType === "account_closure") expect(sql).toContain("account_closure_steps");
+      if (taskType === "pending_payment_event") {
+        expect(sql).toContain("trip_pass_payment_event_receipts");
+      }
       if (taskType === "pending_stripe_event") expect(sql).toContain("trip_pass_stripe_events");
       if (taskType === "paid_after_closure_refund") {
         expect(sql).toContain("account_closure_refund_obligations");

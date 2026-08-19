@@ -30,6 +30,7 @@ export async function enqueueDueOperationalTasks(
   const enqueued: Record<OperationalTaskType, number> = {
     account_closure: 0,
     commerce_reconciliation: 0,
+    pending_payment_event: 0,
     paid_after_closure_refund: 0,
     pending_stripe_event: 0,
     retention_purge: 0,
@@ -90,6 +91,18 @@ async function loadDueTargets(
            and (next_attempt_at is null or next_attempt_at <= clock_timestamp())
            and (claim_expires_at is null or claim_expires_at <= clock_timestamp())
          order by received_at, id
+         limit $1`,
+        [limit],
+      )
+    ).rows;
+  }
+  if (taskType === "pending_payment_event") {
+    return (
+      await db.query<DueTarget>(
+        `select id as resource_ref from trip_pass_payment_event_receipts
+         where provider = 'lemon_squeezy' and status = 'pending'
+           and (next_attempt_at is null or next_attempt_at <= clock_timestamp())
+         order by created_at, id
          limit $1`,
         [limit],
       )

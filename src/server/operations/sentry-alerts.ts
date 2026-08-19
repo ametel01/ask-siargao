@@ -11,6 +11,7 @@ export type OperationalAlert = {
   operation:
     | "stripe_persistence"
     | "stripe_application"
+    | "payment_event_application"
     | "paid_without_pass"
     | "account_closure"
     | "redis_availability"
