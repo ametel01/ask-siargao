@@ -436,15 +436,16 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     ["paid_after_closure_refund", "native_producer_refund"],
     ["lemon_squeezy_refund", "native_producer_lemon_refund"],
     ["retention_purge", "native_producer_reservation"],
-    ["commerce_reconciliation", `all:${cycleKey}`],
+    ["commerce_reconciliation", `all:risk:${cycleKey}`],
+    ["commerce_reconciliation", `all:daily:day-${cycleKey}`],
   ] as const;
   const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(
     `select id, resource_ref, task_type from operational_worker_tasks
-     where resource_ref like 'native_producer_%' or resource_ref = $1
+     where resource_ref like 'native_producer_%' or resource_ref like $1
      order by task_type`,
-    [`all:${cycleKey}`],
+    [`all:%${cycleKey}`],
   );
-  assert(queued.rows.length === 7, "native producer did not create exactly seven tasks");
+  assert(queued.rows.length === 8, "native producer did not create exactly eight tasks");
   for (const [taskType, resourceRef] of expected) {
     assert(
       queued.rows.some(
@@ -458,12 +459,12 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }
   await db.query(
     `delete from operational_worker_tasks
-     where resource_ref not like 'native_producer_%' and resource_ref <> $1`,
-    [`all:${cycleKey}`],
+     where resource_ref not like 'native_producer_%' and resource_ref not like $1`,
+    [`all:%${cycleKey}`],
   );
 
   const drained = await runOperationalWorker(
-    { batchSize: 7, leaseSeconds: 60 },
+    { batchSize: 8, leaseSeconds: 60 },
     {
       db,
       handlers: {
@@ -478,8 +479,8 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     },
   );
   assert(
-    drained.succeeded === 6 && drained.failed === 1,
-    "native producer worker did not drain six tasks and retain one retry",
+    drained.succeeded === 7 && drained.failed === 1,
+    "native producer worker did not drain seven tasks and retain one retry",
   );
   await db.query(
     `update operational_worker_tasks set next_attempt_at = clock_timestamp()
@@ -503,12 +504,12 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }>(
     `select id, resource_ref, status, attempts, completed_at
      from operational_worker_tasks
-     where resource_ref like 'native_producer_%' or resource_ref = $1
+     where resource_ref like 'native_producer_%' or resource_ref like $1
      order by task_type`,
-    [`all:${cycleKey}`],
+    [`all:%${cycleKey}`],
   );
   assert(
-    terminalBeforeReplay.rows.length === 7 &&
+    terminalBeforeReplay.rows.length === 8 &&
       terminalBeforeReplay.rows.every((row) => row.status === "succeeded"),
     "native producer tasks did not reach terminal success",
   );
@@ -535,9 +536,9 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }>(
     `select id, resource_ref, status, attempts, completed_at
      from operational_worker_tasks
-     where resource_ref like 'native_producer_%' or resource_ref = $1
+     where resource_ref like 'native_producer_%' or resource_ref like $1
      order by task_type`,
-    [`all:${cycleKey}`],
+    [`all:%${cycleKey}`],
   );
   assert(
     JSON.stringify(terminalAfterReplay.rows) === JSON.stringify(terminalBeforeReplay.rows),
@@ -556,13 +557,13 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     ),
   ]);
   assert(
-    nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0) === 1,
-    "native producer did not create exactly one task for a new reconciliation cycle",
+    nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0) === 2,
+    "native producer did not create exactly two tasks for a new reconciliation cycle",
   );
   await db.query(
     `delete from operational_worker_tasks
-     where task_type = 'commerce_reconciliation' and resource_ref = $1`,
-    [`all:${nextCycleKey}`],
+     where task_type = 'commerce_reconciliation' and resource_ref like $1`,
+    [`all:%${nextCycleKey}`],
   );
 }
 
