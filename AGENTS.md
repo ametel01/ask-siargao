@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Ask Siargao is a Bun-powered Next.js App Router app. Pages and route handlers live in `src/app`, with larger UI surfaces under `src/features`. Shared UI primitives are in `src/components/ui`, theme CSS is in `src/theme`, and public assets are in `public`. Server-side domain code is grouped under `src/server` by concern, including `audit`, `chat`, `providers`, `payments`, `db`, and `security`. Database migrations are in `drizzle/`. Bun tests sit beside source files as `*.test.ts`; Playwright tests live in `tests/e2e` as `*.e2e.ts`.
+Ask Siargao is a Bun-powered Next.js App Router app. Pages and route handlers live in `src/app`, with larger UI surfaces under `src/features`. Shared UI primitives are in `src/components/ui`, theme CSS is in `src/theme`, and public assets are in `public`. Server-side domain code is grouped under `src/server` by concern, including `audit`, `chat`, `providers`, `payments`, `db`, and `security`. Database migrations are in `drizzle/`. Bun tests sit beside source files as `*.test.ts`; ordinary Playwright tests live in `tests/e2e` as `*.e2e.ts`. Secret-bearing protected-provider suites live in `tests/provider` and are selected only by their dedicated provider Playwright configs, never by the ordinary browser lane.
 
 ## Build, Test, and Development Commands
 
@@ -22,7 +22,7 @@ Use TypeScript with strict compiler settings and the `@/*` path alias for `src/*
 
 ## Testing Guidelines
 
-Add Bun tests next to the code they cover using `*.test.ts`. Put browser-level coverage in `tests/e2e/*.e2e.ts`. For database behavior, prefer the existing PGlite helpers and run `bun run db:migrate:test` plus `bun run db:seed:test`. Before merging broad changes, run lint, typecheck, Bun tests, database test migrate/seed, build, and e2e tests.
+Add Bun tests next to the code they cover using `*.test.ts`. Put ordinary browser-level coverage in `tests/e2e/*.e2e.ts`; keep protected-provider coverage isolated in `tests/provider` behind its dedicated config. For database behavior, prefer the existing PGlite helpers and run `bun run db:migrate:test` plus `bun run db:seed:test`. Before merging broad changes, run lint, typecheck, Bun tests, database test migrate/seed, build, and e2e tests.
 
 ## Commit & Pull Request Guidelines
 

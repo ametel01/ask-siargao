@@ -7,8 +7,11 @@ import { buildTripPassAccountPresentation } from "@/server/trip-pass/presentatio
 
 const now = new Date("2026-07-04T08:00:00.000Z");
 const availableEnv = {
+  LEMON_SQUEEZY_API_KEY: "lemon_test_key",
+  LEMON_SQUEEZY_PRODUCT_ID: "product_trip_pass",
+  LEMON_SQUEEZY_STORE_ID: "store_trip_pass",
+  LEMON_SQUEEZY_VARIANT_ID: "variant_trip_pass",
   TRIP_PASS_CHECKOUT_MODE: "on",
-  STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
 };
 
 describe("Trip Pass account presentation", () => {
@@ -129,7 +132,31 @@ describe("Trip Pass account presentation", () => {
         status: "unavailable",
         reason: "checkout_unavailable",
       });
-      expect(JSON.stringify(unavailable)).not.toContain("missing_stripe_trip_pass_price_id");
+      expect(JSON.stringify(unavailable)).not.toContain("lemon_squeezy_configuration_unavailable");
+    });
+  });
+
+  test("keeps checkout unavailable when only historical Stripe pricing remains", async () => {
+    await withPresentationDb(async (db) => {
+      await insertUser(db, "user_historical_stripe_only");
+
+      const presentation = await buildTripPassAccountPresentation(
+        { userId: "user_historical_stripe_only", now },
+        {
+          db,
+          env: {
+            TRIP_PASS_CHECKOUT_MODE: "on",
+            STRIPE_TRIP_PASS_PRICE_ID: "price_historical_trip_pass",
+          },
+        },
+      );
+
+      expect(presentation.status).toBe("unavailable");
+      expect(presentation.checkout).toEqual({
+        status: "unavailable",
+        reason: "checkout_unavailable",
+      });
+      expect(presentation.actions.startCheckout).toBe(false);
     });
   });
 

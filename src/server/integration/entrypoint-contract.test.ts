@@ -131,11 +131,18 @@ describe("integration entry-point contracts", () => {
   });
 
   test("real service suites expose reusable helpers and scoped cleanup", async () => {
-    const [postgresHarness, redisHarness, postgresEntrypoint, redisEntrypoint] = await Promise.all([
+    const [
+      postgresHarness,
+      redisHarness,
+      postgresEntrypoint,
+      redisEntrypoint,
+      accountClosureIntegration,
+    ] = await Promise.all([
       readFile("src/server/integration/postgres-harness.ts", "utf8"),
       readFile("src/server/integration/redis-harness.ts", "utf8"),
       readFile("src/server/integration/postgres-entrypoint.ts", "utf8"),
       readFile("src/server/integration/redis-entrypoint.ts", "utf8"),
+      readFile("src/server/privacy/account-closure.postgres-integration.ts", "utf8"),
     ]);
 
     expect(postgresHarness).toContain("export async function withRealPostgresHarness");
@@ -145,6 +152,12 @@ describe("integration entry-point contracts", () => {
     expect(postgresHarness).toContain("pg_terminate_backend");
     expect(postgresEntrypoint).toContain("pg_advisory_xact_lock");
     expect(postgresEntrypoint).toContain("pg_stat_activity");
+    expect(postgresEntrypoint).toContain(
+      "startHistoricalStripeTripPassCheckout as startTripPassCheckout",
+    );
+    expect(accountClosureIntegration).toContain(
+      "startHistoricalStripeTripPassCheckout as startTripPassCheckout",
+    );
     expect(postgresEntrypoint).not.toContain("harness.databaseUrl");
 
     expect(redisHarness).toContain("export async function withRealRedisHarness");

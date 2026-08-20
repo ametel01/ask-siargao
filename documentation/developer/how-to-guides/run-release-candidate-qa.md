@@ -62,31 +62,29 @@ identity, rerun every affected gate. Pre-merge evidence for a different SHA does
 
 An eligible human dispatches `.github/workflows/provider-release-candidate.yml` from the default
 branch and enters the full SHA already contained in `main`. Environment approval supplies only
-dedicated Clerk test-instance, Stripe test-mode, protected-test database, and protected-staging
+dedicated Clerk test-instance, Lemon Squeezy test-mode, protected-test database, and protected-staging
 origin credentials after trust proof. The workflow denies forks, non-manual events, non-`main`
-SHAs, production-looking resources, live Stripe keys, schema drift, and deployed-SHA drift.
+SHAs, production-looking resources, live or mixed-mode Lemon Squeezy resources, schema drift, and
+deployed-SHA drift. The active Trip Pass checkout path has no legacy Stripe fallback.
 
-Each workflow job selects its lane with `bun run qa:provider-rc -- --lane clerk` or `--lane stripe`
-and publishes the resulting exact-SHA artifact. The Release Evidence lane module owns preflight,
-provider acceptance, worker draining, final-boundary sealing, receipt validation, and evidence
-completion in semantic order; the workflow does not reproduce that sequence as shell steps.
+Each workflow job selects its lane with `bun run qa:provider-rc -- --lane clerk` or
+`--lane lemon-squeezy` and publishes the resulting exact-SHA artifact. The Release Evidence lane
+module owns preflight, provider acceptance, worker draining, final-boundary sealing, receipt
+validation, and evidence completion in semantic order; the workflow does not reproduce that
+sequence as shell steps.
 Clerk proves a real email-code session and a Google-linked session, route and ownership policy,
 account management, signed webhook convergence, seven-day session maximum, and terminal deletion.
 The Google proof combines a live redirect to `accounts.google.com` with a unique verified Google
 external account created by an earlier human-completed OAuth callback, then signs in that exact
 Clerk subject with Clerk's official testing helper. CI never stores or submits a Google password.
-Stripe proves real Checkout Session creation, a distinct 30-minute expiry boundary, authenticated
-cancellation, real server-side test-mode card payments, activation from simulated successful
-Checkout UI output, duplicate/reversed delivery, ambiguous retry, cumulative refunds, disputes,
-closure race, Paid After Closure refund, and paid-answer settlement. Stripe's
-[automated-testing guidance](https://docs.stripe.com/automated-testing) says hosted Checkout has
-security measures that prevent automated frontend testing and recommends simulating interface
-output. The protected lane therefore never submits Stripe's hosted UI. Before any paid launch, an
-eligible human must separately complete hosted Checkout in a normal browser and attach the exact
-Price, amount, currency, terms-consent, success-return, and resulting test-mode Session/PaymentIntent
-proof to the launch issue. This human proof is not required for the checkout-off Free Controlled
-Beta. The workflow emits receipts only for scenarios actually executed and re-probes SHA/database
-boundaries before each mutating group and final evidence.
+Lemon Squeezy proves the exact test-mode Store, Product, and Variant before mutation, then exercises
+real hosted Checkout creation and payment, a distinct 30-minute expiry boundary, return before
+webhook convergence, signed and duplicate facts, out-of-order and fraudulent facts, duplicate
+payment refund recovery, partial and full refunds, the Account Closure race, reconciliation, and
+paid-answer settlement. The workflow emits receipts only for scenarios actually executed and
+re-probes SHA, database, and provider-configuration boundaries before each mutating group and final
+evidence. Its exact-SHA JSON artifact contains only deterministic fingerprints and scenario names;
+it excludes secrets, raw payloads, emails, Checkout URLs, and provider payment identifiers.
 
 No protected credential is available to pull-request CI, and repository evidence must not imply
 this human run occurred. Provider QA must be rerun after a relevant provider-configuration change.

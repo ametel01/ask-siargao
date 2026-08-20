@@ -576,8 +576,8 @@ function validateCheckoutSessionOrder(input: {
   if (
     input.order.product_code === tripPassProductCode &&
     input.order.product_version === tripPassProductVersion &&
-    environment.checkout.priceId &&
-    environment.checkout.priceId !== input.order.stripe_price_id
+    environment.historicalStripeCheckout.priceId &&
+    environment.historicalStripeCheckout.priceId !== input.order.stripe_price_id
   ) {
     return {
       status: "rejected",

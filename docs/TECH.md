@@ -31,7 +31,7 @@ allowed by source policy and cost controls. Provider selection is not a user-fac
 - Styling: Tailwind CSS v4 with shadcn source components and Ask Siargao CSS variables.
 - Database: Postgres.
 - ORM: Drizzle, matching the current codebase direction.
-- Payments: Stripe Checkout.
+- Payments: Lemon Squeezy Checkout; Stripe is retained only for historical accounting evidence.
 - LLM: OpenAI Responses API or a small adapter around the current OpenAI SDK.
 - Provider data: Google Places, production MET Norway weather, production NOAA/PacIOOS modeled tides, local-only Open-Meteo/Tide-Forecast adapters, approved event sources, and later approved partner or official sources.
 - Background jobs: start with explicit scripts and request-time jobs; add Redis, Inngest, Trigger.dev, or equivalent when async workload requires it.
@@ -266,12 +266,13 @@ The ledger still accepts version 1 `live_refresh`, `heavy_recommendation`, `weat
 1. User gets 10 free travel answers over seven days.
 2. The free answer allowance is used.
 3. App shows the `$9.99` USD Siargao Trip Pass with 150 answers for 14 days.
-4. User pays through Stripe Checkout.
-5. Verified Stripe webhook activates the trip pass.
+4. User pays through Lemon Squeezy Checkout.
+5. A verified Lemon Squeezy `order_created` webhook activates the trip pass.
 6. One 150-answer meter is initialized for the pass duration.
 7. Paid chat automatically uses appropriate evidence tools while answers remain.
 
-Stripe webhook verification remains the source of truth for pass activation.
+Lemon Squeezy webhook verification remains the source of truth for new pass activation. Historical
+Stripe facts can still be reconciled, but cannot authorize a new Trip Pass.
 
 ## LLM Responsibilities
 
@@ -304,7 +305,7 @@ Test the request lifecycle at the highest practical seam:
 - provider results normalize into facts
 - successful answers settle exactly one answer meter unit
 - provider policy and cost circuits bound expensive calls without exposing a deep-search switch
-- paid pass activates only from verified Stripe webhooks
+- paid pass activates only from verified Lemon Squeezy webhooks
 - source policies prevent restricted raw data from public surfaces
 - answer context includes freshness and confidence
 
@@ -327,4 +328,5 @@ Track:
 - fact freshness misses
 - user usefulness feedback
 
-The economic dashboard should answer: at the current price, how many average paid users are profitable after Stripe, LLM, and provider costs?
+The economic dashboard should answer: at the current price, how many average paid users are
+profitable after Lemon Squeezy, LLM, and provider costs?

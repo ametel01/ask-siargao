@@ -163,27 +163,31 @@ export function readTripPassEnvironment(
     env.DEEPSEEK_COST_POLICY_ENABLED === undefined
       ? true
       : parseBooleanFlag(env.DEEPSEEK_COST_POLICY_ENABLED);
+  const lemonEnvironment = readLemonSqueezyEnvironment(env);
   const stripePriceId = optionalServerSecret("STRIPE_TRIP_PASS_PRICE_ID", env);
-  const lemonVariantId = optionalServerSecret("LEMON_SQUEEZY_VARIANT_ID", env);
-  const configuredPriceOrVariant = lemonVariantId ?? stripePriceId;
-  const lemonConfigurationAttempted = Boolean(
-    env.LEMON_SQUEEZY_STORE_ID || env.LEMON_SQUEEZY_PRODUCT_ID || env.LEMON_SQUEEZY_VARIANT_ID,
-  );
   const canaryAccountIds = parseCanaryAccountIds(env.TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS);
   const checkoutCanOpen = checkoutMode === "canary" || checkoutMode === "on";
   const checkoutUnavailableReason = checkoutUnavailableReasonForMode({
     canaryAccountIds,
     checkoutMode,
-    priceId: configuredPriceOrVariant,
-    provider: lemonConfigurationAttempted ? "lemon_squeezy" : "stripe",
+    configured: lemonEnvironment.status === "available",
+    unavailableReason: "lemon_squeezy_configuration_unavailable",
+  });
+  const historicalStripeCheckoutUnavailableReason = checkoutUnavailableReasonForMode({
+    canaryAccountIds,
+    checkoutMode,
+    configured: Boolean(stripePriceId),
+    unavailableReason: "missing_stripe_trip_pass_price_id",
   });
 
   return {
     checkout: {
       enabled:
-        checkoutCanOpen && Boolean(configuredPriceOrVariant) && checkoutUnavailableReason === null,
+        checkoutCanOpen &&
+        lemonEnvironment.status === "available" &&
+        checkoutUnavailableReason === null,
       mode: checkoutMode,
-      priceId: configuredPriceOrVariant,
+      priceId: lemonEnvironment.variantId,
       canaryAccountIds,
       status:
         checkoutMode === "off"
@@ -192,6 +196,22 @@ export function readTripPassEnvironment(
             ? "unavailable"
             : "available",
       unavailableReason: checkoutUnavailableReason,
+    },
+    historicalStripeCheckout: {
+      enabled:
+        checkoutCanOpen &&
+        Boolean(stripePriceId) &&
+        historicalStripeCheckoutUnavailableReason === null,
+      mode: checkoutMode,
+      priceId: stripePriceId,
+      canaryAccountIds,
+      status:
+        checkoutMode === "off"
+          ? "disabled"
+          : historicalStripeCheckoutUnavailableReason
+            ? "unavailable"
+            : "available",
+      unavailableReason: historicalStripeCheckoutUnavailableReason,
     },
     extension: {
       enabled: extensionEnabled,
@@ -371,16 +391,14 @@ function parseCanaryAccountIds(value: string | undefined) {
 function checkoutUnavailableReasonForMode(input: {
   canaryAccountIds: readonly string[];
   checkoutMode: "off" | "canary" | "on";
-  priceId: string | undefined;
-  provider: "stripe" | "lemon_squeezy";
+  configured: boolean;
+  unavailableReason: string;
 }) {
   if (input.checkoutMode === "off") {
     return null;
   }
-  if (!input.priceId) {
-    return input.provider === "lemon_squeezy"
-      ? "missing_lemon_squeezy_variant_id"
-      : "missing_stripe_trip_pass_price_id";
+  if (!input.configured) {
+    return input.unavailableReason;
   }
   if (input.checkoutMode === "canary" && input.canaryAccountIds.length === 0) {
     return "missing_trip_pass_checkout_canary_account_ids";

@@ -10,7 +10,7 @@ import {
   beginAccountClosure,
   runClosureCleanupBatch,
 } from "@/server/privacy/account-closure";
-import { startTripPassCheckout } from "@/server/trip-pass/commerce";
+import { startHistoricalStripeTripPassCheckout as startTripPassCheckout } from "@/server/trip-pass/commerce";
 import type { TripPassCheckoutClient } from "@/server/trip-pass/stripe-adapter";
 import { tripPassCheckoutProductSnapshot } from "@/server/trip-pass/stripe-adapter";
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
