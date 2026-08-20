@@ -540,12 +540,7 @@ export async function acquireFamilyReservationLock(
       input.productFamily,
     ]);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      /pg_advisory|hashtext|function|syntax|unsupported/i.test(error.message)
-    ) {
-      return;
-    }
+    if (db.dialect === "pglite") return;
     throw error;
   }
 }

@@ -417,6 +417,78 @@ async function runConcurrentBatchWorkerRegressions(
 
     await enqueueOperationalTask(
       {
+        id: "native_inflight_claim_deadline",
+        resourceRef: "native_inflight_claim_deadline_resource",
+        taskType: "retention_purge",
+      },
+      db,
+    );
+    let claimStatementStarted = false;
+    const delayedClaimDb: DatabaseQueryClient = {
+      ...firstDb,
+      async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+        return firstDb.transaction?.(async (transaction) =>
+          callback({
+            ...transaction,
+            async queryWithSignal<Result>(query: string, params: unknown[], signal: AbortSignal) {
+              let statement = query;
+              if (query.includes("with due as (")) {
+                claimStatementStarted = true;
+                statement = query
+                  .replace(
+                    "with due as (",
+                    "with claim_delay as materialized (select pg_sleep(1)), due as (",
+                  )
+                  .replace(
+                    "select id from operational_worker_tasks",
+                    "select operational_worker_tasks.id from operational_worker_tasks cross join claim_delay",
+                  );
+              }
+              if (!transaction.queryWithSignal) {
+                throw new Error("native query cancellation unavailable");
+              }
+              return transaction.queryWithSignal<Result>(statement, params, signal);
+            },
+          }),
+        ) as Promise<T>;
+      },
+    };
+    const claimStartedAt = performance.now();
+    const timedOutClaim = await runOperationalWorkerConcurrently(
+      {
+        batchSize: 1,
+        completionAbortReserveMs: 25,
+        deadlineAt: claimStartedAt + 75,
+        leaseSeconds: 60,
+        minimumStartBudgetMs: 0,
+        taskTypes: ["retention_purge"],
+      },
+      {
+        createLeaseToken: () => "native_inflight_claim_lease",
+        db: delayedClaimDb,
+        handlers: { retention_purge: async () => undefined },
+      },
+    );
+    assert(claimStatementStarted, "native deadline regression did not start a PostgreSQL claim");
+    assert(
+      performance.now() - claimStartedAt < 500 && timedOutClaim.claimed === 0,
+      "native in-flight PostgreSQL claim did not stop at its deadline",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    const timedOutTask = await db.query<{ attempts: number; status: string }>(
+      `select attempts, status from operational_worker_tasks
+       where id = 'native_inflight_claim_deadline'`,
+    );
+    assert(
+      timedOutTask.rows[0]?.status === "pending" && timedOutTask.rows[0]?.attempts === 0,
+      "native in-flight claim committed a late running lease",
+    );
+    await db.query(
+      "delete from operational_worker_tasks where id = 'native_inflight_claim_deadline'",
+    );
+
+    await enqueueOperationalTask(
+      {
         id: "native_concurrent_deadline_refusal",
         resourceRef: "native_concurrent_deadline_resource",
         taskType: "retention_purge",
@@ -504,6 +576,10 @@ async function runLemonCheckoutCapacityConcurrencyRegression(
   db: DatabaseQueryClient,
   createQueryClient: () => NativeOperationsClient,
 ) {
+  await db.query(
+    `update trip_pass_orders set status = 'failed'
+     where status in ('pending', 'checkout_created', 'paid', 'disputed')`,
+  );
   const current = await db.query<{ count: string }>(
     `select count(*)::text as count from trip_pass_orders
      where status in ('pending', 'checkout_created', 'paid', 'disputed')`,

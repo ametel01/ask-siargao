@@ -175,6 +175,23 @@ async function ensureLemonOrder(input: {
       };
     }
     await acquireRiskReconciliationCapacityLock(db);
+    const expiredOrders = await db.query<{ id: string }>(
+      `update trip_pass_orders set status = 'expired', checkout_session_status = 'expired',
+         updated_at = $1
+       where payment_provider = 'lemon_squeezy'
+         and status in ('pending', 'checkout_created')
+         and checkout_session_expires_at is not null and checkout_session_expires_at <= $1
+         and accepted_payment_fact_id is null and coalesce(captured_amount_minor, 0) = 0
+       returning id`,
+      [now],
+    );
+    if (expiredOrders.rows.length > 0) {
+      await db.query(
+        `update trip_pass_checkout_attempts set status = 'expired', updated_at = $2
+         where order_id = any($1::text[]) and status = 'created'`,
+        [expiredOrders.rows.map((order) => order.id), now],
+      );
+    }
     const riskPopulation = await db.query<{ count: number | string }>(
       `select count(*)::text as count from trip_pass_orders
        where status in ('pending', 'checkout_created', 'paid', 'disputed')`,
@@ -237,12 +254,7 @@ async function acquireRiskReconciliationCapacityLock(db: DatabaseQueryClient) {
          hashtext('ask-siargao-reconciliation-capacity'), hashtext('siargao_trip_pass'))`,
     );
   } catch (error) {
-    if (
-      error instanceof Error &&
-      /pg_advisory|hashtext|function|syntax|unsupported/i.test(error.message)
-    ) {
-      return;
-    }
+    if (db.dialect === "pglite") return;
     throw error;
   }
 }

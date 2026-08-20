@@ -39,22 +39,27 @@ references, never full Checkout URLs, provider payloads, emails, or provider obj
 
 The producer emits one durable `risk:<cycle>:<order>` task for each due active or nonterminal Order
 and one `daily:<cycle>:<order>` task for each terminal Order, including refunded Orders. Risk
-observations become due after five minutes and terminal observations after 24 hours. A production
+observations become due after four minutes and terminal observations after 24 hours. A production
 cron invocation pages newly due reconciliation work only while at least 46 seconds remain for the
 worker; unproduced due Orders remain eligible for the next every-minute invocation. It then
 concurrently claims at most 50 reconciliation tasks, 25 tasks from each lifecycle-recovery family,
-and 25 retention tasks. Workers stop claiming a lane when less than 46 seconds remain. Provider
-clients receive the worker abort signal and have a 45-second network timeout. The worker aborts
-outstanding handlers before its 55-second internal deadline and returns by that deadline, so slow
-provider work cannot turn a batch into an unbounded sequential drain or prevent checkout-return,
-webhook, refund, Account Closure, alert, or schedule work from starting.
+and 25 retention tasks. Every producer query and insert receives a cancellable database deadline;
+production stops all producer families while the 46-second worker reserve remains. Claims use the
+same statement cancellation and release a batch if it commits too late to start safely. Provider
+clients receive the worker abort signal and have a 45-second network timeout. Natively cancellable
+requests stop on abort. A retained SDK request that cannot be cancelled keeps its durable lease
+until the transport settles; its five-minute lease also exceeds the bounded provider transports,
+so a deadline cannot expose it to an overlapping retry.
 
-Checkout creation enforces a safe launch population of 200 Orders in the risk statuses `pending`,
-`checkout_created`, `paid`, or `disputed`. The count and insert are serialized by a transaction-level
-advisory lock. At 50 reconciliation attempts per every-minute invocation, four full batches cover
-that population and leave one full cadence minute for scheduler jitter and operational work.
-Increasing the 200-Order bound requires production evidence for correspondingly scalable worker
-capacity; it is not a configuration-only change.
+Checkout creation enforces a safe launch population of 50 Orders in the risk statuses `pending`,
+`checkout_created`, `paid`, or `disputed`. That fits in one every-minute reconciliation batch, and
+risk Orders become eligible after four minutes so scheduler jitter still keeps observations within
+the five-minute target. The count and insert are serialized by a transaction-level advisory lock;
+production lock errors fail checkout closed. Expired Lemon Squeezy checkouts with no accepted or
+captured payment are converged to `expired` under that lock before capacity is counted, allowing a
+deliberate retry without weakening the risk bound. Increasing the 50-Order bound requires
+production evidence for correspondingly scalable worker capacity; it is not a configuration-only
+change.
 
 The checkout-return worker durably consumes its single exact-Order provider access before making
 the request. An ambiguous or interrupted lookup is never submitted again under that recovery path;

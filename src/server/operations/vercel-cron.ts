@@ -5,6 +5,7 @@ import { pruneGooglePlacesContent } from "@/server/jobs/prune-google-places";
 import type { OperationalTaskHandlers, operationalTaskTypes } from "@/server/operations/contracts";
 import {
   operationalCronInternalDeadlineMs,
+  operationalWorkerLeaseSeconds,
   operationalWorkerMinimumStartBudgetMs,
   riskReconciliationBatchSize,
 } from "@/server/operations/operational-capacity";
@@ -113,7 +114,13 @@ export async function enqueueAndRunOperationalWorker({
   const maintenanceTaskTypes = ["retention_purge"] as const;
   const nonReconciliationTaskTypes = [...recoveryTaskTypes, ...maintenanceTaskTypes];
   const enqueued = await enqueueDueOperationalTasks(
-    { limitPerType: 25, taskTypes: nonReconciliationTaskTypes },
+    {
+      deadlineAt,
+      limitPerType: 25,
+      minimumRemainingMs: operationalWorkerMinimumStartBudgetMs,
+      now,
+      taskTypes: nonReconciliationTaskTypes,
+    },
     db,
   );
   enqueued.commerce_reconciliation = await enqueueAllDueReconciliationTasks(
@@ -121,7 +128,7 @@ export async function enqueueAndRunOperationalWorker({
       deadlineAt,
       minimumRemainingMs: operationalWorkerMinimumStartBudgetMs,
       now,
-      pageSize: 100,
+      pageSize: riskReconciliationBatchSize,
     },
     db,
   );
@@ -153,7 +160,7 @@ export async function enqueueAndRunOperationalWorker({
       {
         batchSize: riskReconciliationBatchSize,
         deadlineAt,
-        leaseSeconds: 60,
+        leaseSeconds: operationalWorkerLeaseSeconds,
         minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,
         now,
         taskTypes: ["commerce_reconciliation"],
@@ -165,7 +172,7 @@ export async function enqueueAndRunOperationalWorker({
         {
           batchSize: 25,
           deadlineAt,
-          leaseSeconds: 60,
+          leaseSeconds: operationalWorkerLeaseSeconds,
           minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,
           now,
           taskTypes: [taskType],
@@ -177,7 +184,7 @@ export async function enqueueAndRunOperationalWorker({
       {
         batchSize: 25,
         deadlineAt,
-        leaseSeconds: 60,
+        leaseSeconds: operationalWorkerLeaseSeconds,
         minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,
         now,
         taskTypes: maintenanceTaskTypes,

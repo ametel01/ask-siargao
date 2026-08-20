@@ -77,6 +77,121 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
     });
   });
 
+  test("fails checkout closed when the production capacity lock is unavailable", async () => {
+    await withTestDb(async (db) => {
+      await db.query(
+        "insert into users (id, email) values ('account_capacity_lock_failure', null)",
+      );
+      if (!db.transaction) throw new Error("test transaction unavailable");
+      const lockFailureDb: DatabaseQueryClient = {
+        ...db,
+        dialect: "postgres",
+        async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+          return db.transaction?.(async (transaction) =>
+            callback({
+              ...transaction,
+              dialect: "postgres",
+              async query<Result>(query: string, params: unknown[] = []) {
+                if (query.includes("ask-siargao-reconciliation-capacity")) {
+                  throw new Error("permission denied for function pg_advisory_xact_lock");
+                }
+                if (query.includes("pg_advisory_xact_lock")) return { rows: [] as Result[] };
+                return transaction.query<Result>(query, params);
+              },
+            }),
+          ) as Promise<T>;
+        },
+      };
+      let providerCalls = 0;
+
+      await expect(
+        startLemonSqueezyTripPassCheckout(
+          {
+            userId: "account_capacity_lock_failure",
+            appUrl: "https://www.asksiargao.com",
+          },
+          {
+            client: fakeClient({
+              createCheckout: async () => {
+                providerCalls += 1;
+                throw new Error("provider_must_not_be_called");
+              },
+            }),
+            createId: () => "capacity_lock_failure_order",
+            db: lockFailureDb,
+            env,
+            now,
+          },
+        ),
+      ).rejects.toThrow("permission denied for function pg_advisory_xact_lock");
+      expect(providerCalls).toBe(0);
+    });
+  });
+
+  test("expires abandoned unpaid Orders before admitting a deliberate retry", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_after_abandonment', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+           checkout_session_expires_at, checkout_session_status, created_at, updated_at
+         ) select 'abandoned_order_' || value, null, 'checkout_created',
+           'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+           'abandoned_checkout_' || value, 'lemon_squeezy', $1::timestamptz - interval '1 minute',
+           'open', $1::timestamptz - interval '31 minutes',
+           $1::timestamptz - interval '31 minutes'
+         from generate_series(1, $2::integer) value`,
+        [now, riskReconciliationOrderCapacity],
+      );
+      const client = fakeClient({
+        createCheckout: async ({ order }) => ({
+          id: "checkout_after_abandonment",
+          url: "https://checkout.lemonsqueezy.test/after-abandonment",
+          orderId: order.id,
+          storeId: order.storeId,
+          productId: order.productId ?? "product_test",
+          variantId: order.variantId,
+          customPrice: null,
+          enabledVariants: [order.variantId],
+          quantity: 1,
+          discountEnabled: false,
+          previewSubtotal: 999,
+          previewDiscountTotal: 0,
+          previewTax: 0,
+          previewTotal: 999,
+          testMode: false,
+          expiresAt: order.checkoutSessionExpiresAt,
+        }),
+      });
+
+      await expect(
+        startLemonSqueezyTripPassCheckout(
+          {
+            userId: "account_after_abandonment",
+            appUrl: "https://www.asksiargao.com",
+          },
+          {
+            client,
+            createId: () => "order_after_abandonment",
+            db,
+            env,
+            now,
+          },
+        ),
+      ).resolves.toMatchObject({ status: "started", orderId: "order_after_abandonment" });
+      const state = await db.query<{ expired: string; risk: string }>(
+        `select count(*) filter (where status = 'expired')::text as expired,
+           count(*) filter (where status in ('pending', 'checkout_created', 'paid', 'disputed'))::text as risk
+         from trip_pass_orders`,
+      );
+      expect(state.rows[0]).toEqual({
+        expired: String(riskReconciliationOrderCapacity),
+        risk: "1",
+      });
+    });
+  });
+
   test("persists a pending Order and Checkout Attempt before exposing the URL", async () => {
     const queries: string[] = [];
     await withTestDb(
@@ -657,6 +772,7 @@ async function insertLemonOrder(db: DatabaseQueryClient, orderId: string, userId
 
 function createPgliteQueryClient(database: PGlite, queryLog: string[] = []): DatabaseQueryClient {
   const client: DatabaseQueryClient = {
+    dialect: "pglite",
     async query<T>(query: string, params: unknown[] = []) {
       queryLog.push(query);
       return database.query<T>(query, params);

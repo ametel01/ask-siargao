@@ -17,7 +17,7 @@ import {
 import type { StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
-import { raceWithAbortSignal } from "@/server/providers/provider-abort";
+import { runProviderOperation } from "@/server/providers/provider-abort";
 import { readLemonSqueezyEnvironment } from "@/server/trip-pass/catalog";
 import { runCheckoutReturnLookup } from "@/server/trip-pass/checkout-return-lookup";
 import {
@@ -258,19 +258,19 @@ function createDefaultClosureProviders(): ClosureProviders {
       const { clerkClient } = await import("@clerk/nextjs/server");
       const clerk = await clerkClient();
       try {
-        await raceWithAbortSignal(clerk.users.deleteUser(userId), signal);
+        await runProviderOperation(() => clerk.users.deleteUser(userId), signal);
       } catch (error) {
         if (!isNotFound(error)) throw error;
       }
     },
     async expireCheckoutSession(sessionId, signal) {
       const stripe = createStripeServerClient();
-      const session = await raceWithAbortSignal(
-        stripe.checkout.sessions.retrieve(sessionId),
+      const session = await runProviderOperation(
+        () => stripe.checkout.sessions.retrieve(sessionId),
         signal,
       );
       if (session.status === "open") {
-        await raceWithAbortSignal(stripe.checkout.sessions.expire(sessionId), signal);
+        await runProviderOperation(() => stripe.checkout.sessions.expire(sessionId), signal);
       }
     },
   };

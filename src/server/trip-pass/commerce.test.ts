@@ -1054,6 +1054,7 @@ async function withTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
 
 function createPgliteQueryClient(db: PGlite): DatabaseQueryClient {
   const client: DatabaseQueryClient = {
+    dialect: "pglite",
     async query<T>(query: string, params: unknown[] = []) {
       return db.query<T>(query, params);
     },

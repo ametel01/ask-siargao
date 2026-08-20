@@ -6,7 +6,7 @@ import {
   type VerifiedCheckoutPayment,
 } from "@/server/audit/lifecycle";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
-import { raceWithAbortSignal } from "@/server/providers/provider-abort";
+import { runProviderOperation } from "@/server/providers/provider-abort";
 
 export const AUDIT_PRICE_CENTS = 999;
 
@@ -62,15 +62,16 @@ export function createStripeLifecycleObjectRetriever(
 export function createStripeRefundClient(stripe = createStripeClient()): StripeRefundClient {
   return {
     createFullRefund: (input) =>
-      raceWithAbortSignal(
-        stripe.refunds.create(
-          { payment_intent: input.paymentIntentId, amount: input.amountMinor },
-          { idempotencyKey: input.idempotencyKey },
-        ),
+      runProviderOperation(
+        () =>
+          stripe.refunds.create(
+            { payment_intent: input.paymentIntentId, amount: input.amountMinor },
+            { idempotencyKey: input.idempotencyKey },
+          ),
         input.signal,
       ),
     retrieveRefund: (refundId, options) =>
-      raceWithAbortSignal(stripe.refunds.retrieve(refundId), options?.signal),
+      runProviderOperation(() => stripe.refunds.retrieve(refundId), options?.signal),
   };
 }
 

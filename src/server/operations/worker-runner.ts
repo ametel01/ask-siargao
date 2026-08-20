@@ -1,13 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import type { DatabaseQueryClient } from "@/server/db/query-client";
+import { type DatabaseQueryClient, queryDatabaseWithSignal } from "@/server/db/query-client";
 import {
   createOperationTrace,
   type OperationalTaskHandlers,
   type OperationalTaskType,
   type OperationEventRecorder,
 } from "@/server/operations/contracts";
-import { raceWithAbortSignal } from "@/server/providers/provider-abort";
 
 type ClaimedTask = {
   id: string;
@@ -20,13 +19,16 @@ type ClaimedTask = {
 export async function enqueueOperationalTask(
   input: { id: string; resourceRef: string; taskType: OperationalTaskType },
   db: DatabaseQueryClient,
+  options: { signal?: AbortSignal } = {},
 ) {
-  const inserted = await db.query<{ id: string }>(
+  const inserted = await queryDatabaseWithSignal<{ id: string }>(
+    db,
     `insert into operational_worker_tasks (id, task_type, resource_ref)
      values ($1, $2, $3)
      on conflict (task_type, resource_ref) do nothing
      returning id`,
     [input.id, input.taskType, input.resourceRef],
+    options.signal,
   );
   return Boolean(inserted.rows[0]);
 }
@@ -94,17 +96,37 @@ export async function runOperationalWorkerConcurrently(
     now,
   );
   try {
-    const claim = claimTaskBatch(
-      dependencies.db,
-      input.leaseSeconds,
-      dependencies.createLeaseToken?.() ?? randomUUID(),
-      input.batchSize,
-      input.taskTypes,
+    const leaseToken = dependencies.createLeaseToken?.() ?? randomUUID();
+    const claimDeadline = createClaimDeadline(
+      input.deadlineAt,
+      input.minimumStartBudgetMs ?? 0,
+      now,
     );
-    const tasks = deadline
-      ? await Promise.race([claim, deadline.reached.then(() => null)])
-      : await claim;
-    if (!tasks) return { claimed: 0, failed: 0, stale: 0, succeeded: 0 };
+    let tasks: ClaimedTask[];
+    try {
+      tasks = await claimTaskBatch(
+        dependencies.db,
+        input.leaseSeconds,
+        leaseToken,
+        input.batchSize,
+        input.taskTypes,
+        claimDeadline?.signal,
+      );
+    } catch (error) {
+      if (claimDeadline?.signal.aborted) {
+        return { claimed: 0, failed: 0, stale: 0, succeeded: 0 };
+      }
+      throw error;
+    } finally {
+      claimDeadline?.clear();
+    }
+    if (
+      input.deadlineAt !== undefined &&
+      now() + (input.minimumStartBudgetMs ?? 0) >= input.deadlineAt
+    ) {
+      await releaseUnstartedTasks(tasks, leaseToken, dependencies.db);
+      return { claimed: 0, failed: 0, stale: 0, succeeded: 0 };
+    }
 
     const results = { claimed: tasks.length, failed: 0, stale: 0, succeeded: 0 };
     const processing = Promise.all(
@@ -121,6 +143,25 @@ export async function runOperationalWorkerConcurrently(
   } finally {
     deadline?.clear();
   }
+}
+
+function createClaimDeadline(
+  deadlineAt: number | undefined,
+  minimumStartBudgetMs: number,
+  now: () => number,
+) {
+  if (deadlineAt === undefined) return undefined;
+  const controller = new AbortController();
+  const remainingMs = Math.max(0, deadlineAt - minimumStartBudgetMs - now());
+  const abort = () => controller.abort(new Error("operational_worker_claim_deadline_reached"));
+  const timer = remainingMs === 0 ? undefined : setTimeout(abort, remainingMs);
+  if (remainingMs === 0) abort();
+  return {
+    clear: () => {
+      if (timer) clearTimeout(timer);
+    },
+    signal: controller.signal,
+  };
 }
 
 function createWorkerDeadline(
@@ -177,7 +218,8 @@ async function claimTask(
 ) {
   if (!db.transaction) throw new Error("database_transactions_required");
   return db.transaction(async (transaction) => {
-    const result = await transaction.query<ClaimedTask>(
+    const result = await queryDatabaseWithSignal<ClaimedTask>(
+      transaction,
       `with due as (
          select id from operational_worker_tasks
          where ((
@@ -208,10 +250,12 @@ async function claimTaskBatch(
   leaseToken: string,
   batchSize: number,
   taskTypes?: readonly OperationalTaskType[],
+  signal?: AbortSignal,
 ) {
   if (!db.transaction) throw new Error("database_transactions_required");
   return db.transaction(async (transaction) => {
-    const result = await transaction.query<ClaimedTask>(
+    const result = await queryDatabaseWithSignal<ClaimedTask>(
+      transaction,
       `with due as (
          select id from operational_worker_tasks
          where ((
@@ -231,11 +275,27 @@ async function claimTaskBatch(
          lease_expires_at = clock_timestamp() + ($2::text || ' seconds')::interval,
          updated_at = clock_timestamp()
        from due where task.id = due.id
-       returning task.id, task.task_type, task.resource_ref, task.attempts, task.lease_token`,
+      returning task.id, task.task_type, task.resource_ref, task.attempts, task.lease_token`,
       [leaseToken, leaseSeconds, taskTypes ? [...taskTypes] : null, batchSize],
+      signal,
     );
     return result.rows;
   });
+}
+
+async function releaseUnstartedTasks(
+  tasks: readonly ClaimedTask[],
+  leaseToken: string,
+  db: DatabaseQueryClient,
+) {
+  if (tasks.length === 0) return;
+  await db.query(
+    `update operational_worker_tasks set status = 'pending', attempts = greatest(attempts - 1, 0),
+       lease_token = null, lease_expires_at = null, next_attempt_at = clock_timestamp(),
+       updated_at = clock_timestamp()
+     where id = any($1::text[]) and status = 'running' and lease_token = $2`,
+    [tasks.map((task) => task.id), leaseToken],
+  );
 }
 
 async function processClaimedTask(
@@ -254,15 +314,12 @@ async function processClaimedTask(
   }
   try {
     await trace.record({ index: 0, operation: task.task_type, result: "started" });
-    await raceWithAbortSignal(
-      handler({
-        deadlineAt: execution.deadlineAt,
-        resourceRef: task.resource_ref,
-        signal: execution.signal,
-        trace,
-      }),
-      execution.signal,
-    );
+    await handler({
+      deadlineAt: execution.deadlineAt,
+      resourceRef: task.resource_ref,
+      signal: execution.signal,
+      trace,
+    });
     const fenced = await succeedTask(task, dependencies.db);
     if (fenced) {
       results.succeeded += 1;

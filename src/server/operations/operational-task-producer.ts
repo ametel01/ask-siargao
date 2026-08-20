@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { DatabaseQueryClient } from "@/server/db/query-client";
+import { type DatabaseQueryClient, queryDatabaseWithSignal } from "@/server/db/query-client";
 import { type OperationalTaskType, operationalTaskTypes } from "@/server/operations/contracts";
 import { enqueueOperationalTask } from "@/server/operations/worker-runner";
 
@@ -10,7 +10,10 @@ type DueReconciliationOrder = { cadence: "risk" | "daily"; order_id: string };
 export async function enqueueDueOperationalTasks(
   input: {
     cycleKey?: string;
+    deadlineAt?: number;
     limitPerType?: number;
+    minimumRemainingMs?: number;
+    now?: () => number;
     taskTypes?: readonly OperationalTaskType[];
   },
   db: DatabaseQueryClient,
@@ -23,11 +26,6 @@ export async function enqueueDueOperationalTasks(
   const supportedTaskTypes = new Set(operationalTaskTypes);
   const unsupported = taskTypes.find((taskType) => !supportedTaskTypes.has(taskType));
   if (unsupported) throw new Error("invalid_operational_task_type");
-  const cycleKey = input.cycleKey ?? (await readDatabaseCycleKey(db));
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/.test(cycleKey)) {
-    throw new Error("invalid_operational_cycle_key");
-  }
-
   const enqueued: Record<OperationalTaskType, number> = {
     account_closure: 0,
     checkout_return_lookup: 0,
@@ -38,23 +36,52 @@ export async function enqueueDueOperationalTasks(
     pending_stripe_event: 0,
     retention_purge: 0,
   };
-  for (const taskType of taskTypes) {
-    const targets = await loadDueTargets(taskType, cycleKey, limit, db);
-    const inserted = await Promise.all(
-      targets.map((target) =>
-        enqueueOperationalTask(
-          {
-            id: stableOperationalTaskId(taskType, target.resource_ref),
-            resourceRef: target.resource_ref,
-            taskType,
-          },
-          db,
+  const deadline = createProducerDeadline(input);
+  const deadlineSignal = deadline?.signal;
+  try {
+    let cycleKey: string;
+    try {
+      cycleKey = input.cycleKey ?? (await readDatabaseCycleKey(db, deadlineSignal));
+    } catch (error) {
+      if (deadlineSignal?.aborted) return enqueued;
+      throw error;
+    }
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/.test(cycleKey)) {
+      throw new Error("invalid_operational_cycle_key");
+    }
+
+    for (const taskType of taskTypes) {
+      if (deadlineSignal?.aborted) break;
+      let targets: DueTarget[];
+      try {
+        targets = await loadDueTargets(taskType, cycleKey, limit, db, deadlineSignal);
+      } catch (error) {
+        if (deadlineSignal?.aborted) break;
+        throw error;
+      }
+      const inserted = await Promise.allSettled(
+        targets.map((target) =>
+          enqueueOperationalTask(
+            {
+              id: stableOperationalTaskId(taskType, target.resource_ref),
+              resourceRef: target.resource_ref,
+              taskType,
+            },
+            db,
+            { signal: deadlineSignal },
+          ),
         ),
-      ),
-    );
-    enqueued[taskType] += inserted.filter(Boolean).length;
+      );
+      enqueued[taskType] += inserted.filter(
+        (result) => result.status === "fulfilled" && result.value,
+      ).length;
+      const rejected = inserted.find((result) => result.status === "rejected");
+      if (rejected?.status === "rejected" && !deadlineSignal?.aborted) throw rejected.reason;
+    }
+    return enqueued;
+  } finally {
+    deadline?.clear();
   }
-  return enqueued;
 }
 
 export async function enqueueAllDueReconciliationTasks(
@@ -80,7 +107,10 @@ export async function enqueueAllDueReconciliationTasks(
     const page = await enqueueDueOperationalTasks(
       {
         cycleKey: input.cycleKey,
+        deadlineAt: input.deadlineAt,
         limitPerType: pageSize,
+        minimumRemainingMs: input.minimumRemainingMs,
+        now,
         taskTypes: ["commerce_reconciliation"],
       },
       db,
@@ -102,10 +132,13 @@ async function loadDueTargets(
   cycleKey: string,
   limit: number,
   db: DatabaseQueryClient,
+  signal?: AbortSignal,
 ) {
+  const query = <T>(statement: string, params: unknown[] = []) =>
+    queryDatabaseWithSignal<T>(db, statement, params, signal);
   if (taskType === "account_closure") {
     return (
-      await db.query<DueTarget>(
+      await query<DueTarget>(
         `select distinct operation_id as resource_ref
          from account_closure_steps
          where (
@@ -121,7 +154,7 @@ async function loadDueTargets(
   }
   if (taskType === "checkout_return_lookup") {
     return (
-      await db.query<DueTarget>(
+      await query<DueTarget>(
         `select orders.id as resource_ref from trip_pass_orders orders
          where orders.payment_provider = 'lemon_squeezy'
            and orders.accepted_payment_fact_id is null
@@ -142,7 +175,7 @@ async function loadDueTargets(
   }
   if (taskType === "pending_stripe_event") {
     return (
-      await db.query<DueTarget>(
+      await query<DueTarget>(
         `select id as resource_ref from trip_pass_stripe_events
          where status = 'pending'
            and (next_attempt_at is null or next_attempt_at <= clock_timestamp())
@@ -155,7 +188,7 @@ async function loadDueTargets(
   }
   if (taskType === "pending_payment_event") {
     return (
-      await db.query<DueTarget>(
+      await query<DueTarget>(
         `select id as resource_ref from trip_pass_payment_event_receipts
          where provider = 'lemon_squeezy' and status = 'pending'
            and (next_attempt_at is null or next_attempt_at <= clock_timestamp())
@@ -167,7 +200,7 @@ async function loadDueTargets(
   }
   if (taskType === "paid_after_closure_refund") {
     return (
-      await db.query<DueTarget>(
+      await query<DueTarget>(
         `select id as resource_ref from account_closure_refund_obligations
          where stripe_payment_intent_id is not null and expected_amount_minor is not null
            and (
@@ -183,7 +216,7 @@ async function loadDueTargets(
   }
   if (taskType === "lemon_squeezy_refund") {
     return (
-      await db.query<DueTarget>(
+      await query<DueTarget>(
         `select id as resource_ref from trip_pass_refund_operations
          where (
            status = 'pending'
@@ -200,7 +233,7 @@ async function loadDueTargets(
   }
   if (taskType === "retention_purge") {
     return (
-      await db.query<DueTarget>(
+      await query<DueTarget>(
         `select id as resource_ref from paid_answer_reservations
          where details_purged_at is null and details_purge_at <= clock_timestamp()
            and status <> 'open'
@@ -213,7 +246,7 @@ async function loadDueTargets(
   }
   if (taskType === "commerce_reconciliation") {
     const rows = (
-      await db.query<DueReconciliationOrder>(
+      await query<DueReconciliationOrder>(
         `select o.id as order_id,
            case when o.status in ('pending', 'checkout_created', 'paid', 'disputed')
              then 'risk' else 'daily' end as cadence
@@ -238,7 +271,7 @@ async function loadDueTargets(
            and (
              (o.status in ('pending', 'checkout_created', 'paid', 'disputed')
                and (observation.observed_at is null
-                 or observation.observed_at <= clock_timestamp() - interval '5 minutes'))
+                 or observation.observed_at <= clock_timestamp() - interval '4 minutes'))
              or
              (o.status not in ('pending', 'checkout_created', 'paid', 'disputed')
                and (observation.observed_at is null
@@ -256,15 +289,38 @@ async function loadDueTargets(
   return [{ resource_ref: `all:${cycleKey}` }];
 }
 
-async function readDatabaseCycleKey(db: DatabaseQueryClient) {
-  const result = await db.query<{ cycle_key: string }>(
+async function readDatabaseCycleKey(db: DatabaseQueryClient, signal?: AbortSignal) {
+  const result = await queryDatabaseWithSignal<{ cycle_key: string }>(
+    db,
     `select to_char(
        date_trunc('hour', clock_timestamp() at time zone 'UTC')
          + floor(extract(minute from clock_timestamp() at time zone 'UTC') / 5) * interval '5 minutes',
        'YYYYMMDDHH24MI'
      ) as cycle_key`,
+    [],
+    signal,
   );
   const cycleKey = result.rows[0]?.cycle_key;
   if (!cycleKey) throw new Error("operational_cycle_key_unavailable");
   return cycleKey;
+}
+
+function createProducerDeadline(input: {
+  deadlineAt?: number;
+  minimumRemainingMs?: number;
+  now?: () => number;
+}) {
+  if (input.deadlineAt === undefined) return undefined;
+  const now = input.now ?? (() => performance.now());
+  const controller = new AbortController();
+  const remainingMs = Math.max(0, input.deadlineAt - (input.minimumRemainingMs ?? 0) - now());
+  const abort = () => controller.abort(new Error("operational_producer_deadline_reached"));
+  const timer = remainingMs === 0 ? undefined : setTimeout(abort, remainingMs);
+  if (remainingMs === 0) abort();
+  return {
+    clear: () => {
+      if (timer) clearTimeout(timer);
+    },
+    signal: controller.signal,
+  };
 }

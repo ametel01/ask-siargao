@@ -9,7 +9,10 @@ import {
   riskReconciliationBatchSize,
   riskReconciliationOrderCapacity,
 } from "@/server/operations/operational-capacity";
-import { enqueueAllDueReconciliationTasks } from "@/server/operations/operational-task-producer";
+import {
+  enqueueAllDueReconciliationTasks,
+  enqueueDueOperationalTasks,
+} from "@/server/operations/operational-task-producer";
 import {
   authorizeVercelCron,
   enqueueAndRunOperationalWorker,
@@ -111,7 +114,7 @@ describe("authenticated Vercel Cron adapters", () => {
         {
           deadlineAt: 55_000,
           minimumRemainingMs: operationalWorkerMinimumStartBudgetMs,
-          now: () => (budgetChecks++ === 0 ? 0 : 10_000),
+          now: () => (budgetChecks++ < 2 ? 0 : 10_000),
           pageSize: 100,
         },
         db,
@@ -132,6 +135,40 @@ describe("authenticated Vercel Cron adapters", () => {
     } finally {
       await db.close();
     }
+  });
+
+  test("bounds every producer family before the worker reserve", async () => {
+    let queries = 0;
+    const db: DatabaseQueryClient = {
+      async query<_T>(): Promise<{ rows: _T[] }> {
+        throw new Error("uncancellable query must not be used");
+      },
+      async queryWithSignal<T>(
+        _query: string,
+        _params: unknown[],
+        signal: AbortSignal,
+      ): Promise<{ rows: T[] }> {
+        queries += 1;
+        return new Promise<{ rows: T[] }>((_resolve, reject) => {
+          const abort = () => reject(signal.reason ?? new Error("aborted"));
+          signal.addEventListener("abort", abort, { once: true });
+        });
+      },
+    };
+    const startedAt = performance.now();
+    const result = await enqueueDueOperationalTasks(
+      {
+        cycleKey: "producer-deadline",
+        deadlineAt: startedAt + 40,
+        minimumRemainingMs: 20,
+        now: () => performance.now(),
+      },
+      db,
+    );
+
+    expect(performance.now() - startedAt).toBeLessThan(300);
+    expect(queries).toBe(1);
+    expect(Object.values(result).every((count) => count === 0)).toBe(true);
   });
 
   test("runs bounded reconciliation and maintenance batches concurrently under slow failure", async () => {
@@ -229,7 +266,7 @@ describe("authenticated Vercel Cron adapters", () => {
     }
   });
 
-  test("attempts the safe risk Order population within four bounded one-minute cycles", async () => {
+  test("attempts the entire safe risk population before five minutes elapse", async () => {
     const db = new PGlite();
     try {
       await runInitialMigration(db);
@@ -244,26 +281,41 @@ describe("authenticated Vercel Cron adapters", () => {
          from generate_series(1, $1::integer) value`,
         [riskReconciliationOrderCapacity],
       );
+      await db.query(
+        `insert into operational_reconciliation_observations (
+           local_entity_type, local_entity_ref, last_applied_sequence, observed_at
+         ) select 'trip_pass_order', 'order_cadence_' || value, value,
+           clock_timestamp() - interval '3 minutes 30 seconds'
+         from generate_series(1, $1::integer) value`,
+        [riskReconciliationOrderCapacity],
+      );
+      await expect(
+        enqueueDueOperationalTasks(
+          {
+            cycleKey: "cadence-before-boundary",
+            taskTypes: ["commerce_reconciliation"],
+          },
+          db,
+        ),
+      ).resolves.toMatchObject({ commerce_reconciliation: 0 });
+      await db.query(
+        `update operational_reconciliation_observations
+         set observed_at = clock_timestamp() - interval '4 minutes 30 seconds'`,
+      );
+
       let attempts = 0;
       const handlers = {
         commerce_reconciliation: async () => {
           attempts += 1;
         },
       };
-      const results = [];
-      for (let minute = 0; minute < 4; minute += 1) {
-        results.push(
-          await enqueueAndRunOperationalWorker({
-            db,
-            handlers,
-            sentry: { send: async () => undefined },
-          }),
-        );
-      }
+      const result = await enqueueAndRunOperationalWorker({
+        db,
+        handlers,
+        sentry: { send: async () => undefined },
+      });
 
-      expect(results.map((result) => result.worker.claimed)).toEqual(
-        Array.from({ length: 4 }, () => riskReconciliationBatchSize),
-      );
+      expect(result.worker.claimed).toBe(riskReconciliationBatchSize);
       expect(attempts).toBe(riskReconciliationOrderCapacity);
       const remaining = await db.query<{ pending: string }>(
         `select count(*)::text as pending from operational_worker_tasks

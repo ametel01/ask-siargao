@@ -1182,15 +1182,16 @@ describe("durable provider-neutral workers", () => {
     });
   });
 
-  test("aborts slow concurrent handlers and returns before the internal deadline", async () => {
+  test("keeps a slow uncancellable handler leased after the internal deadline", async () => {
     await withTestDb(async (db) => {
       await enqueueOperationalTask(
         { id: "worker_task_deadline", resourceRef: "slow_provider", taskType: "retention_purge" },
         db,
       );
       let handlerSignal: AbortSignal | undefined;
+      const provider = deferred<void>();
       const startedAt = performance.now();
-      const result = await runOperationalWorkerConcurrently(
+      const first = runOperationalWorkerConcurrently(
         {
           batchSize: 1,
           completionAbortReserveMs: 150,
@@ -1204,20 +1205,41 @@ describe("durable provider-neutral workers", () => {
           handlers: {
             retention_purge: async ({ signal }) => {
               handlerSignal = signal;
-              await new Promise<never>(() => undefined);
+              await provider.promise;
             },
           },
         },
       );
+      const result = await first;
 
       expect(performance.now() - startedAt).toBeLessThan(700);
       expect(handlerSignal?.aborted).toBe(true);
-      expect(result).toEqual({ claimed: 1, failed: 1, stale: 0, succeeded: 0 });
-      const retry = await db.query<{ last_error_code: string; status: string }>(
+      expect(result).toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 0 });
+      const leased = await db.query<{ last_error_code: string | null; status: string }>(
         `select last_error_code, status from operational_worker_tasks
          where id = 'worker_task_deadline'`,
       );
-      expect(retry.rows).toEqual([{ last_error_code: "task_failed", status: "pending" }]);
+      expect(leased.rows).toEqual([{ last_error_code: null, status: "running" }]);
+
+      await expect(
+        runOperationalWorkerConcurrently(
+          { batchSize: 1, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+          { db, handlers: { retention_purge: async () => undefined } },
+        ),
+      ).resolves.toEqual({ claimed: 0, failed: 0, stale: 0, succeeded: 0 });
+
+      provider.resolve();
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const terminal = await db.query<{ status: string }>(
+          "select status from operational_worker_tasks where id = 'worker_task_deadline'",
+        );
+        if (terminal.rows[0]?.status === "succeeded") break;
+        await Bun.sleep(10);
+      }
+      const terminal = await db.query<{ status: string }>(
+        "select status from operational_worker_tasks where id = 'worker_task_deadline'",
+      );
+      expect(terminal.rows[0]?.status).toBe("succeeded");
     });
   });
 
@@ -1225,6 +1247,16 @@ describe("durable provider-neutral workers", () => {
     const stalledDb: DatabaseQueryClient = {
       async query<T>() {
         return new Promise<{ rows: T[] }>(() => undefined);
+      },
+      async queryWithSignal<T>(
+        _query: string,
+        _params: unknown[],
+        signal: AbortSignal,
+      ): Promise<{ rows: T[] }> {
+        return new Promise<{ rows: T[] }>((_resolve, reject) => {
+          const abort = () => reject(signal.reason ?? new Error("aborted"));
+          signal.addEventListener("abort", abort, { once: true });
+        });
       },
       async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
         return callback(stalledDb);
