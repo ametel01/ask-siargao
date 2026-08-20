@@ -115,7 +115,10 @@ describe("provider Release Evidence lifecycle", () => {
       migrationCount: 2,
       protectedDatabaseEnvironment: "protected-test",
     });
-    await lifecycle.recordScenarios([...providerReleaseCandidateScenarios.clerk].reverse());
+    await expect(
+      lifecycle.recordScenarios([...providerReleaseCandidateScenarios.clerk].reverse()),
+    ).rejects.toThrow("required semantic order");
+    await lifecycle.recordScenarios(providerReleaseCandidateScenarios.clerk);
     await expect(lifecycle.revalidate(sha)).resolves.toMatch(/^[0-9a-f]{64}$/);
     await lifecycle.seal(sha);
 

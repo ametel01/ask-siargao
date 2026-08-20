@@ -102,7 +102,6 @@ describe("protected provider release-candidate policy", () => {
         CLERK_SECRET_KEY: "sk_test_redacted",
         PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
         DATABASE_URL: "postgres://production-db.test/production",
-        LEGACY_STRIPE_TRIP_PASS_COMPAT: "true",
         LEMON_SQUEEZY_ALLOW_TEST_MODE: "false",
         LEMON_SQUEEZY_API_KEY: "lemon_live_key_redacted",
         LEMON_SQUEEZY_PRODUCT_ID: "202",
@@ -123,12 +122,37 @@ describe("protected provider release-candidate policy", () => {
       "protected_environment_required",
       "trusted_repository_required",
       "production_origin_forbidden",
+      "dedicated_protected_staging_origin_required",
       "protected_database_host_mismatch",
       "protected_database_name_mismatch",
       "production_database_forbidden",
       "lemon_squeezy_test_mode_required",
-      "legacy_stripe_checkout_fallback_forbidden",
     ]);
+  });
+
+  test("denies production aliases and origins without an explicit staging identity", () => {
+    for (const appOrigin of [
+      "https://www.asksiargao.com",
+      "https://preview.asksiargao.com",
+      "https://latest.asksiargao.com",
+      "https://production-staging.asksiargao.com",
+    ]) {
+      const result = validateProviderReleaseCandidateContext({
+        checkedOutCommitSha: sha,
+        env: {
+          ...baseEnv,
+          CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
+          CLERK_SECRET_KEY: "sk_test_redacted",
+          CLERK_WEBHOOK_SIGNING_SECRET: "whsec_redacted",
+          DATABASE_URL: "postgres://provider-rc-db.test/ask_siargao_provider_rc_test",
+          PROVIDER_RC_APP_ORIGIN: appOrigin,
+          PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
+        },
+        lane: "clerk",
+      });
+
+      expect(result.errors, appOrigin).toContain("dedicated_protected_staging_origin_required");
+    }
   });
 
   test("denies either lane when protected app webhook or database configuration is absent", () => {
@@ -259,14 +283,14 @@ describe("protected provider release-candidate policy", () => {
       "return_before_webhook_convergence",
       "signed_webhook_ingestion",
       "duplicate_payment_fact",
-      "out_of_order_payment_fact",
-      "duplicate_payment_refund_recovery",
       "partial_refund",
       "full_refund",
+      "paid_answer_settlement",
+      "out_of_order_payment_fact",
       "fraudulent_state",
       "account_closure_race",
+      "duplicate_payment_refund_recovery",
       "commerce_reconciliation",
-      "paid_answer_settlement",
     ]);
     expect(providerReleaseCandidateScenarios.clerk).toContain("step_up_account_closure");
     expect(providerReleaseCandidateScenarios.clerk).toContain("account_management");

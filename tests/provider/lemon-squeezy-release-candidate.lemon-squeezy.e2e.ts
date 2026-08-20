@@ -13,6 +13,7 @@ import {
 import { verifyProtectedLemonSqueezyCatalog } from "@/server/qa/lemon-squeezy-release-candidate";
 import { providerReleaseCandidateCheckoutExpiryMatches } from "@/server/qa/provider-release-candidate";
 import { createLiveProtectedProviderHarness } from "@/server/qa/provider-release-candidate-live-boundary";
+import { providerReleaseCandidateDiskFiles } from "@/server/qa/provider-release-candidate-receipts";
 import {
   createLemonSqueezyCheckoutClient,
   type LemonSqueezyCheckoutOrderSnapshot,
@@ -32,6 +33,9 @@ const {
 const lemonHttp = createLemonSqueezyHttpClient();
 const lemonClient = createLemonSqueezyCheckoutClient(lemonHttp);
 const origin = new URL(requiredEnvironment("PROVIDER_RC_APP_ORIGIN")).origin;
+const recoveryReceiptPath = `.tmp/provider-release-candidate/lemon-squeezy-${requiredEnvironment(
+  "PROVIDER_RC_EXPECTED_SHA",
+)}.recovery.jsonl`;
 
 test.beforeEach(async ({ page }) => {
   await authorizeProtectedPage(page);
@@ -163,6 +167,7 @@ test("a second provider payment creates durable refund recovery", async ({ page 
     applicationResult: { action: "refunded" },
   });
   await expectRefundOperation(checkout.order.id, "duplicate_payment", "pending");
+  await recordRecoveryOrder("duplicate_payment", checkout.order.id);
 });
 
 test("out-of-order and fraudulent facts converge through the signed inbox", async ({ page }) => {
@@ -213,15 +218,17 @@ test("closure race records Paid After Closure and durable Lemon Squeezy refund w
   const paid = await retrieveOrder(providerReturn.providerOrderId);
   await deliverSignedLemonSqueezyEvent(page, paymentPayload(paid, "order_created"));
   await expectRefundOperation(checkout.order.id, "paid_after_closure", "pending");
+  await recordRecoveryOrder("paid_after_closure", checkout.order.id);
   await recordScenarios(["account_closure_race"]);
 });
 
 test("final live boundary follows refund recovery and reconciliation", async ({ page }) => {
   await signIn(page, "PROVIDER_RC_BOUNDARY_USER");
   await assertLiveBoundary(page);
-  await expectRecentRecovery("duplicate_payment");
-  await expectRecentRecovery("paid_after_closure");
-  await expectRecentReconciliation();
+  const recoveryOrders = await readRecoveryOrders();
+  await expectRecovery("duplicate_payment", recoveryOrders.duplicate_payment);
+  await expectRecovery("paid_after_closure", recoveryOrders.paid_after_closure);
+  await expectReconciliation(recoveryOrders.duplicate_payment);
   await recordScenarios(["duplicate_payment_refund_recovery", "commerce_reconciliation"]);
   await providerHarness.seal(page);
 });
@@ -484,25 +491,60 @@ async function expectRefundOperation(orderId: string, reason: string, status: st
   });
 }
 
-async function expectRecentRecovery(reason: string) {
+type RecoveryReason = "duplicate_payment" | "paid_after_closure";
+
+async function recordRecoveryOrder(reason: RecoveryReason, orderId: string) {
+  await providerReleaseCandidateDiskFiles.append(
+    recoveryReceiptPath,
+    `${JSON.stringify({ orderId, reason })}\n`,
+  );
+}
+
+async function readRecoveryOrders() {
+  const contents = await providerReleaseCandidateDiskFiles.read(recoveryReceiptPath);
+  if (!contents) throw new Error("Protected recovery correlation receipt is missing.");
+  const orders = new Map<RecoveryReason, string>();
+  for (const line of contents.split("\n").filter(Boolean)) {
+    const entry = JSON.parse(line) as { orderId?: unknown; reason?: unknown };
+    if (
+      (entry.reason !== "duplicate_payment" && entry.reason !== "paid_after_closure") ||
+      typeof entry.orderId !== "string" ||
+      !entry.orderId
+    ) {
+      throw new Error("Protected recovery correlation receipt is invalid.");
+    }
+    const previous = orders.get(entry.reason);
+    if (previous && previous !== entry.orderId) {
+      throw new Error("Protected recovery correlation receipt is ambiguous.");
+    }
+    orders.set(entry.reason, entry.orderId);
+  }
+  const duplicatePayment = orders.get("duplicate_payment");
+  const paidAfterClosure = orders.get("paid_after_closure");
+  if (!duplicatePayment || !paidAfterClosure) {
+    throw new Error("Protected recovery correlation receipt is incomplete.");
+  }
+  return { duplicate_payment: duplicatePayment, paid_after_closure: paidAfterClosure };
+}
+
+async function expectRecovery(reason: RecoveryReason, orderId: string) {
   await withDatabase(async (sql) => {
     const rows = await sql<{ count: number }[]>`
       select count(*)::int as count from trip_pass_refund_operations
-      where reason = ${reason} and status = 'succeeded'
-        and updated_at >= now() - interval '1 hour'
+      where order_id = ${orderId} and reason = ${reason} and status = 'succeeded'
     `;
-    expect(rows[0]?.count).toBeGreaterThan(0);
+    expect(rows[0]?.count).toBe(1);
   });
 }
 
-async function expectRecentReconciliation() {
+async function expectReconciliation(orderId: string) {
   await withDatabase(async (sql) => {
     const rows = await sql<{ count: number }[]>`
       select count(*)::int as count from operational_worker_tasks
       where task_type = 'commerce_reconciliation' and status = 'succeeded'
-        and updated_at >= now() - interval '1 hour'
+        and substring(resource_ref from '^[^:]+:[^:]+:(.*)$') = ${orderId}
     `;
-    expect(rows[0]?.count).toBeGreaterThan(0);
+    expect(rows[0]?.count).toBe(1);
   });
 }
 

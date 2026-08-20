@@ -72,6 +72,9 @@ test("Lemon Squeezy acceptance uses the isolated provider checkout and signed we
   expect(acceptance).toContain("deliverSignedLemonSqueezyEvent");
   expect(acceptance).toContain('"/api/payments/lemon-squeezy/webhook"');
   expect(acceptance).toContain("refundOrder");
+  expect(acceptance).toContain("recordRecoveryOrder");
+  expect(acceptance).toContain("resource_ref");
+  expect(acceptance).not.toContain("interval '1 hour'");
   expect(acceptance).not.toContain("STRIPE_");
   expect(acceptance).not.toContain("/api/stripe");
 });

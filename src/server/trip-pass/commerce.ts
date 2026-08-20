@@ -115,9 +115,13 @@ export async function startTripPassCheckout(
       createId: options.createId,
     });
   }
-  if (!legacyStripeCompatibilityAllowed(options.env)) {
-    return { status: "unavailable", reason: "lemon_squeezy_configuration_unavailable" };
-  }
+  return { status: "unavailable", reason: "lemon_squeezy_configuration_unavailable" };
+}
+
+export async function startHistoricalStripeTripPassCheckout(
+  input: StartTripPassCheckoutInput,
+  options: StartTripPassCheckoutOptions = {},
+): Promise<TripPassCheckoutResult> {
   const environment = readTripPassEnvironment(options.env);
   const checkoutAvailability = checkoutAvailabilityForAccount(input.userId, environment.checkout);
   if (checkoutAvailability) {
@@ -179,9 +183,13 @@ export async function cancelTripPassCheckout(
       db: options.db ?? getDefaultDatabaseQueryClient(),
     });
   }
-  if (!legacyStripeCompatibilityAllowed(options.env)) {
-    return { status: "unavailable", reason: "checkout_cancellation_unavailable" };
-  }
+  return { status: "unavailable", reason: "checkout_cancellation_unavailable" };
+}
+
+export async function cancelHistoricalStripeTripPassCheckout(
+  input: CancelTripPassCheckoutInput,
+  options: CancelTripPassCheckoutOptions = {},
+): Promise<CancelTripPassCheckoutResult> {
   const db = options.db ?? getDefaultDatabaseQueryClient();
   const checkoutClient = options.checkoutClient ?? createTripPassCheckoutClient();
   const order = await loadLatestEffectivePendingOrder(
@@ -618,9 +626,4 @@ function checkoutExpiryFromReservationTime(reservationTime: Date) {
 
 function dateFromDatabaseValue(value: Date | string) {
   return value instanceof Date ? value : new Date(String(value));
-}
-
-function legacyStripeCompatibilityAllowed(env?: Record<string, string | undefined>) {
-  const runtimeEnvironment = env?.NODE_ENV ?? process.env.NODE_ENV;
-  return runtimeEnvironment !== "production";
 }

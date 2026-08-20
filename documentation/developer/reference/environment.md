@@ -74,7 +74,6 @@ The app reads these environment variables.
 | `LEMON_SQUEEZY_PRODUCT_ID` | Server only | Lemon Squeezy Trip Pass catalogue validation | Exact immutable Product ID for the local Product version. |
 | `LEMON_SQUEEZY_VARIANT_ID` | Server only | Lemon Squeezy Trip Pass checkout | Exact immutable tax-inclusive USD 9.99 Variant ID; quantity one, hidden discounts, no custom pricing, and the returned commercial preview are enforced by the adapter. |
 | `LEMON_SQUEEZY_ALLOW_TEST_MODE` | Server only | Protected test-mode validation only | Must remain `false` in production; allows signed test facts only in an explicitly isolated lane. |
-| `LEGACY_STRIPE_TRIP_PASS_COMPAT` | Server only | Retired Stripe compatibility denial | Historical local/test fixtures may still exercise pre-Lemon Squeezy accounting, but production never permits this variable to reactivate Stripe checkout. The protected Lemon Squeezy lane also rejects an explicit `true` before provider mutation. |
 | `STRIPE_RESTRICTED_KEY` | Server only | Legacy Stripe evidence and retired audit provider | Not a Trip Pass launch dependency. |
 | `STRIPE_SECRET_KEY` | Server only | Legacy Stripe evidence and retired audit provider | Not a Trip Pass launch dependency. |
 | `STRIPE_WEBHOOK_SECRET` | Server only | Legacy Stripe webhook evidence | `/api/payments/lemon-squeezy/webhook` is the active Trip Pass route. |

@@ -51,17 +51,17 @@ export async function runProviderReleaseCandidateLane<
 export const providerReleaseCandidateScenarios = {
   clerk: [
     "email_code_sign_in",
-    "google_sign_in",
     "verified_email",
     "session_persistence_and_policy",
-    "sign_out",
-    "single_session",
     "route_and_api_denial",
-    "ownership_denial",
+    "sign_out",
+    "webhook_convergence",
     "profile_convergence",
     "account_management",
+    "google_sign_in",
+    "single_session",
+    "ownership_denial",
     "step_up_account_closure",
-    "webhook_convergence",
     "provider_user_deletion",
   ],
   "lemon-squeezy": [
@@ -71,14 +71,14 @@ export const providerReleaseCandidateScenarios = {
     "return_before_webhook_convergence",
     "signed_webhook_ingestion",
     "duplicate_payment_fact",
-    "out_of_order_payment_fact",
-    "duplicate_payment_refund_recovery",
     "partial_refund",
     "full_refund",
+    "paid_answer_settlement",
+    "out_of_order_payment_fact",
     "fraudulent_state",
     "account_closure_race",
+    "duplicate_payment_refund_recovery",
     "commerce_reconciliation",
-    "paid_answer_settlement",
   ],
 } as const satisfies Record<ProviderReleaseCandidateLane, readonly string[]>;
 
@@ -95,7 +95,6 @@ export type ProviderReleaseCandidateEnv = Partial<
     | "GITHUB_ENVIRONMENT"
     | "GITHUB_EVENT_NAME"
     | "GITHUB_REPOSITORY"
-    | "LEGACY_STRIPE_TRIP_PASS_COMPAT"
     | "LEMON_SQUEEZY_ALLOW_TEST_MODE"
     | "LEMON_SQUEEZY_API_KEY"
     | "LEMON_SQUEEZY_PRODUCT_ID"
@@ -181,6 +180,8 @@ const fingerprint = /^[0-9a-f]{64}$/;
 const nonProductionDatabaseMarker =
   /(test|testing|staging|stage|qa|sandbox|nonprod|provider[-_]?rc)/i;
 const productionDatabaseMarker = /(prod(uction)?|live|main)/i;
+const nonProductionOriginMarker = /(^|[.-])(test(ing)?|staging|stage|qa|provider[-_]?rc)([.-]|$)/i;
+const productionOriginMarker = /(^|[.-])(prod(uction)?|live|main)([.-]|$)/i;
 const releaseEvidenceDirectory = ".tmp/provider-release-candidate";
 
 export async function createProviderReleaseCandidateLifecycle<
@@ -261,8 +262,19 @@ export async function createProviderReleaseCandidateLifecycle<
           throw new Error(`Unknown protected ${lane} scenario: ${scenario}.`);
         }
       }
-      const executedScenarios = new Set(await readScenarios(identity));
-      const additions = scenarios.filter((scenario) => !executedScenarios.has(scenario));
+      const executedScenarios = await readScenarios(identity);
+      assertScenarioPrefix(lane, executedScenarios);
+      const additions: string[] = [];
+      for (const scenario of scenarios) {
+        if (executedScenarios.includes(scenario)) continue;
+        if (scenario !== providerReleaseCandidateScenarios[lane][executedScenarios.length]) {
+          throw new Error(
+            "Protected evidence scenarios must retain their required semantic order.",
+          );
+        }
+        executedScenarios.push(scenario);
+        additions.push(scenario);
+      }
       if (additions.length > 0) {
         await dependencies.files.append(scenarioReceiptPath(identity), `${additions.join("\n")}\n`);
       }
@@ -398,6 +410,9 @@ export function validateProviderReleaseCandidateContext(input: {
   if (appOrigin && productionOrigin && appOrigin === productionOrigin) {
     errors.push("production_origin_forbidden");
   }
+  if (appOrigin && !isDedicatedProtectedStagingOrigin(appOrigin)) {
+    errors.push("dedicated_protected_staging_origin_required");
+  }
   if (!env.PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET) {
     errors.push("vercel_automation_bypass_required");
   }
@@ -435,9 +450,6 @@ export function validateProviderReleaseCandidateContext(input: {
     const webhookSecret = env.LEMON_SQUEEZY_WEBHOOK_SECRET?.trim() ?? "";
     if (webhookSecret.length < 6 || webhookSecret.length > 40) {
       errors.push("lemon_squeezy_test_webhook_secret_required");
-    }
-    if (env.LEGACY_STRIPE_TRIP_PASS_COMPAT === "true") {
-      errors.push("legacy_stripe_checkout_fallback_forbidden");
     }
     for (const name of [
       "PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER",
@@ -501,16 +513,8 @@ function buildProviderReleaseCandidateEvidence(input: {
   }
   const fingerprint = fingerprintBuilder.digest("hex");
 
-  const expectedScenarios = providerReleaseCandidateScenarios[input.lane];
-  const recordedScenarios = [...new Set(input.scenarios)];
-  const scenarioSet = new Set(recordedScenarios);
-  if (
-    recordedScenarios.length !== expectedScenarios.length ||
-    expectedScenarios.some((scenario) => !scenarioSet.has(scenario))
-  ) {
-    throw new Error("Protected evidence requires every scenario to have an executed receipt.");
-  }
-  const scenarios = [...expectedScenarios];
+  assertCompleteScenarios(input.lane, input.scenarios);
+  const scenarios = [...input.scenarios];
 
   return {
     codeAndMigrationFingerprint: fingerprint,
@@ -629,12 +633,23 @@ async function readRequiredReceipt(
 
 function assertCompleteScenarios(lane: ProviderReleaseCandidateLane, scenarios: readonly string[]) {
   const expectedScenarios = providerReleaseCandidateScenarios[lane];
-  const uniqueScenarios = new Set(scenarios);
   if (
-    uniqueScenarios.size !== expectedScenarios.length ||
-    expectedScenarios.some((scenario) => !uniqueScenarios.has(scenario))
+    scenarios.length !== expectedScenarios.length ||
+    expectedScenarios.some((scenario, index) => scenarios[index] !== scenario)
   ) {
-    throw new Error("Protected evidence requires every scenario to have an executed receipt.");
+    throw new Error(
+      "Protected evidence requires every scenario receipt in its required semantic order.",
+    );
+  }
+}
+
+function assertScenarioPrefix(lane: ProviderReleaseCandidateLane, scenarios: readonly string[]) {
+  const expectedScenarios = providerReleaseCandidateScenarios[lane];
+  if (
+    scenarios.length > expectedScenarios.length ||
+    scenarios.some((scenario, index) => scenario !== expectedScenarios[index])
+  ) {
+    throw new Error("Protected evidence scenarios must retain their required semantic order.");
   }
 }
 
@@ -720,6 +735,11 @@ function readHttpsOrigin(value: string | undefined) {
   } catch {
     return null;
   }
+}
+
+function isDedicatedProtectedStagingOrigin(origin: string) {
+  const hostname = new URL(origin).hostname;
+  return nonProductionOriginMarker.test(hostname) && !productionOriginMarker.test(hostname);
 }
 
 function isPositiveIntegerIdentifier(value: string | undefined) {

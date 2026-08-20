@@ -14,7 +14,11 @@ import {
   beginAccountClosure,
   runClosureCleanupBatch,
 } from "@/server/privacy/account-closure";
-import { cancelTripPassCheckout, startTripPassCheckout } from "@/server/trip-pass/commerce";
+import {
+  cancelHistoricalStripeTripPassCheckout as cancelTripPassCheckout,
+  startTripPassCheckout as startActiveTripPassCheckout,
+  startHistoricalStripeTripPassCheckout as startTripPassCheckout,
+} from "@/server/trip-pass/commerce";
 import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
@@ -41,12 +45,12 @@ const closurePolicy: AccountClosurePolicy = {
   tombstoneHashVersion: 1,
 };
 
-describe("Trip Pass checkout commerce", () => {
-  test("never reactivates legacy Stripe checkout in production", async () => {
+describe("historical Stripe Trip Pass checkout commerce", () => {
+  test("never routes missing Lemon Squeezy configuration to legacy Stripe checkout", async () => {
     const checkoutClient = createFakeCheckoutClient();
 
     await expect(
-      startTripPassCheckout(
+      startActiveTripPassCheckout(
         {
           userId: "user_production_legacy_fallback",
           email: "legacy-fallback@example.com",
@@ -57,7 +61,7 @@ describe("Trip Pass checkout commerce", () => {
           env: {
             ...enabledEnv,
             LEGACY_STRIPE_TRIP_PASS_COMPAT: "true",
-            NODE_ENV: "production",
+            NODE_ENV: "test",
           },
           now,
         },

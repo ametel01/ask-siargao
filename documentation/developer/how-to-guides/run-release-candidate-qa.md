@@ -64,8 +64,8 @@ An eligible human dispatches `.github/workflows/provider-release-candidate.yml` 
 branch and enters the full SHA already contained in `main`. Environment approval supplies only
 dedicated Clerk test-instance, Lemon Squeezy test-mode, protected-test database, and protected-staging
 origin credentials after trust proof. The workflow denies forks, non-manual events, non-`main`
-SHAs, production-looking resources, live or mixed-mode Lemon Squeezy resources, legacy Stripe
-fallback, schema drift, and deployed-SHA drift.
+SHAs, production-looking resources, live or mixed-mode Lemon Squeezy resources, schema drift, and
+deployed-SHA drift. The active Trip Pass checkout path has no legacy Stripe fallback.
 
 Each workflow job selects its lane with `bun run qa:provider-rc -- --lane clerk` or
 `--lane lemon-squeezy` and publishes the resulting exact-SHA artifact. The Release Evidence lane

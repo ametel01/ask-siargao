@@ -26,7 +26,6 @@ test("provider credentials are reachable only from manually approved protected j
   expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_EMAIL/g)).toHaveLength(1);
   expect(workflow).not.toContain("PROVIDER_RC_CLERK_GOOGLE_PASSWORD");
   expect(workflow).not.toContain("STRIPE_");
-  expect(workflow).not.toContain("LEGACY_STRIPE_TRIP_PASS_COMPAT: true");
 });
 
 test("protected provider database probes require verified PostgreSQL TLS", async () => {
