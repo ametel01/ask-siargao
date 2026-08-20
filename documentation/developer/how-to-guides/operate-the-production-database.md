@@ -189,7 +189,17 @@ order by applied_at, name;
 5. If a partial non-transactional migration ran, stop and restore or repair from an operator-reviewed
    plan. Do not manually mutate the ledger to make the app start.
 6. Re-run `bun run db:migrate` with the migration credential after the fix.
-7. Run at least:
+7. If the failure involved a new table, verify the runtime role has its intended DML privileges:
+
+```sql
+select has_table_privilege(
+  'ask_siargao_runtime',
+  'public.trip_pass_payment_event_receipts',
+  'SELECT,INSERT,UPDATE,DELETE'
+);
+```
+
+8. Run at least:
 
 ```sh
 bun run db:migrate:test

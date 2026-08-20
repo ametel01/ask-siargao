@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import {
   applicationTables,
@@ -106,6 +107,35 @@ describe("database authorization boundaries", () => {
 
     const grantedTables: string[] = [...applicationTables];
     expect(grantedTables.sort()).toEqual([...new Set(migratedTables)].sort());
+  });
+
+  test("ships runtime DML grants for tables created after production role provisioning", async () => {
+    const postProvisioningMigrations = (await listMigrationPaths()).filter(
+      (migrationPath) =>
+        path.basename(migrationPath) > "0022_operational_schedule_sentinel_authorization.sql",
+    );
+    const postProvisioningSql = (
+      await Promise.all(
+        postProvisioningMigrations.map((migrationPath) => readFile(migrationPath, "utf8")),
+      )
+    ).join("\n");
+    const createdTables = Array.from(
+      postProvisioningSql.matchAll(
+        /create\s+table(?:\s+if\s+not\s+exists)?\s+([a-z_][a-z0-9_]*)/gi,
+      ),
+      (match) => match[1],
+    );
+    const runtimeGrantedTables = new Set(
+      postProvisioningSql
+        .split(";")
+        .filter((statement) => /\bto\s+ask_siargao_runtime\b/i.test(statement))
+        .flatMap((statement) => {
+          const tableList = statement.match(/\bon\s+table\s+([\s\S]*?)\s+to\b/i)?.[1] ?? "";
+          return Array.from(tableList.matchAll(/\b([a-z_][a-z0-9_]*)\b/gi), (match) => match[1]);
+        }),
+    );
+
+    expect(createdTables.filter((table) => !runtimeGrantedTables.has(table))).toEqual([]);
   });
 
   test("rejects unsafe SQL identifiers instead of interpolating them", () => {

@@ -148,6 +148,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0022_operational_schedule_sentinel_authorization.sql");
     expect(migrationNames).toContain("0023_agent_turn_recovery_status.sql");
     expect(migrationNames).toContain("0024_google_places_source_profile.sql");
+    expect(migrationNames).toContain("0039_runtime_authorization_for_lemon_commerce.sql");
   });
 
   test("repairs the Google Places source profile on an existing unseeded database", async () => {
@@ -398,6 +399,7 @@ describe("Step 3 database migration", () => {
       "0036_checkout_commercial_verification.sql",
       "0037_refund_operation_fencing.sql",
       "0038_durable_checkout_return_worker.sql",
+      "0039_runtime_authorization_for_lemon_commerce.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -499,6 +501,7 @@ describe("Step 3 database migration", () => {
       "0036_checkout_commercial_verification.sql",
       "0037_refund_operation_fencing.sql",
       "0038_durable_checkout_return_worker.sql",
+      "0039_runtime_authorization_for_lemon_commerce.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -587,6 +590,7 @@ describe("Step 3 database migration", () => {
       "0036_checkout_commercial_verification.sql",
       "0037_refund_operation_fencing.sql",
       "0038_durable_checkout_return_worker.sql",
+      "0039_runtime_authorization_for_lemon_commerce.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -725,6 +729,7 @@ describe("Step 3 database migration", () => {
       "0036_checkout_commercial_verification.sql",
       "0037_refund_operation_fencing.sql",
       "0038_durable_checkout_return_worker.sql",
+      "0039_runtime_authorization_for_lemon_commerce.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
