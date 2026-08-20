@@ -48,6 +48,7 @@ import {
   enqueueOperationalTask,
   opaqueTaskKey,
   runOperationalWorker,
+  runOperationalWorkerConcurrently,
 } from "@/server/operations/worker-runner";
 
 describe("Operator authorization", () => {
@@ -1179,6 +1180,71 @@ describe("durable provider-neutral workers", () => {
       );
       expect(closure.rows[0]?.status).toBe("pending");
     });
+  });
+
+  test("aborts slow concurrent handlers and returns before the internal deadline", async () => {
+    await withTestDb(async (db) => {
+      await enqueueOperationalTask(
+        { id: "worker_task_deadline", resourceRef: "slow_provider", taskType: "retention_purge" },
+        db,
+      );
+      let handlerSignal: AbortSignal | undefined;
+      const startedAt = performance.now();
+      const result = await runOperationalWorkerConcurrently(
+        {
+          batchSize: 1,
+          completionAbortReserveMs: 150,
+          deadlineAt: startedAt + 300,
+          leaseSeconds: 60,
+          minimumStartBudgetMs: 0,
+          taskTypes: ["retention_purge"],
+        },
+        {
+          db,
+          handlers: {
+            retention_purge: async ({ signal }) => {
+              handlerSignal = signal;
+              await new Promise<never>(() => undefined);
+            },
+          },
+        },
+      );
+
+      expect(performance.now() - startedAt).toBeLessThan(700);
+      expect(handlerSignal?.aborted).toBe(true);
+      expect(result).toEqual({ claimed: 1, failed: 1, stale: 0, succeeded: 0 });
+      const retry = await db.query<{ last_error_code: string; status: string }>(
+        `select last_error_code, status from operational_worker_tasks
+         where id = 'worker_task_deadline'`,
+      );
+      expect(retry.rows).toEqual([{ last_error_code: "task_failed", status: "pending" }]);
+    });
+  });
+
+  test("returns at the internal deadline when a batch claim does not complete", async () => {
+    const stalledDb: DatabaseQueryClient = {
+      async query<T>() {
+        return new Promise<{ rows: T[] }>(() => undefined);
+      },
+      async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+        return callback(stalledDb);
+      },
+    };
+    const startedAt = performance.now();
+    const result = await runOperationalWorkerConcurrently(
+      {
+        batchSize: 1,
+        completionAbortReserveMs: 25,
+        deadlineAt: startedAt + 75,
+        leaseSeconds: 60,
+        minimumStartBudgetMs: 0,
+        taskTypes: ["retention_purge"],
+      },
+      { db: stalledDb, handlers: { retention_purge: async () => undefined } },
+    );
+
+    expect(performance.now() - startedAt).toBeLessThan(300);
+    expect(result).toEqual({ claimed: 0, failed: 0, stale: 0, succeeded: 0 });
   });
 
   test("retries crashes durably and fences a stale successful worker", async () => {

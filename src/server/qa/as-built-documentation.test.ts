@@ -259,6 +259,9 @@ test("reconciliation docs match the exact finding scope and keep mutation at the
   }
   expect(reference).toContain("read-only `operations:worker -- --task=commerce_reconciliation`");
   expect(reference).toMatch(/concurrently claims at most 50 reconciliation\s+tasks/);
+  expect(reference).toContain("safe launch population of 200 Orders");
+  expect(reference).toContain("leave one full cadence minute");
+  expect(reference).toContain("durably consumes its single exact-Order provider access");
   expect(reference).toContain("less than 46 seconds remain");
   expect(reference).not.toContain("drains that lane");
   expect(reference).toContain("`buildTripPassDiagnostics`");

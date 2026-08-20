@@ -1,5 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
+import { combineAbortSignals } from "@/server/providers/provider-abort";
+
 export const LEMON_SQUEEZY_API_ORIGIN = "https://api.lemonsqueezy.com";
 export const LEMON_SQUEEZY_WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
 
@@ -49,6 +51,7 @@ export type LemonSqueezyRequest = {
   path: string;
   body?: unknown;
   idempotencyKey?: string;
+  signal?: AbortSignal;
 };
 
 export type LemonSqueezyHttpClient = {
@@ -94,7 +97,7 @@ export function createLemonSqueezyHttpClient(
           ...(request.idempotencyKey ? { "Idempotency-Key": request.idempotencyKey } : {}),
         },
         ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: combineAbortSignals([request.signal, AbortSignal.timeout(timeoutMs)]),
       });
       const text = await response.text();
       let body: unknown = null;

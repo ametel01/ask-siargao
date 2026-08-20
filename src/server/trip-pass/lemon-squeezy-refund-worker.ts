@@ -30,6 +30,7 @@ export async function runLemonSqueezyRefundBatch(input: {
   operationId?: string;
   createLeaseToken?: () => string;
   applyFact?: (fact: NormalizedPaymentFact) => Promise<void>;
+  signal?: AbortSignal;
 }): Promise<LemonSqueezyRefundBatchResult> {
   const result: LemonSqueezyRefundBatchResult = {
     claimed: 0,
@@ -54,6 +55,7 @@ export async function runLemonSqueezyRefundBatch(input: {
       const fact = await input.client.refundOrder(claim.provider_order_id, {
         amountMinor: claim.amount_minor ?? undefined,
         idempotencyKey: claim.idempotency_key,
+        signal: input.signal,
       });
       if (!isVerifiedRefund(claim, fact)) {
         if (await markRefundRetryable(input.db, claim, "refund_response_unverified")) {
@@ -73,7 +75,9 @@ export async function runLemonSqueezyRefundBatch(input: {
         const elapsed = performance.now() - startedAt;
         if (leaseMs - elapsed > 46_000) {
           try {
-            const authoritative = await input.client.retrieveOrder(claim.provider_order_id);
+            const authoritative = await input.client.retrieveOrder(claim.provider_order_id, {
+              signal: input.signal,
+            });
             if (isVerifiedRefund(claim, authoritative)) {
               if (input.applyFact) {
                 await input.applyFact({

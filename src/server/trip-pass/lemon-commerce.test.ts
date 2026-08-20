@@ -7,6 +7,7 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
+import { riskReconciliationOrderCapacity } from "@/server/operations/operational-capacity";
 import { executeOperatorRefund, previewOperatorRefund } from "@/server/operations/operator-refunds";
 import {
   receiveLemonSqueezyPaymentEvent,
@@ -28,6 +29,54 @@ const env = {
 } as const;
 
 describe("Lemon Squeezy Trip Pass commerce", () => {
+  test("refuses a new Order when the five-minute risk reconciliation capacity is full", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_capacity_blocked', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+           created_at, updated_at
+         ) select 'capacity_order_' || value, null, 'paid', 'siargao_trip_pass_14d_v2',
+           'siargao_trip_pass', 2, 999, 'usd', 'capacity_checkout_' || value,
+           'lemon_squeezy', $1, $1
+         from generate_series(1, $2::integer) value`,
+        [now, riskReconciliationOrderCapacity],
+      );
+      let providerCalls = 0;
+
+      await expect(
+        startLemonSqueezyTripPassCheckout(
+          {
+            userId: "account_capacity_blocked",
+            email: "capacity@example.com",
+            appUrl: "https://www.asksiargao.com",
+          },
+          {
+            client: fakeClient({
+              createCheckout: async () => {
+                providerCalls += 1;
+                throw new Error("provider_must_not_be_called");
+              },
+            }),
+            createId: () => "capacity_order_new",
+            db,
+            env,
+            now,
+          },
+        ),
+      ).resolves.toEqual({
+        status: "blocked",
+        reason: "trip_pass_reconciliation_capacity_reached",
+      });
+      expect(providerCalls).toBe(0);
+      const inserted = await db.query<{ count: string }>(
+        "select count(*)::text as count from trip_pass_orders where id = 'capacity_order_new'",
+      );
+      expect(inserted.rows[0]?.count).toBe("0");
+    });
+  });
+
   test("persists a pending Order and Checkout Attempt before exposing the URL", async () => {
     const queries: string[] = [];
     await withTestDb(

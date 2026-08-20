@@ -37,7 +37,9 @@ export const operationalTaskTypes = [
 export type OperationalTaskType = (typeof operationalTaskTypes)[number];
 
 export type OperationalTaskHandler = (input: {
+  deadlineAt?: number;
   resourceRef: string;
+  signal?: AbortSignal;
   trace: OperationTrace;
 }) => Promise<void>;
 

@@ -17,6 +17,7 @@ import {
 import type { StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
+import { raceWithAbortSignal } from "@/server/providers/provider-abort";
 import { readLemonSqueezyEnvironment } from "@/server/trip-pass/catalog";
 import { runCheckoutReturnLookup } from "@/server/trip-pass/checkout-return-lookup";
 import {
@@ -33,8 +34,8 @@ import {
 } from "@/server/trip-pass/webhook-application";
 
 type ClosureProviders = {
-  deleteClerkUser(userId: string): Promise<void>;
-  expireCheckoutSession(sessionId: string): Promise<void>;
+  deleteClerkUser(userId: string, signal?: AbortSignal): Promise<void>;
+  expireCheckoutSession(sessionId: string, signal?: AbortSignal): Promise<void>;
 };
 
 export function createProductionOperationalTaskHandlers(dependencies: {
@@ -49,7 +50,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
 }): OperationalTaskHandlers {
   const { db } = dependencies;
   return {
-    account_closure: async ({ resourceRef, trace }) => {
+    account_closure: async ({ resourceRef, signal, trace }) => {
       await trace.record({ index: 0, operation: "account_closure_cleanup", result: "started" });
       const result = await runClosureCleanupBatch({
         db,
@@ -58,6 +59,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
         operationId: resourceRef,
         policy: readAccountClosurePolicy(),
         providers: dependencies.closureProviders ?? createDefaultClosureProviders(),
+        signal,
       });
       const operation = await db.query<{ status: string }>(
         "select status from account_closure_operations where id = $1",
@@ -69,12 +71,13 @@ export function createProductionOperationalTaskHandlers(dependencies: {
       }
       await trace.record({ index: 0, operation: "account_closure_cleanup", result: "succeeded" });
     },
-    checkout_return_lookup: async ({ resourceRef, trace }) => {
+    checkout_return_lookup: async ({ resourceRef, signal, trace }) => {
       await trace.record({ index: 0, operation: "payment_event_application", result: "started" });
       await runCheckoutReturnLookup(resourceRef, {
         client: dependencies.lemonCheckoutClient,
         db,
         env: process.env,
+        signal,
       });
       await trace.record({
         index: 0,
@@ -119,13 +122,14 @@ export function createProductionOperationalTaskHandlers(dependencies: {
       }
       await trace.record({ index: 0, operation: "stripe_inbox_preparation", result: "succeeded" });
     },
-    paid_after_closure_refund: async ({ resourceRef, trace }) => {
+    paid_after_closure_refund: async ({ resourceRef, signal, trace }) => {
       await trace.record({ index: 0, operation: "paid_after_closure_refund", result: "started" });
       const result = await runPaidAfterClosureRefundBatch({
         db,
         limit: 1,
         obligationId: resourceRef,
         stripe: dependencies.refundClient,
+        signal,
       });
       if (result.claimed !== 1 || result.confirmed !== 1) {
         const obligation = await db.query<{ status: string }>(
@@ -138,13 +142,14 @@ export function createProductionOperationalTaskHandlers(dependencies: {
       }
       await trace.record({ index: 0, operation: "paid_after_closure_refund", result: "succeeded" });
     },
-    lemon_squeezy_refund: async ({ resourceRef, trace }) => {
+    lemon_squeezy_refund: async ({ resourceRef, signal, trace }) => {
       await trace.record({ index: 0, operation: "lemon_squeezy_refund", result: "started" });
       const result = await runLemonSqueezyRefundBatch({
         client: dependencies.lemonRefundClient ?? createLemonSqueezyCheckoutClient(),
         db,
         limit: 1,
         operationId: resourceRef,
+        signal,
         applyFact: async (fact) => {
           const applied = await applyLemonSqueezyPaymentFact(fact, { db, env: process.env });
           if (applied.status === "rejected") {
@@ -175,7 +180,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
       }
       await trace.record({ index: 0, operation: "retention_purge", result: "succeeded" });
     },
-    commerce_reconciliation: async ({ resourceRef, trace }) => {
+    commerce_reconciliation: async ({ resourceRef, signal, trace }) => {
       await trace.record({ index: 0, operation: "commerce_reconciliation", result: "started" });
       const target = parseCommerceReconciliationTarget(resourceRef);
       await runTrackedOperationalSchedule(
@@ -211,6 +216,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
               commerceReader: dependencies.commerceReader ?? createDefaultCommerceReader(),
               commerceReaders: dependencies.commerceReaders ?? createDefaultCommerceReaders(),
               db,
+              signal,
               recordEvent: trace.record,
               alertFinding: dependencies.alertFinding,
             },
@@ -248,19 +254,24 @@ function createDefaultCommerceReaders() {
 
 function createDefaultClosureProviders(): ClosureProviders {
   return {
-    async deleteClerkUser(userId) {
+    async deleteClerkUser(userId, signal) {
       const { clerkClient } = await import("@clerk/nextjs/server");
       const clerk = await clerkClient();
       try {
-        await clerk.users.deleteUser(userId);
+        await raceWithAbortSignal(clerk.users.deleteUser(userId), signal);
       } catch (error) {
         if (!isNotFound(error)) throw error;
       }
     },
-    async expireCheckoutSession(sessionId) {
+    async expireCheckoutSession(sessionId, signal) {
       const stripe = createStripeServerClient();
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
-      if (session.status === "open") await stripe.checkout.sessions.expire(sessionId);
+      const session = await raceWithAbortSignal(
+        stripe.checkout.sessions.retrieve(sessionId),
+        signal,
+      );
+      if (session.status === "open") {
+        await raceWithAbortSignal(stripe.checkout.sessions.expire(sessionId), signal);
+      }
     },
   };
 }
@@ -268,7 +279,7 @@ function createDefaultClosureProviders(): ClosureProviders {
 function createStripeServerClient() {
   const apiKey = process.env.STRIPE_RESTRICTED_KEY ?? process.env.STRIPE_SECRET_KEY;
   if (!apiKey) throw new Error("stripe_configuration_unavailable");
-  return new Stripe(apiKey);
+  return new Stripe(apiKey, { maxNetworkRetries: 0, timeout: 45_000 });
 }
 
 function isNotFound(error: unknown) {

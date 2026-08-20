@@ -39,14 +39,26 @@ references, never full Checkout URLs, provider payloads, emails, or provider obj
 
 The producer emits one durable `risk:<cycle>:<order>` task for each due active or nonterminal Order
 and one `daily:<cycle>:<order>` task for each terminal Order, including refunded Orders. Risk
-observations become due after five minutes and terminal observations after 24 hours. Each production
-cron invocation persists every newly due task, then concurrently claims at most 50 reconciliation
-tasks, 25 tasks from each lifecycle-recovery family, and 25 retention tasks. Provider calls in each
-lane run concurrently behind database-time leases, so a 45-second lookup cannot turn a batch into
-an unbounded sequential drain or prevent checkout-return, webhook, refund, or Account Closure work
-from starting. The every-minute schedule gives a 151-Order risk backlog four bounded attempt cycles
-inside the five-minute cadence. Workers stop claiming a lane when less than 46 seconds remain in the
-function budget, and each task lease performs at most one provider lookup.
+observations become due after five minutes and terminal observations after 24 hours. A production
+cron invocation pages newly due reconciliation work only while at least 46 seconds remain for the
+worker; unproduced due Orders remain eligible for the next every-minute invocation. It then
+concurrently claims at most 50 reconciliation tasks, 25 tasks from each lifecycle-recovery family,
+and 25 retention tasks. Workers stop claiming a lane when less than 46 seconds remain. Provider
+clients receive the worker abort signal and have a 45-second network timeout. The worker aborts
+outstanding handlers before its 55-second internal deadline and returns by that deadline, so slow
+provider work cannot turn a batch into an unbounded sequential drain or prevent checkout-return,
+webhook, refund, Account Closure, alert, or schedule work from starting.
+
+Checkout creation enforces a safe launch population of 200 Orders in the risk statuses `pending`,
+`checkout_created`, `paid`, or `disputed`. The count and insert are serialized by a transaction-level
+advisory lock. At 50 reconciliation attempts per every-minute invocation, four full batches cover
+that population and leave one full cadence minute for scheduler jitter and operational work.
+Increasing the 200-Order bound requires production evidence for correspondingly scalable worker
+capacity; it is not a configuration-only change.
+
+The checkout-return worker durably consumes its single exact-Order provider access before making
+the request. An ambiguous or interrupted lookup is never submitted again under that recovery path;
+webhooks and the general reconciliation worker remain the convergence authority.
 
 ## Exact finding scope
 

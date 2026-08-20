@@ -4,6 +4,7 @@ import type {
   AuthoritativeCommerceReader,
   AuthoritativePaymentFact,
 } from "@/server/operations/live-reconciliation";
+import { raceWithAbortSignal } from "@/server/providers/provider-abort";
 
 export function createStripeCommerceReader(
   stripe: Pick<Stripe, "checkout" | "paymentIntents">,
@@ -11,9 +12,12 @@ export function createStripeCommerceReader(
   return {
     async readPaymentFact(input) {
       if (input.paymentIntentId) {
-        const intent = await stripe.paymentIntents.retrieve(input.paymentIntentId, {
-          expand: ["latest_charge"],
-        });
+        const intent = await raceWithAbortSignal(
+          stripe.paymentIntents.retrieve(input.paymentIntentId, {
+            expand: ["latest_charge"],
+          }),
+          input.signal,
+        );
         return {
           amountMinor: intent.amount_received || intent.amount,
           currency: intent.currency,
@@ -21,7 +25,10 @@ export function createStripeCommerceReader(
         };
       }
       if (input.checkoutSessionId) {
-        const session = await stripe.checkout.sessions.retrieve(input.checkoutSessionId);
+        const session = await raceWithAbortSignal(
+          stripe.checkout.sessions.retrieve(input.checkoutSessionId),
+          input.signal,
+        );
         return {
           amountMinor: session.amount_total,
           currency: session.currency,

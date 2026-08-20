@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+import { riskReconciliationOrderCapacity } from "@/server/operations/operational-capacity";
 import {
   readLemonSqueezyEnvironment,
   readTripPassEnvironment,
@@ -173,6 +174,14 @@ async function ensureLemonOrder(input: {
         createdForRequest: false,
       };
     }
+    await acquireRiskReconciliationCapacityLock(db);
+    const riskPopulation = await db.query<{ count: number | string }>(
+      `select count(*)::text as count from trip_pass_orders
+       where status in ('pending', 'checkout_created', 'paid', 'disputed')`,
+    );
+    if (Number(riskPopulation.rows[0]?.count ?? 0) >= riskReconciliationOrderCapacity) {
+      return { reason: "trip_pass_reconciliation_capacity_reached" };
+    }
     const id = input.createId("trip_pass_order");
     const expiresAt = new Date(Math.floor(now.getTime() / 1_000) * 1_000 + 30 * 60_000);
     const idempotencyKey = `trip_pass_checkout:${id}`;
@@ -219,6 +228,23 @@ async function ensureLemonOrder(input: {
       createdForRequest: true,
     };
   });
+}
+
+async function acquireRiskReconciliationCapacityLock(db: DatabaseQueryClient) {
+  try {
+    await db.query(
+      `select pg_advisory_xact_lock(
+         hashtext('ask-siargao-reconciliation-capacity'), hashtext('siargao_trip_pass'))`,
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /pg_advisory|hashtext|function|syntax|unsupported/i.test(error.message)
+    ) {
+      return;
+    }
+    throw error;
+  }
 }
 
 async function markLemonOrderCreated(input: {

@@ -5,6 +5,12 @@ import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { runInitialMigration } from "@/server/db/test-database";
 import { operationalTaskTypes } from "@/server/operations/contracts";
 import {
+  operationalWorkerMinimumStartBudgetMs,
+  riskReconciliationBatchSize,
+  riskReconciliationOrderCapacity,
+} from "@/server/operations/operational-capacity";
+import { enqueueAllDueReconciliationTasks } from "@/server/operations/operational-task-producer";
+import {
   authorizeVercelCron,
   enqueueAndRunOperationalWorker,
   runWeatherCron,
@@ -80,6 +86,49 @@ describe("authenticated Vercel Cron adapters", () => {
         "select status from operational_worker_tasks where id = 'deadline_task'",
       );
       expect(task.rows[0]?.status).toBe("pending");
+    } finally {
+      await db.close();
+    }
+  });
+
+  test("stops reconciliation production before the worker reserve and resumes next cycle", async () => {
+    const db = new PGlite();
+    try {
+      await runInitialMigration(db);
+      await db.query("insert into users (id, email) values ('account_producer_deadline', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, currency, checkout_idempotency_key, created_at, updated_at
+         ) select 'order_producer_deadline_' || value, 'account_producer_deadline', 'pending',
+           'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+           'checkout_producer_deadline_' || value, now() - interval '1 hour',
+           now() - interval '1 minute'
+         from generate_series(1, 151) value`,
+      );
+      let budgetChecks = 0;
+      const first = await enqueueAllDueReconciliationTasks(
+        {
+          deadlineAt: 55_000,
+          minimumRemainingMs: operationalWorkerMinimumStartBudgetMs,
+          now: () => (budgetChecks++ === 0 ? 0 : 10_000),
+          pageSize: 100,
+        },
+        db,
+      );
+      expect(first).toBe(100);
+      const afterFirst = await db.query<{ pending: string }>(
+        `select count(*)::text as pending from operational_worker_tasks
+         where task_type = 'commerce_reconciliation' and status = 'pending'`,
+      );
+      expect(afterFirst.rows[0]?.pending).toBe("100");
+
+      await expect(enqueueAllDueReconciliationTasks({}, db)).resolves.toBe(51);
+      const afterSecond = await db.query<{ pending: string }>(
+        `select count(*)::text as pending from operational_worker_tasks
+         where task_type = 'commerce_reconciliation' and status = 'pending'`,
+      );
+      expect(afterSecond.rows[0]?.pending).toBe("151");
     } finally {
       await db.close();
     }
@@ -180,7 +229,7 @@ describe("authenticated Vercel Cron adapters", () => {
     }
   });
 
-  test("attempts 151 due risk Orders within four one-minute bounded worker cycles", async () => {
+  test("attempts the safe risk Order population within four bounded one-minute cycles", async () => {
     const db = new PGlite();
     try {
       await runInitialMigration(db);
@@ -192,7 +241,8 @@ describe("authenticated Vercel Cron adapters", () => {
          ) select 'order_cadence_' || value, 'account_cron_cadence', 'pending',
            'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
            'checkout_cadence_' || value, now() - interval '1 hour', now() - interval '1 minute'
-         from generate_series(1, 151) value`,
+         from generate_series(1, $1::integer) value`,
+        [riskReconciliationOrderCapacity],
       );
       let attempts = 0;
       const handlers = {
@@ -211,8 +261,10 @@ describe("authenticated Vercel Cron adapters", () => {
         );
       }
 
-      expect(results.map((result) => result.worker.claimed)).toEqual([50, 50, 50, 1]);
-      expect(attempts).toBe(151);
+      expect(results.map((result) => result.worker.claimed)).toEqual(
+        Array.from({ length: 4 }, () => riskReconciliationBatchSize),
+      );
+      expect(attempts).toBe(riskReconciliationOrderCapacity);
       const remaining = await db.query<{ pending: string }>(
         `select count(*)::text as pending from operational_worker_tasks
          where task_type = 'commerce_reconciliation' and status = 'pending'`,

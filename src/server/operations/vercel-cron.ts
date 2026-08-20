@@ -4,6 +4,11 @@ import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/serve
 import { pruneGooglePlacesContent } from "@/server/jobs/prune-google-places";
 import type { OperationalTaskHandlers, operationalTaskTypes } from "@/server/operations/contracts";
 import {
+  operationalCronInternalDeadlineMs,
+  operationalWorkerMinimumStartBudgetMs,
+  riskReconciliationBatchSize,
+} from "@/server/operations/operational-capacity";
+import {
   evaluateOperationalSchedules,
   runTrackedOperationalSchedule,
 } from "@/server/operations/operational-schedule-sentinel";
@@ -52,7 +57,7 @@ export async function runOperationalCron(
   }
   const workerPromise = enqueueAndRunOperationalWorker({
     db,
-    deadlineAt: startedAt + 55_000,
+    deadlineAt: startedAt + operationalCronInternalDeadlineMs,
     sentry,
   });
   const alertsAndSchedules = Promise.all([
@@ -111,7 +116,15 @@ export async function enqueueAndRunOperationalWorker({
     { limitPerType: 25, taskTypes: nonReconciliationTaskTypes },
     db,
   );
-  enqueued.commerce_reconciliation = await enqueueAllDueReconciliationTasks({ pageSize: 100 }, db);
+  enqueued.commerce_reconciliation = await enqueueAllDueReconciliationTasks(
+    {
+      deadlineAt,
+      minimumRemainingMs: operationalWorkerMinimumStartBudgetMs,
+      now,
+      pageSize: 100,
+    },
+    db,
+  );
   const workerDependencies = {
     db,
     handlers,
@@ -138,10 +151,10 @@ export async function enqueueAndRunOperationalWorker({
   const workerResults = await Promise.all([
     runOperationalWorkerConcurrently(
       {
-        batchSize: 50,
+        batchSize: riskReconciliationBatchSize,
         deadlineAt,
         leaseSeconds: 60,
-        minimumStartBudgetMs: 46_000,
+        minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,
         now,
         taskTypes: ["commerce_reconciliation"],
       },
@@ -153,7 +166,7 @@ export async function enqueueAndRunOperationalWorker({
           batchSize: 25,
           deadlineAt,
           leaseSeconds: 60,
-          minimumStartBudgetMs: 46_000,
+          minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,
           now,
           taskTypes: [taskType],
         },
@@ -165,7 +178,7 @@ export async function enqueueAndRunOperationalWorker({
         batchSize: 25,
         deadlineAt,
         leaseSeconds: 60,
-        minimumStartBudgetMs: 46_000,
+        minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,
         now,
         taskTypes: maintenanceTaskTypes,
       },

@@ -38,8 +38,8 @@ export type AccountClosurePolicy = {
 };
 
 export type AccountClosureProviders = {
-  deleteClerkUser(userId: string): Promise<void>;
-  expireCheckoutSession(sessionId: string): Promise<void>;
+  deleteClerkUser(userId: string, signal?: AbortSignal): Promise<void>;
+  expireCheckoutSession(sessionId: string, signal?: AbortSignal): Promise<void>;
 };
 
 type BeginAccountClosureDependencies = {
@@ -510,6 +510,7 @@ export async function runClosureCleanupBatch(input: {
   jitterUnit?: number;
   limit?: number;
   operationId?: string;
+  signal?: AbortSignal;
 }) {
   const limit = input.limit ?? 100;
   let attempted = 0;
@@ -681,11 +682,12 @@ async function executeClosureStep(
     now: Date;
     policy: AccountClosurePolicy;
     providers: AccountClosureProviders;
+    signal?: AbortSignal;
   },
 ) {
   if (step.step_type === "clerk_deletion") {
     const userId = await decryptOperationSubject(step.operation_id, input.db, input.policy);
-    await input.providers.deleteClerkUser(userId);
+    await input.providers.deleteClerkUser(userId, input.signal);
     return;
   }
   if (step.step_type === "checkout_expiry") {
@@ -695,7 +697,7 @@ async function executeClosureStep(
       [step.operation_id],
     );
     for (const session of sessions.rows) {
-      await input.providers.expireCheckoutSession(session.stripe_checkout_session_id);
+      await input.providers.expireCheckoutSession(session.stripe_checkout_session_id, input.signal);
       await input.db.query(
         `update account_closure_checkout_sessions
          set status = 'succeeded', completed_at = $3, updated_at = $3, last_error_category = null

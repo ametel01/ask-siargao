@@ -7,6 +7,7 @@ import {
   type OperationalTaskType,
   type OperationEventRecorder,
 } from "@/server/operations/contracts";
+import { raceWithAbortSignal } from "@/server/providers/provider-abort";
 
 type ClaimedTask = {
   id: string;
@@ -68,6 +69,7 @@ export async function runOperationalWorker(
 export async function runOperationalWorkerConcurrently(
   input: {
     batchSize: number;
+    completionAbortReserveMs?: number;
     deadlineAt?: number;
     leaseSeconds: number;
     minimumStartBudgetMs?: number;
@@ -84,16 +86,68 @@ export async function runOperationalWorkerConcurrently(
   ) {
     return { claimed: 0, failed: 0, stale: 0, succeeded: 0 };
   }
-  const tasks = await claimTaskBatch(
-    dependencies.db,
-    input.leaseSeconds,
-    dependencies.createLeaseToken?.() ?? randomUUID(),
-    input.batchSize,
-    input.taskTypes,
+  const controller = new AbortController();
+  const deadline = createWorkerDeadline(
+    controller,
+    input.deadlineAt,
+    input.completionAbortReserveMs ?? 1_000,
+    now,
   );
-  const results = { claimed: tasks.length, failed: 0, stale: 0, succeeded: 0 };
-  await Promise.all(tasks.map((task) => processClaimedTask(task, results, dependencies)));
-  return results;
+  try {
+    const claim = claimTaskBatch(
+      dependencies.db,
+      input.leaseSeconds,
+      dependencies.createLeaseToken?.() ?? randomUUID(),
+      input.batchSize,
+      input.taskTypes,
+    );
+    const tasks = deadline
+      ? await Promise.race([claim, deadline.reached.then(() => null)])
+      : await claim;
+    if (!tasks) return { claimed: 0, failed: 0, stale: 0, succeeded: 0 };
+
+    const results = { claimed: tasks.length, failed: 0, stale: 0, succeeded: 0 };
+    const processing = Promise.all(
+      tasks.map((task) =>
+        processClaimedTask(task, results, dependencies, {
+          deadlineAt: input.deadlineAt,
+          signal: controller.signal,
+        }),
+      ),
+    );
+    if (deadline) await Promise.race([processing, deadline.reached]);
+    else await processing;
+    return { ...results };
+  } finally {
+    deadline?.clear();
+  }
+}
+
+function createWorkerDeadline(
+  controller: AbortController,
+  deadlineAt: number | undefined,
+  completionAbortReserveMs: number,
+  now: () => number,
+) {
+  if (deadlineAt === undefined) return undefined;
+  const remainingMs = Math.max(0, deadlineAt - now());
+  const abortDelayMs = Math.max(0, remainingMs - completionAbortReserveMs);
+  const abort = () => controller.abort(new Error("operational_worker_deadline_reached"));
+  const abortTimer = setTimeout(abort, abortDelayMs);
+  let hardDeadlineTimer: ReturnType<typeof setTimeout>;
+  const reached = new Promise<void>((resolve) => {
+    hardDeadlineTimer = setTimeout(() => {
+      abort();
+      resolve();
+    }, remainingMs);
+  });
+  return {
+    clear() {
+      clearTimeout(abortTimer);
+      clearTimeout(hardDeadlineTimer);
+    },
+    reached,
+  };
 }
 
 export async function drainOperationalWorker(
@@ -188,6 +242,7 @@ async function processClaimedTask(
   task: ClaimedTask,
   results: { claimed: number; failed: number; stale: number; succeeded: number },
   dependencies: Parameters<typeof runOperationalWorker>[1],
+  execution: { deadlineAt?: number; signal?: AbortSignal } = {},
 ) {
   const trace = createOperationTrace(dependencies.recordEvent);
   const handler = dependencies.handlers[task.task_type];
@@ -199,7 +254,15 @@ async function processClaimedTask(
   }
   try {
     await trace.record({ index: 0, operation: task.task_type, result: "started" });
-    await handler({ resourceRef: task.resource_ref, trace });
+    await raceWithAbortSignal(
+      handler({
+        deadlineAt: execution.deadlineAt,
+        resourceRef: task.resource_ref,
+        signal: execution.signal,
+        trace,
+      }),
+      execution.signal,
+    );
     const fenced = await succeedTask(task, dependencies.db);
     if (fenced) {
       results.succeeded += 1;
@@ -226,12 +289,22 @@ async function processClaimedTask(
   }
 }
 
-function validateWorkerInput(input: { batchSize: number; leaseSeconds: number }) {
+function validateWorkerInput(input: {
+  batchSize: number;
+  completionAbortReserveMs?: number;
+  leaseSeconds: number;
+}) {
   if (!Number.isInteger(input.batchSize) || input.batchSize < 1) {
     throw new Error("invalid_batch_size");
   }
   if (!Number.isInteger(input.leaseSeconds) || input.leaseSeconds < 1) {
     throw new Error("invalid_lease_seconds");
+  }
+  if (
+    input.completionAbortReserveMs !== undefined &&
+    (!Number.isInteger(input.completionAbortReserveMs) || input.completionAbortReserveMs < 0)
+  ) {
+    throw new Error("invalid_completion_abort_reserve");
   }
 }
 

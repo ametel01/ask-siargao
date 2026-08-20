@@ -363,7 +363,7 @@ describe("Trip Pass account API routes", () => {
     });
   });
 
-  test("durably enqueues the exact-Order lookup before a worker calls the provider", async () => {
+  test("durably enqueues and consumes at most one exact-Order provider lookup", async () => {
     await withRouteDb(async (db) => {
       await insertUser(db, "user_return_lookup");
       const createdAt = new Date(now.getTime() - 11_000);
@@ -425,6 +425,11 @@ describe("Trip Pass account API routes", () => {
         db,
         lemonCheckoutClient: {
           retrieveOrder: async (providerOrderId) => {
+            const consumed = await db.query<{ claimed_at: Date | string | null }>(
+              `select checkout_return_lookup_claimed_at as claimed_at
+               from trip_pass_orders where id = 'order_return_lookup'`,
+            );
+            expect(consumed.rows[0]?.claimed_at).not.toBeNull();
             lookupCalls.push(providerOrderId);
             throw new TypeError("ambiguous_lookup_response");
           },
@@ -435,72 +440,42 @@ describe("Trip Pass account API routes", () => {
           { batchSize: 1, leaseSeconds: 60, taskTypes: ["checkout_return_lookup"] },
           { db, handlers: ambiguousHandlers },
         ),
-      ).resolves.toEqual({ claimed: 1, failed: 1, stale: 0, succeeded: 0 });
-      const retryable = await db.query<{
-        provider_order_id: string;
-        provider_order_identifier: string;
-        status: string;
+      ).resolves.toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      const exhausted = await db.query<{
+        lookup_status: string;
+        provider_order_id: string | null;
+        provider_order_identifier: string | null;
+        task_status: string;
       }>(
         `select orders.checkout_return_provider_order_id as provider_order_id,
            orders.checkout_return_provider_order_identifier as provider_order_identifier,
-           task.status
+           orders.checkout_return_lookup_status as lookup_status, task.status as task_status
          from operational_worker_tasks task
          join trip_pass_orders orders on orders.id = task.resource_ref
          where task.task_type = 'checkout_return_lookup' and task.resource_ref = $1`,
         ["order_return_lookup"],
       );
-      expect(retryable.rows[0]).toEqual({
-        provider_order_id: "12345",
-        provider_order_identifier: identifier,
-        status: "pending",
-      });
-      await db.query(
-        `update operational_worker_tasks set next_attempt_at = clock_timestamp()
-         where task_type = 'checkout_return_lookup' and resource_ref = $1`,
-        ["order_return_lookup"],
-      );
-
-      const handlers = createProductionOperationalTaskHandlers({
-        db,
-        lemonCheckoutClient: {
-          retrieveOrder: async (providerOrderId) => {
-            lookupCalls.push(providerOrderId);
-            return {
-              provider: "lemon_squeezy",
-              eventName: "order_lookup",
-              objectId: providerOrderId,
-              providerUpdatedAt: now.toISOString(),
-              orderId: null,
-              providerOrderId,
-              paymentId: identifier,
-              storeId: "7",
-              productId: "product_test",
-              variantId: "variant_test",
-              status: "paid",
-              amountTotalMinor: 999,
-              refundedAmountMinor: 0,
-              currency: "usd",
-              testMode: false,
-              discountTotalMinor: 0,
-            };
-          },
-        },
+      expect(exhausted.rows[0]).toEqual({
+        lookup_status: "exhausted",
+        provider_order_id: null,
+        provider_order_identifier: null,
+        task_status: "succeeded",
       });
       await expect(
         runOperationalWorker(
           { batchSize: 1, leaseSeconds: 60, taskTypes: ["checkout_return_lookup"] },
-          { db, handlers },
+          { db, handlers: ambiguousHandlers },
         ),
-      ).resolves.toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      ).resolves.toEqual({ claimed: 0, failed: 0, stale: 0, succeeded: 0 });
       const second = await postTripPassCheckoutReturnResponse(request(), dependencies);
-      expect(second.status).toBe(200);
-      expect(await second.json()).toEqual({ status: "applied" });
-      expect(lookupCalls).toEqual(["12345", "12345"]);
+      expect(second.status).toBe(202);
+      expect(await second.json()).toEqual({ status: "pending" });
+      expect(lookupCalls).toEqual(["12345"]);
       const receipts = await db.query<{ event_name: string; status: string }>(
         "select event_name, status from trip_pass_payment_event_receipts where order_id = $1",
         ["order_return_lookup"],
       );
-      expect(receipts.rows).toEqual([{ event_name: "order_lookup", status: "applied" }]);
+      expect(receipts.rows).toEqual([]);
     });
   });
 

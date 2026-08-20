@@ -58,12 +58,25 @@ export async function enqueueDueOperationalTasks(
 }
 
 export async function enqueueAllDueReconciliationTasks(
-  input: { cycleKey?: string; pageSize?: number },
+  input: {
+    cycleKey?: string;
+    deadlineAt?: number;
+    minimumRemainingMs?: number;
+    now?: () => number;
+    pageSize?: number;
+  },
   db: DatabaseQueryClient,
 ) {
   const pageSize = input.pageSize ?? 100;
+  const now = input.now ?? (() => performance.now());
   let enqueued = 0;
   while (true) {
+    if (
+      input.deadlineAt !== undefined &&
+      now() + (input.minimumRemainingMs ?? 0) >= input.deadlineAt
+    ) {
+      return enqueued;
+    }
     const page = await enqueueDueOperationalTasks(
       {
         cycleKey: input.cycleKey,

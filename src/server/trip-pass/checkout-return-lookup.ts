@@ -16,6 +16,7 @@ type CheckoutReturnState = "applied" | "before_grace" | "eligible" | "missing" |
 type CheckoutReturnLookupRow = {
   accepted_payment_fact_id: string | null;
   checkout_return_lookup_attempts: number | string;
+  checkout_return_lookup_claimed_at: Date | string | null;
   checkout_return_lookup_status: string;
   checkout_return_provider_order_id: string | null;
   checkout_return_provider_order_identifier: string | null;
@@ -30,6 +31,7 @@ export async function readCheckoutReturnState(
   const row = (
     await db.query<CheckoutReturnLookupRow>(
       `select accepted_payment_fact_id, checkout_return_lookup_attempts,
+         checkout_return_lookup_claimed_at,
          checkout_return_lookup_status, checkout_return_provider_order_id,
          checkout_return_provider_order_identifier, created_at, user_id
        from trip_pass_orders
@@ -89,6 +91,7 @@ export async function enqueueCheckoutReturnLookup(
     const row = (
       await transaction.query<CheckoutReturnLookupRow>(
         `select accepted_payment_fact_id, checkout_return_lookup_attempts,
+           checkout_return_lookup_claimed_at,
            checkout_return_lookup_status, checkout_return_provider_order_id,
            checkout_return_provider_order_identifier, created_at, user_id
          from trip_pass_orders
@@ -140,12 +143,14 @@ export async function runCheckoutReturnLookup(
     db: DatabaseQueryClient;
     env?: Record<string, string | undefined>;
     now?: () => Date;
+    signal?: AbortSignal;
   },
 ) {
   const now = dependencies.now?.() ?? new Date();
   const row = (
     await dependencies.db.query<CheckoutReturnLookupRow>(
       `select accepted_payment_fact_id, checkout_return_lookup_attempts,
+         checkout_return_lookup_claimed_at,
          checkout_return_lookup_status, checkout_return_provider_order_id,
          checkout_return_provider_order_identifier, created_at, user_id
        from trip_pass_orders
@@ -178,14 +183,25 @@ export async function runCheckoutReturnLookup(
     throw new Error("checkout_return_receipt_retryable");
   }
 
-  const providerOrderId = row.checkout_return_provider_order_id;
-  const providerOrderIdentifier = row.checkout_return_provider_order_identifier;
-  if (!providerOrderId || !providerOrderIdentifier) {
-    throw new Error("checkout_return_provider_reference_unavailable");
+  const providerAccess = await claimCheckoutReturnProviderAccess(dependencies.db, orderId, now);
+  if (!providerAccess) {
+    await completeCheckoutReturnLookup(dependencies.db, orderId, "exhausted", now);
+    return { status: "exhausted" as const };
   }
   const client = dependencies.client ?? createLemonSqueezyCheckoutClient();
-  const fact = await client.retrieveOrder(providerOrderId);
-  if (fact.providerOrderId !== providerOrderId || fact.paymentId !== providerOrderIdentifier) {
+  let fact: Awaited<ReturnType<LemonSqueezyCheckoutClient["retrieveOrder"]>>;
+  try {
+    fact = await client.retrieveOrder(providerAccess.provider_order_id, {
+      signal: dependencies.signal,
+    });
+  } catch {
+    await completeCheckoutReturnLookup(dependencies.db, orderId, "exhausted", now);
+    return { status: "exhausted" as const };
+  }
+  if (
+    fact.providerOrderId !== providerAccess.provider_order_id ||
+    fact.paymentId !== providerAccess.provider_order_identifier
+  ) {
     await completeCheckoutReturnLookup(dependencies.db, orderId, "not_found", now);
     return { status: "not_found" as const };
   }
@@ -210,7 +226,30 @@ export async function runCheckoutReturnLookup(
     await completeCheckoutReturnLookup(dependencies.db, orderId, "exhausted", now);
     return { status: "blocked" as const };
   }
-  throw new Error("checkout_return_lookup_retryable");
+  await completeCheckoutReturnLookup(dependencies.db, orderId, "exhausted", now);
+  return { status: "exhausted" as const };
+}
+
+async function claimCheckoutReturnProviderAccess(
+  db: DatabaseQueryClient,
+  orderId: string,
+  now: Date,
+) {
+  const result = await db.query<{
+    provider_order_id: string;
+    provider_order_identifier: string;
+  }>(
+    `update trip_pass_orders set checkout_return_lookup_claimed_at = $2, updated_at = $2
+     where id = $1 and checkout_return_lookup_status = 'pending'
+       and checkout_return_lookup_attempts = 1
+       and checkout_return_lookup_claimed_at is null
+       and checkout_return_provider_order_id is not null
+       and checkout_return_provider_order_identifier is not null
+     returning checkout_return_provider_order_id as provider_order_id,
+       checkout_return_provider_order_identifier as provider_order_identifier`,
+    [orderId, now],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function checkoutReturnPaymentApplied(db: DatabaseQueryClient, orderId: string) {

@@ -22,6 +22,7 @@ export type AuthoritativeCommerceReader = {
     checkoutSessionId: string | null;
     paymentIntentId: string | null;
     providerOrderId?: string | null;
+    signal?: AbortSignal;
   }): Promise<AuthoritativePaymentFact>;
 };
 
@@ -94,6 +95,7 @@ export async function reconcileLiveCommerce(
     db?: DatabaseQueryClient;
     now?: () => Date;
     recordEvent?: OperationEventRecorder;
+    signal?: AbortSignal;
     alertFinding?: (finding: OperationalFindingView) => Promise<void>;
     applyVerifiedPaymentFact?: (input: {
       local: { id: string; paymentProvider: string };
@@ -121,6 +123,7 @@ export async function reconcileLiveCommerce(
       checkoutSessionId: local.stripe_checkout_session_id,
       paymentIntentId: local.stripe_payment_intent_id,
       providerOrderId: local.provider_order_id,
+      signal: dependencies.signal,
     });
     await trace.record({
       index: 0,

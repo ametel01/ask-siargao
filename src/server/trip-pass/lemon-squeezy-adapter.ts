@@ -59,12 +59,15 @@ export class LemonSqueezyCheckoutCreationError extends Error {
 export type LemonSqueezyCheckoutClient = {
   createCheckout: (
     input: LemonSqueezyCheckoutRequest,
-    options: { idempotencyKey: string },
+    options: { idempotencyKey: string; signal?: AbortSignal },
   ) => Promise<LemonSqueezyCheckoutSummary>;
-  retrieveOrder: (providerOrderId: string) => Promise<LemonSqueezyOrder>;
+  retrieveOrder: (
+    providerOrderId: string,
+    options?: { signal?: AbortSignal },
+  ) => Promise<LemonSqueezyOrder>;
   refundOrder: (
     providerOrderId: string,
-    input: { amountMinor?: number; idempotencyKey: string },
+    input: { amountMinor?: number; idempotencyKey: string; signal?: AbortSignal },
   ) => Promise<NormalizedPaymentFact>;
 };
 
@@ -82,6 +85,7 @@ export function createLemonSqueezyCheckoutClient(
         const variant = await http.request({
           method: "GET",
           path: `/v1/variants/${encodeURIComponent(input.order.variantId)}`,
+          signal: options.signal,
         });
         validateLemonSqueezyVariantConfiguration({ variant, order: input.order });
         const response = await http.request({
@@ -89,6 +93,7 @@ export function createLemonSqueezyCheckoutClient(
           path: "/v1/checkouts",
           idempotencyKey: options.idempotencyKey,
           body: buildLemonSqueezyCheckoutRequest(input),
+          signal: options.signal,
         });
         return summarizeCheckout(response);
       } catch (error) {
@@ -99,10 +104,11 @@ export function createLemonSqueezyCheckoutClient(
         });
       }
     },
-    async retrieveOrder(providerOrderId) {
+    async retrieveOrder(providerOrderId, options) {
       const response = await http.request({
         method: "GET",
         path: `/v1/orders/${encodeURIComponent(providerOrderId)}`,
+        signal: options?.signal,
       });
       return parseOrder(response);
     },
@@ -111,6 +117,7 @@ export function createLemonSqueezyCheckoutClient(
         method: "POST",
         path: `/v1/orders/${encodeURIComponent(providerOrderId)}/refund`,
         idempotencyKey: input.idempotencyKey,
+        signal: input.signal,
         body: {
           data: {
             type: "orders",
