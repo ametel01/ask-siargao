@@ -13,7 +13,10 @@ import {
   STRIPE_API_VERSION,
 } from "@/server/payments/stripe-event-inbox";
 import { runAccountClosurePostgresIntegration } from "@/server/privacy/account-closure.postgres-integration";
-import { startTripPassCheckout, type TripPassCheckoutResult } from "@/server/trip-pass/commerce";
+import {
+  startHistoricalStripeTripPassCheckout as startTripPassCheckout,
+  type TripPassCheckoutResult,
+} from "@/server/trip-pass/commerce";
 import {
   PaidAnswerPurgeBatchError,
   purgeExpiredPaidAnswerDetails,
