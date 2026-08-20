@@ -264,15 +264,17 @@ export async function createProviderReleaseCandidateLifecycle<
       }
       const executedScenarios = await readScenarios(identity);
       assertScenarioPrefix(lane, executedScenarios);
+      const executedScenarioSet = new Set(executedScenarios);
       const additions: string[] = [];
       for (const scenario of scenarios) {
-        if (executedScenarios.includes(scenario)) continue;
+        if (executedScenarioSet.has(scenario)) continue;
         if (scenario !== providerReleaseCandidateScenarios[lane][executedScenarios.length]) {
           throw new Error(
             "Protected evidence scenarios must retain their required semantic order.",
           );
         }
         executedScenarios.push(scenario);
+        executedScenarioSet.add(scenario);
         additions.push(scenario);
       }
       if (additions.length > 0) {
