@@ -42,6 +42,33 @@ const closurePolicy: AccountClosurePolicy = {
 };
 
 describe("Trip Pass checkout commerce", () => {
+  test("never reactivates legacy Stripe checkout in production", async () => {
+    const checkoutClient = createFakeCheckoutClient();
+
+    await expect(
+      startTripPassCheckout(
+        {
+          userId: "user_production_legacy_fallback",
+          email: "legacy-fallback@example.com",
+          appUrl: "https://asksiargao.com",
+        },
+        {
+          checkoutClient,
+          env: {
+            ...enabledEnv,
+            LEGACY_STRIPE_TRIP_PASS_COMPAT: "true",
+            NODE_ENV: "production",
+          },
+          now,
+        },
+      ),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "lemon_squeezy_configuration_unavailable",
+    });
+    expect(checkoutClient.calls).toHaveLength(0);
+  });
+
   test("does not create orders or call Stripe when checkout is disabled or unavailable", async () => {
     await withTestDb(async (db) => {
       await insertUser(db, "user_disabled");

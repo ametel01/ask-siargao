@@ -621,7 +621,6 @@ function dateFromDatabaseValue(value: Date | string) {
 }
 
 function legacyStripeCompatibilityAllowed(env?: Record<string, string | undefined>) {
-  if (env?.LEGACY_STRIPE_TRIP_PASS_COMPAT === "true") return true;
   const runtimeEnvironment = env?.NODE_ENV ?? process.env.NODE_ENV;
   return runtimeEnvironment !== "production";
 }

@@ -60,7 +60,7 @@ describe("provider Release Evidence lifecycle", () => {
     const acceptanceStarted = Promise.withResolvers<void>();
     const events: string[] = [];
 
-    const execution = runProviderReleaseCandidateLane("stripe", {
+    const execution = runProviderReleaseCandidateLane("lemon-squeezy", {
       lifecycle: {
         async begin() {
           events.push("preflight");
@@ -88,7 +88,8 @@ describe("provider Release Evidence lifecycle", () => {
       "preflight",
       "acceptance",
       "account_closure_worker",
-      "paid_after_closure_refund_worker",
+      "lemon_squeezy_refund_worker",
+      "commerce_reconciliation",
       "final_boundary",
       "evidence",
     ]);
@@ -114,7 +115,7 @@ describe("provider Release Evidence lifecycle", () => {
       migrationCount: 2,
       protectedDatabaseEnvironment: "protected-test",
     });
-    await lifecycle.recordScenarios(providerReleaseCandidateScenarios.clerk);
+    await lifecycle.recordScenarios([...providerReleaseCandidateScenarios.clerk].reverse());
     await expect(lifecycle.revalidate(sha)).resolves.toMatch(/^[0-9a-f]{64}$/);
     await lifecycle.seal(sha);
 
@@ -122,6 +123,7 @@ describe("provider Release Evidence lifecycle", () => {
     expect(completed.evidencePath).toBe(`.tmp/provider-release-candidate/clerk-${sha}.json`);
     expect(completed.evidence).toMatchObject({
       lane: "clerk",
+      providerConfigurationFingerprint: null,
       migrations: [
         { checksum: "checksum-one", filename: "0001_one.sql" },
         { checksum: "checksum-two", filename: "0002_two.sql" },
@@ -339,6 +341,5 @@ function clerkEnvironment(): ProviderReleaseCandidateEnv {
     PROVIDER_RC_EXPECTED_SHA: sha,
     PROVIDER_RC_PRODUCTION_ORIGIN: "https://asksiargao.com",
     PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET: "vercel-bypass-redacted",
-    STRIPE_RESTRICTED_KEY: "rk_test_redacted",
   };
 }

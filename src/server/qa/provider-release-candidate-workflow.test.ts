@@ -25,14 +25,16 @@ test("provider credentials are reachable only from manually approved protected j
   expect(workflow).not.toContain("PROVIDER_RC_CLERK_GOOGLE_USER");
   expect(workflow.match(/secrets\.PROVIDER_RC_CLERK_GOOGLE_EMAIL/g)).toHaveLength(1);
   expect(workflow).not.toContain("PROVIDER_RC_CLERK_GOOGLE_PASSWORD");
+  expect(workflow).not.toContain("STRIPE_");
+  expect(workflow).not.toContain("LEGACY_STRIPE_TRIP_PASS_COMPAT: true");
 });
 
 test("protected provider database probes require verified PostgreSQL TLS", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const databaseUrlSecret = "DATABASE_URL: $" + "{{ secrets.PROVIDER_RC_DATABASE_URL }}";
   const blocks = [
-    jobBlock(workflow, "clerk-test-instance", "stripe-test-mode"),
-    jobBlock(workflow, "stripe-test-mode"),
+    jobBlock(workflow, "clerk-test-instance", "lemon-squeezy-test-mode"),
+    jobBlock(workflow, "lemon-squeezy-test-mode"),
   ];
 
   expect(workflow.match(/DATABASE_SSL_MODE: verify-full/g)).toHaveLength(2);
@@ -48,7 +50,7 @@ test("protected dispatches and lanes cannot overlap or cancel mid-mutation", asy
     "concurrency:\n  group: provider-release-candidate\n  cancel-in-progress: false",
   );
   expect(workflow).not.toContain("group: provider-release-candidate-${{");
-  expect(jobBlock(workflow, "stripe-test-mode")).toContain("needs: clerk-test-instance");
+  expect(jobBlock(workflow, "lemon-squeezy-test-mode")).toContain("needs: clerk-test-instance");
 });
 
 test("every third-party action is pinned to an immutable reviewed commit", async () => {
@@ -67,8 +69,8 @@ test("secrets are step-scoped and unreachable until repository trust is proved",
   expect(workflowPreamble).not.toContain("secrets.");
 
   for (const block of [
-    jobBlock(workflow, "clerk-test-instance", "stripe-test-mode"),
-    jobBlock(workflow, "stripe-test-mode"),
+    jobBlock(workflow, "clerk-test-instance", "lemon-squeezy-test-mode"),
+    jobBlock(workflow, "lemon-squeezy-test-mode"),
   ]) {
     const steps = block.indexOf("    steps:");
     expect(block.slice(0, steps)).not.toContain("secrets.");
@@ -101,18 +103,18 @@ test("both lanes prove the checked-out SHA is exact and already trusted by main"
   expect(workflow.match(/\^\[0-9a-f\]\{40\}\$/g)).toHaveLength(2);
   const shaExpression = "${" + "{ inputs.release_candidate_sha }}";
   expect(workflow).toContain(`provider-rc-clerk-${shaExpression}`);
-  expect(workflow).toContain(`provider-rc-stripe-${shaExpression}`);
+  expect(workflow).toContain(`provider-rc-lemon-squeezy-${shaExpression}`);
 });
 
 test("workflow selects one lifecycle-owned execution per provider lane", async () => {
   const workflow = await readFile(workflowPath, "utf8");
-  const clerk = jobBlock(workflow, "clerk-test-instance", "stripe-test-mode");
-  const stripe = jobBlock(workflow, "stripe-test-mode");
+  const clerk = jobBlock(workflow, "clerk-test-instance", "lemon-squeezy-test-mode");
+  const lemonSqueezy = jobBlock(workflow, "lemon-squeezy-test-mode");
 
   expect(clerk).toContain("run: bun run qa:provider-rc -- --lane clerk");
-  expect(stripe).toContain("run: bun run qa:provider-rc -- --lane stripe");
+  expect(lemonSqueezy).toContain("run: bun run qa:provider-rc -- --lane lemon-squeezy");
   expect(workflow.match(/bun run qa:provider-rc -- --lane/g)).toHaveLength(2);
-  for (const block of [clerk, stripe]) {
+  for (const block of [clerk, lemonSqueezy]) {
     expect(block).not.toContain("qa:provider-rc-preflight");
     expect(block).not.toContain("qa:provider-rc-evidence");
     expect(block).not.toContain("privacy:closure-worker");
@@ -126,21 +128,30 @@ test("workflow names the lifecycle that owns both protected lanes", async () => 
     "Run protected Clerk acceptance through the Release Evidence lifecycle",
   );
   expect(workflow).toContain(
-    "Run protected Stripe acceptance through the Release Evidence lifecycle",
+    "Run protected Lemon Squeezy acceptance through the Release Evidence lifecycle",
   );
 });
 
-test("Stripe lane publishes evidence without hosted-browser artifacts", async () => {
+test("Lemon Squeezy lane is mode-isolated and publishes privacy-safe evidence", async () => {
   const workflow = await readFile(workflowPath, "utf8");
-  const stripe = jobBlock(workflow, "stripe-test-mode");
-  const acceptance = stripe.indexOf(
-    "Run protected Stripe acceptance through the Release Evidence lifecycle",
+  const lemonSqueezy = jobBlock(workflow, "lemon-squeezy-test-mode");
+  const acceptance = lemonSqueezy.indexOf(
+    "Run protected Lemon Squeezy acceptance through the Release Evidence lifecycle",
   );
-  const evidence = stripe.indexOf("Upload exact Stripe evidence");
+  const evidence = lemonSqueezy.indexOf("Upload exact Lemon Squeezy evidence");
 
   expect(evidence).toBeGreaterThan(acceptance);
-  expect(stripe).not.toContain("Stripe failure diagnostics");
-  expect(stripe).not.toContain("stripe-diagnostics");
-  expect(stripe).not.toContain("test-results/provider-stripe");
-  expect(stripe).not.toContain("trace.zip");
+  expect(lemonSqueezy).toContain("LEMON_SQUEEZY_ALLOW_TEST_MODE: true");
+  for (const name of [
+    "LEMON_SQUEEZY_API_KEY",
+    "LEMON_SQUEEZY_STORE_ID",
+    "LEMON_SQUEEZY_PRODUCT_ID",
+    "LEMON_SQUEEZY_VARIANT_ID",
+    "LEMON_SQUEEZY_WEBHOOK_SECRET",
+  ]) {
+    expect(lemonSqueezy).toContain(name);
+  }
+  expect(lemonSqueezy).not.toContain("failure diagnostics");
+  expect(lemonSqueezy).not.toContain("test-results/provider-lemon-squeezy");
+  expect(lemonSqueezy).not.toContain("trace.zip");
 });

@@ -23,10 +23,37 @@ import {
   receiveStripeWebhookEvent,
   STRIPE_API_VERSION,
 } from "@/server/payments/stripe-event-inbox";
-import {
-  buildProviderReleaseCandidateStripeEvent,
-  providerReleaseCandidateStripeEventTypes,
-} from "@/server/qa/provider-release-candidate";
+
+const providerReleaseCandidateStripeEventTypes = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+  "charge.refunded",
+  "refund.created",
+  "refund.updated",
+  "refund.failed",
+  "charge.dispute.created",
+  "charge.dispute.closed",
+] as const satisfies readonly Stripe.Event.Type[];
+
+function buildHistoricalStripeTestEvent(input: {
+  eventId: string;
+  object: object;
+  type: (typeof providerReleaseCandidateStripeEventTypes)[number];
+}): Stripe.Event {
+  return {
+    api_version: STRIPE_API_VERSION,
+    created: Math.floor(Date.now() / 1_000),
+    data: { object: input.object } as Stripe.Event.Data,
+    id: input.eventId,
+    livemode: false,
+    object: "event",
+    pending_webhooks: 1,
+    request: null,
+    type: input.type,
+  } as Stripe.Event;
+}
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
@@ -86,7 +113,7 @@ describe("Stripe webhook route", () => {
   test("accepts and applies every protected release-candidate event envelope", async () => {
     await withRouteTestDb(async (db) => {
       for (const [index, type] of providerReleaseCandidateStripeEventTypes.entries()) {
-        const event = buildProviderReleaseCandidateStripeEvent({
+        const event = buildHistoricalStripeTestEvent({
           eventId: `evt_provider_rc_route_${index}`,
           object: protectedEventObject(type, index),
           type,

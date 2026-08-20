@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import {
   assertProviderBeforeApplication,
-  buildProviderReleaseCandidateStripeEvent,
   providerReleaseCandidateCheckoutExpiryMatches,
+  providerReleaseCandidateConfigurationFingerprint,
   providerReleaseCandidateScenarios,
   validateProviderReleaseCandidateContext,
 } from "@/server/qa/provider-release-candidate";
@@ -24,7 +23,6 @@ const baseEnv = {
   PROVIDER_RC_EXPECTED_SHA: sha,
   PROVIDER_RC_PRODUCTION_ORIGIN: "https://asksiargao.com",
   PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET: "vercel-bypass-redacted",
-  STRIPE_RESTRICTED_KEY: "rk_test_redacted",
 };
 
 describe("protected provider release-candidate policy", () => {
@@ -66,7 +64,32 @@ describe("protected provider release-candidate policy", () => {
     ).toEqual({ errors: [], valid: true });
   });
 
-  test("denies forks, automatic events, SHA drift, production origins, and live credentials", () => {
+  test("accepts only an isolated Lemon Squeezy test-mode commerce context", () => {
+    expect(
+      validateProviderReleaseCandidateContext({
+        checkedOutCommitSha: sha,
+        env: {
+          ...baseEnv,
+          CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
+          CLERK_SECRET_KEY: "sk_test_redacted",
+          DATABASE_URL: "postgres://provider-rc-db.test/ask_siargao_provider_rc_test",
+          LEMON_SQUEEZY_ALLOW_TEST_MODE: "true",
+          LEMON_SQUEEZY_API_KEY: "lemon_test_key_redacted",
+          LEMON_SQUEEZY_PRODUCT_ID: "202",
+          LEMON_SQUEEZY_STORE_ID: "101",
+          LEMON_SQUEEZY_VARIANT_ID: "303",
+          LEMON_SQUEEZY_WEBHOOK_SECRET: "lemon_test_webhook_secret",
+          PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER: "active+clerk_test@example.test",
+          PROVIDER_RC_LEMON_SQUEEZY_CLOSURE_USER: "closure+clerk_test@example.test",
+          PROVIDER_RC_LEMON_SQUEEZY_DUPLICATE_USER: "duplicate+clerk_test@example.test",
+          PROVIDER_RC_LEMON_SQUEEZY_FRAUD_USER: "fraud+clerk_test@example.test",
+        },
+        lane: "lemon-squeezy",
+      }),
+    ).toEqual({ errors: [], valid: true });
+  });
+
+  test("denies forks, automatic events, SHA drift, production origins, and mixed commerce modes", () => {
     const result = validateProviderReleaseCandidateContext({
       checkedOutCommitSha: "b".repeat(40),
       env: {
@@ -79,15 +102,19 @@ describe("protected provider release-candidate policy", () => {
         CLERK_SECRET_KEY: "sk_test_redacted",
         PROVIDER_RC_CLERK_GOOGLE_EMAIL: "oauth@example.test",
         DATABASE_URL: "postgres://production-db.test/production",
-        PROVIDER_RC_STRIPE_ACTIVE_USER: "active+clerk_test@example.test",
-        PROVIDER_RC_STRIPE_CLOSURE_USER: "closure+clerk_test@example.test",
-        PROVIDER_RC_STRIPE_REVERSED_USER: "reversed+clerk_test@example.test",
-        STRIPE_RESTRICTED_KEY: undefined,
-        STRIPE_SECRET_KEY: "sk_live_redacted",
-        STRIPE_TRIP_PASS_PRICE_ID: "price_test",
-        STRIPE_WEBHOOK_SECRET: "whsec_redacted",
+        LEGACY_STRIPE_TRIP_PASS_COMPAT: "true",
+        LEMON_SQUEEZY_ALLOW_TEST_MODE: "false",
+        LEMON_SQUEEZY_API_KEY: "lemon_live_key_redacted",
+        LEMON_SQUEEZY_PRODUCT_ID: "202",
+        LEMON_SQUEEZY_STORE_ID: "101",
+        LEMON_SQUEEZY_VARIANT_ID: "303",
+        LEMON_SQUEEZY_WEBHOOK_SECRET: "lemon_live_webhook_secret",
+        PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER: "active+clerk_test@example.test",
+        PROVIDER_RC_LEMON_SQUEEZY_CLOSURE_USER: "closure+clerk_test@example.test",
+        PROVIDER_RC_LEMON_SQUEEZY_DUPLICATE_USER: "duplicate+clerk_test@example.test",
+        PROVIDER_RC_LEMON_SQUEEZY_FRAUD_USER: "fraud+clerk_test@example.test",
       },
-      lane: "stripe",
+      lane: "lemon-squeezy",
     });
     expect(result.valid).toBe(false);
     expect(result.errors).toEqual([
@@ -99,7 +126,8 @@ describe("protected provider release-candidate policy", () => {
       "protected_database_host_mismatch",
       "protected_database_name_mismatch",
       "production_database_forbidden",
-      "stripe_test_mode_key_required",
+      "lemon_squeezy_test_mode_required",
+      "legacy_stripe_checkout_fallback_forbidden",
     ]);
   });
 
@@ -117,22 +145,27 @@ describe("protected provider release-candidate policy", () => {
     expect(clerk.errors).toContain("clerk_test_webhook_secret_required");
     expect(clerk.errors).toContain("clerk_google_oauth_identity_required");
 
-    const stripe = validateProviderReleaseCandidateContext({
+    const lemonSqueezy = validateProviderReleaseCandidateContext({
       checkedOutCommitSha: sha,
       env: {
         ...baseEnv,
         CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
         CLERK_SECRET_KEY: "sk_test_redacted",
-        STRIPE_RESTRICTED_KEY: "rk_test_redacted",
-        STRIPE_TRIP_PASS_PRICE_ID: "price_test",
+        LEMON_SQUEEZY_ALLOW_TEST_MODE: "true",
+        LEMON_SQUEEZY_API_KEY: "lemon_test_key_redacted",
+        LEMON_SQUEEZY_PRODUCT_ID: "202",
+        LEMON_SQUEEZY_STORE_ID: "101",
+        LEMON_SQUEEZY_VARIANT_ID: "303",
       },
-      lane: "stripe",
+      lane: "lemon-squeezy",
     });
-    expect(stripe.errors).toContain("dedicated_database_required");
-    expect(stripe.errors).toContain("stripe_test_webhook_secret_required");
+    expect(lemonSqueezy.errors).toContain("dedicated_database_required");
+    expect(lemonSqueezy.errors).toContain("lemon_squeezy_test_webhook_secret_required");
     expect(
-      stripe.errors.filter((error) => error === "dedicated_stripe_test_users_required"),
-    ).toHaveLength(3);
+      lemonSqueezy.errors.filter(
+        (error) => error === "dedicated_lemon_squeezy_test_users_required",
+      ),
+    ).toHaveLength(4);
   });
 
   test("requires lookup completion before application rather than a broad green result", () => {
@@ -152,14 +185,23 @@ describe("protected provider release-candidate policy", () => {
     ).toThrow("Provider lookup must complete");
   });
 
-  test("builds protected Stripe envelopes from the production inbox API version", () => {
-    const event = buildProviderReleaseCandidateStripeEvent({
-      eventId: "evt_provider_rc_version",
-      object: { id: "cs_provider_rc_version", object: "checkout.session" },
-      type: "checkout.session.completed",
+  test("fingerprints exact Lemon Squeezy resources without exposing their identifiers", () => {
+    const fingerprint = providerReleaseCandidateConfigurationFingerprint("lemon-squeezy", {
+      LEMON_SQUEEZY_PRODUCT_ID: "202",
+      LEMON_SQUEEZY_STORE_ID: "101",
+      LEMON_SQUEEZY_VARIANT_ID: "303",
     });
 
-    expect(event.api_version).toBe(STRIPE_API_VERSION);
+    expect(fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(fingerprint).not.toContain("101");
+    expect(
+      providerReleaseCandidateConfigurationFingerprint("lemon-squeezy", {
+        LEMON_SQUEEZY_PRODUCT_ID: "202",
+        LEMON_SQUEEZY_STORE_ID: "101",
+        LEMON_SQUEEZY_VARIANT_ID: "304",
+      }),
+    ).not.toBe(fingerprint);
+    expect(providerReleaseCandidateConfigurationFingerprint("clerk", {})).toBeNull();
   });
 
   test("rejects production-like database identities", () => {
@@ -208,13 +250,24 @@ describe("protected provider release-candidate policy", () => {
     }
   });
 
-  test("enumerates every Clerk and Stripe acceptance flow", () => {
+  test("enumerates every Clerk and Lemon Squeezy acceptance flow", () => {
     expect(providerReleaseCandidateScenarios.clerk).toHaveLength(13);
-    expect(providerReleaseCandidateScenarios.stripe).toHaveLength(13);
-    expect(providerReleaseCandidateScenarios.stripe).toContain("paid_after_closure");
-    expect(providerReleaseCandidateScenarios.stripe).toContain("thirty_minute_expiry_boundary");
-    expect(providerReleaseCandidateScenarios.stripe).toContain("test_mode_card_payment");
-    expect(providerReleaseCandidateScenarios.stripe).not.toContain("card_checkout");
+    expect(providerReleaseCandidateScenarios["lemon-squeezy"]).toEqual([
+      "test_mode_checkout_creation",
+      "checkout_correlation",
+      "thirty_minute_expiry_boundary",
+      "return_before_webhook_convergence",
+      "signed_webhook_ingestion",
+      "duplicate_payment_fact",
+      "out_of_order_payment_fact",
+      "duplicate_payment_refund_recovery",
+      "partial_refund",
+      "full_refund",
+      "fraudulent_state",
+      "account_closure_race",
+      "commerce_reconciliation",
+      "paid_answer_settlement",
+    ]);
     expect(providerReleaseCandidateScenarios.clerk).toContain("step_up_account_closure");
     expect(providerReleaseCandidateScenarios.clerk).toContain("account_management");
   });

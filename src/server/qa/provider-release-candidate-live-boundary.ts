@@ -25,11 +25,26 @@ const providerReleaseCandidateLaneCommands = {
     provider_deletion_convergence: ["bun", "run", "test:e2e:clerk:verify-deletion"],
     final_boundary: ["bun", "run", "test:e2e:clerk:final-boundary"],
   },
-  stripe: {
-    acceptance: ["bun", "run", "test:smoke:trip-pass-stripe"],
+  "lemon-squeezy": {
+    acceptance: ["bun", "run", "test:smoke:trip-pass-lemon-squeezy"],
     account_closure_worker: ["bun", "run", "privacy:closure-worker"],
-    paid_after_closure_refund_worker: ["bun", "run", "payments:closure-refund-worker"],
-    final_boundary: ["bun", "run", "test:e2e:stripe:final-boundary"],
+    lemon_squeezy_refund_worker: [
+      "bun",
+      "run",
+      "operations:worker",
+      "--",
+      "--enqueue",
+      "--task=lemon_squeezy_refund",
+    ],
+    commerce_reconciliation: [
+      "bun",
+      "run",
+      "operations:worker",
+      "--",
+      "--enqueue",
+      "--task=commerce_reconciliation",
+    ],
+    final_boundary: ["bun", "run", "test:e2e:lemon-squeezy:final-boundary"],
   },
 } as const satisfies {
   [Lane in ProviderReleaseCandidateLane]: Record<

@@ -84,7 +84,6 @@ jobs:
           ACCOUNT_CLOSURE_RETENTION_DAYS: ${{ vars.PROVIDER_RC_ACCOUNT_CLOSURE_RETENTION_DAYS }}
           COMMERCE_RETENTION_POLICY_VERSION: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_POLICY_VERSION }}
           COMMERCE_RETENTION_DAYS: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_DAYS }}
-          STRIPE_RESTRICTED_KEY: ${{ secrets.PROVIDER_RC_STRIPE_RESTRICTED_KEY }}
         run: bun run qa:provider-rc -- --lane clerk
 
       - name: Upload exact Clerk evidence
@@ -97,7 +96,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  stripe-test-mode:
+  lemon-squeezy-test-mode:
     needs: clerk-test-instance
     environment: provider-release-candidate
     runs-on: ubuntu-latest
@@ -135,7 +134,7 @@ jobs:
       - name: Install Chromium
         run: bunx playwright install --with-deps chromium
 
-      - name: Run protected Stripe acceptance through the Release Evidence lifecycle
+      - name: Run protected Lemon Squeezy acceptance through the Release Evidence lifecycle
         env:
           GITHUB_ENVIRONMENT: provider-release-candidate
           PROVIDER_RC_EXPECTED_SHA: ${{ inputs.release_candidate_sha }}
@@ -144,9 +143,10 @@ jobs:
           PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET }}
           CLERK_PUBLISHABLE_KEY: ${{ secrets.PROVIDER_RC_CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.PROVIDER_RC_CLERK_SECRET_KEY }}
-          PROVIDER_RC_STRIPE_ACTIVE_USER: ${{ secrets.PROVIDER_RC_STRIPE_ACTIVE_USER }}
-          PROVIDER_RC_STRIPE_REVERSED_USER: ${{ secrets.PROVIDER_RC_STRIPE_REVERSED_USER }}
-          PROVIDER_RC_STRIPE_CLOSURE_USER: ${{ secrets.PROVIDER_RC_STRIPE_CLOSURE_USER }}
+          PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER: ${{ secrets.PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER }}
+          PROVIDER_RC_LEMON_SQUEEZY_DUPLICATE_USER: ${{ secrets.PROVIDER_RC_LEMON_SQUEEZY_DUPLICATE_USER }}
+          PROVIDER_RC_LEMON_SQUEEZY_FRAUD_USER: ${{ secrets.PROVIDER_RC_LEMON_SQUEEZY_FRAUD_USER }}
+          PROVIDER_RC_LEMON_SQUEEZY_CLOSURE_USER: ${{ secrets.PROVIDER_RC_LEMON_SQUEEZY_CLOSURE_USER }}
           PROVIDER_RC_BOUNDARY_USER: ${{ secrets.PROVIDER_RC_BOUNDARY_USER }}
           DATABASE_URL: ${{ secrets.PROVIDER_RC_DATABASE_URL }}
           DATABASE_SSL_MODE: verify-full
@@ -163,15 +163,18 @@ jobs:
           ACCOUNT_CLOSURE_RETENTION_DAYS: ${{ vars.PROVIDER_RC_ACCOUNT_CLOSURE_RETENTION_DAYS }}
           COMMERCE_RETENTION_POLICY_VERSION: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_POLICY_VERSION }}
           COMMERCE_RETENTION_DAYS: ${{ vars.PROVIDER_RC_COMMERCE_RETENTION_DAYS }}
-          STRIPE_RESTRICTED_KEY: ${{ secrets.PROVIDER_RC_STRIPE_RESTRICTED_KEY }}
-          STRIPE_TRIP_PASS_PRICE_ID: ${{ secrets.PROVIDER_RC_STRIPE_TRIP_PASS_PRICE_ID }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.PROVIDER_RC_STRIPE_WEBHOOK_SECRET }}
-        run: bun run qa:provider-rc -- --lane stripe
+          LEMON_SQUEEZY_ALLOW_TEST_MODE: true
+          LEMON_SQUEEZY_API_KEY: ${{ secrets.PROVIDER_RC_LEMON_SQUEEZY_API_KEY }}
+          LEMON_SQUEEZY_STORE_ID: ${{ vars.PROVIDER_RC_LEMON_SQUEEZY_STORE_ID }}
+          LEMON_SQUEEZY_PRODUCT_ID: ${{ vars.PROVIDER_RC_LEMON_SQUEEZY_PRODUCT_ID }}
+          LEMON_SQUEEZY_VARIANT_ID: ${{ vars.PROVIDER_RC_LEMON_SQUEEZY_VARIANT_ID }}
+          LEMON_SQUEEZY_WEBHOOK_SECRET: ${{ secrets.PROVIDER_RC_LEMON_SQUEEZY_WEBHOOK_SECRET }}
+        run: bun run qa:provider-rc -- --lane lemon-squeezy
 
-      - name: Upload exact Stripe evidence
+      - name: Upload exact Lemon Squeezy evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: provider-rc-stripe-${{ inputs.release_candidate_sha }}
-          path: .tmp/provider-release-candidate/stripe-${{ inputs.release_candidate_sha }}.json
+          name: provider-rc-lemon-squeezy-${{ inputs.release_candidate_sha }}
+          path: .tmp/provider-release-candidate/lemon-squeezy-${{ inputs.release_candidate_sha }}.json
           if-no-files-found: error
           retention-days: 14

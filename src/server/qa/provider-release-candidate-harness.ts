@@ -226,5 +226,5 @@ function required(
 }
 
 function providerName(lane: ProviderReleaseCandidateLane) {
-  return lane === "clerk" ? "Clerk" : "Stripe";
+  return lane === "clerk" ? "Clerk" : "Lemon Squeezy";
 }

@@ -18,8 +18,8 @@ console.log(
 function readLane(): ProviderReleaseCandidateLane {
   const index = process.argv.indexOf("--lane");
   const value = index >= 0 ? process.argv[index + 1] : undefined;
-  if (value !== "clerk" && value !== "stripe") {
-    throw new Error("Use --lane clerk or --lane stripe.");
+  if (value !== "clerk" && value !== "lemon-squeezy") {
+    throw new Error("Use --lane clerk or --lane lemon-squeezy.");
   }
   return value;
 }
