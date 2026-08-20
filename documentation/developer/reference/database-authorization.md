@@ -55,8 +55,12 @@ The template:
   explicitly when a future table is safe for read-only reporting.
 
 Run the generated SQL as the provider bootstrap owner after migrations have created the current
-schema. For later migrations, connect with the migration credential so new tables inherit the
-documented default privileges.
+schema. A login that is only a member of `ask_siargao_migration` does not create objects as that
+group role unless the session explicitly changes roles. Therefore, every later migration that
+creates an application table must also ship an idempotent conditional ownership transfer and
+runtime DML grant. `authorization-boundaries.test.ts` enforces that migration-level contract; the
+generated repair remains the operator fallback for databases provisioned before a table-specific
+repair shipped.
 
 ## Runtime Credential
 

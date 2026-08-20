@@ -9,6 +9,8 @@ and this project adheres to Semantic Versioning when releases are tagged.
 
 ### Changed
 
+- Repaired production runtime ownership and DML grants for the Lemon Squeezy payment, refund, and
+  reconciliation tables, and added a migration-level guard for future post-provisioning tables.
 - Changed Foundation Gate termination handling to forward signals through the local aggregate and
   remove active run-owned PGlite directories before exit, while omitting PostgreSQL and Redis
   service URLs from integration receipts.
