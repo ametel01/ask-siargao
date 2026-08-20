@@ -11,6 +11,7 @@ export type OperationalAlert = {
   operation:
     | "stripe_persistence"
     | "stripe_application"
+    | "payment_event_application"
     | "paid_without_pass"
     | "account_closure"
     | "redis_availability"
@@ -227,6 +228,16 @@ export async function deliverPendingPageWorthyAlerts(dependencies: {
       'paid_after_closure_refund'::text
     from account_closure_refund_obligations
     where status <> 'succeeded' and alerted_at is not null
+    union all
+    select
+      'partial-refund:' || id,
+      'partial_refund_deadline',
+      null::text,
+      null::text,
+      'high'::text,
+      'paid_after_closure_refund'::text
+    from trip_pass_orders
+    where refund_state = 'review' and refund_review_alerted_at is not null
     union all
     select
       'operational-finding:' || id || ':lifecycle:' || lifecycle::text,

@@ -1,0 +1,183 @@
+import { describe, expect, test } from "bun:test";
+import { createHmac } from "node:crypto";
+
+import {
+  createLemonSqueezyHttpClient,
+  parseLemonSqueezyOrderFact,
+  paymentFactFingerprint,
+  verifyLemonSqueezyWebhookSignature,
+} from "@/server/payments/lemon-squeezy";
+
+describe("Lemon Squeezy payment authority boundary", () => {
+  test("propagates an operational abort signal into the provider request", async () => {
+    let providerSignal: AbortSignal | null | undefined;
+    const client = createLemonSqueezyHttpClient({
+      apiKey: "test-key",
+      fetch: (async (_url, init) => {
+        providerSignal = init?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          providerSignal?.addEventListener(
+            "abort",
+            () => reject(providerSignal?.reason ?? new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }) as typeof fetch,
+    });
+    const controller = new AbortController();
+    const pending = client.request({
+      method: "GET",
+      path: "/v1/orders/123",
+      signal: controller.signal,
+    });
+    controller.abort(new Error("operational_deadline"));
+
+    await expect(pending).rejects.toThrow("operational_deadline");
+    expect(providerSignal?.aborted).toBe(true);
+  });
+
+  test("verifies the unmodified body with a timing-safe HMAC signature", () => {
+    const payload = JSON.stringify({ data: { id: "order_1" } });
+    const secret = "test-secret";
+    const signature = createHmac("sha256", secret).update(payload).digest("hex");
+
+    expect(verifyLemonSqueezyWebhookSignature({ payload, signature, webhookSecret: secret })).toBe(
+      true,
+    );
+    expect(() =>
+      verifyLemonSqueezyWebhookSignature({
+        payload,
+        signature: `${signature.slice(0, -1)}0`,
+        webhookSecret: secret,
+      }),
+    ).toThrow("Invalid Lemon Squeezy webhook signature");
+  });
+
+  test("normalizes custom order correlation without retaining raw payload", () => {
+    const fact = parseLemonSqueezyOrderFact({
+      eventName: "order_created",
+      payload: {
+        meta: { event_name: "order_created", custom_data: { order_id: "trip_pass_order_1" } },
+        data: {
+          id: "123",
+          attributes: {
+            status: "paid",
+            total: 999,
+            refunded: 0,
+            currency: "USD",
+            updated_at: "2026-08-19T00:00:00Z",
+          },
+        },
+      },
+    });
+
+    expect(fact).toMatchObject({
+      provider: "lemon_squeezy",
+      orderId: "trip_pass_order_1",
+      providerOrderId: "123",
+      status: "paid",
+      amountTotalMinor: 999,
+      currency: "USD",
+    });
+    expect(JSON.stringify(fact)).not.toContain("custom_data");
+  });
+
+  test("normalizes Store and Variant IDs from the official order webhook shape", () => {
+    const fact = parseLemonSqueezyOrderFact({
+      eventName: "order_created",
+      payload: {
+        meta: {
+          event_name: "order_created",
+          custom_data: { order_id: "trip_pass_order_1" },
+        },
+        data: {
+          type: "orders",
+          id: "123",
+          attributes: {
+            store_id: 1,
+            status: "paid",
+            total: 999,
+            currency: "USD",
+            first_order_item: {
+              order_id: 123,
+              product_id: 456,
+              variant_id: 789,
+              price: 999,
+              test_mode: false,
+            },
+            updated_at: "2026-08-19T00:00:00Z",
+          },
+        },
+      },
+    });
+
+    expect(fact).toMatchObject({
+      orderId: "trip_pass_order_1",
+      storeId: "1",
+      variantId: "789",
+      testMode: false,
+    });
+    expect(fact).not.toHaveProperty("quantity");
+    expect(fact).not.toHaveProperty("customPriceMinor");
+    expect(fact).not.toHaveProperty("licenseKey");
+  });
+
+  test("distinguishes lifecycle updates in the deterministic receipt fingerprint", () => {
+    const base = parseLemonSqueezyOrderFact({
+      eventName: "order_created",
+      payload: {
+        data: {
+          id: "123",
+          attributes: {
+            status: "paid",
+            total: 999,
+            refunded: 0,
+            updated_at: "2026-08-19T00:00:00Z",
+          },
+        },
+      },
+    });
+    const refunded = {
+      ...base,
+      eventName: "order_refunded",
+      status: "refunded" as const,
+      refundedAmountMinor: 999,
+    };
+    expect(paymentFactFingerprint(base)).not.toBe(paymentFactFingerprint(refunded));
+    expect(paymentFactFingerprint(base)).toHaveLength(64);
+  });
+
+  test("preserves the refunded amount and partial-refund status from an order payload", () => {
+    const partial = parseLemonSqueezyOrderFact({
+      eventName: "order_refunded",
+      payload: {
+        data: {
+          id: "123",
+          attributes: {
+            status: "partial_refund",
+            total: 1199,
+            refunded: false,
+            refunded_amount: 100,
+          },
+        },
+      },
+    });
+    const full = parseLemonSqueezyOrderFact({
+      eventName: "order_refunded",
+      payload: {
+        data: {
+          id: "123",
+          attributes: {
+            status: "refunded",
+            total: 1199,
+            refunded: true,
+            refunded_amount: 1199,
+          },
+        },
+      },
+    });
+
+    expect(partial).toMatchObject({ status: "partial_refund", refundedAmountMinor: 100 });
+    expect(full).toMatchObject({ status: "refunded", refundedAmountMinor: 1199 });
+  });
+});

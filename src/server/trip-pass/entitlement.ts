@@ -18,6 +18,7 @@ const tripPassLedgerMeterTypeSet = new Set<string>(tripPassLedgerMeterTypes);
 
 export const tripPassGrantSourceTypes = [
   "stripe_checkout",
+  "lemon_squeezy_checkout",
   "manual_operator",
   "refund_adjustment",
   "dispute_adjustment",

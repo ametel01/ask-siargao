@@ -33,6 +33,11 @@ type ConfigurationKey =
   | "CLERK_SECRET_KEY"
   | "COMMERCE_RETENTION_POLICY_VERSION"
   | "DATABASE_URL"
+  | "LEMON_SQUEEZY_API_KEY"
+  | "LEMON_SQUEEZY_PRODUCT_ID"
+  | "LEMON_SQUEEZY_STORE_ID"
+  | "LEMON_SQUEEZY_VARIANT_ID"
+  | "LEMON_SQUEEZY_WEBHOOK_SECRET"
   | "OPERATOR_ACCOUNT_IDS"
   | "REDIS_URL"
   | "SENTRY_DSN"
@@ -98,6 +103,8 @@ export type TripPassLaunchManifest = {
     refundPolicyVersion: string;
     stripeApiVersion: string;
     stripeEventSchemaVersion: string;
+    lemonSqueezyProvider: "lemon_squeezy";
+    paymentEventReceiptSchemaVersion: "1";
     termsVersion: string;
     tripPassProductFamilyVersion: string;
     tripPassProductVersion: string;
@@ -130,6 +137,8 @@ const productAndPolicyVersions: TripPassLaunchManifest["productAndPolicyVersions
   refundPolicyVersion: tripPassProductCatalog.policyVersions.refund,
   stripeApiVersion: STRIPE_API_VERSION,
   stripeEventSchemaVersion: String(STRIPE_NORMALIZED_EVENT_SCHEMA_VERSION),
+  lemonSqueezyProvider: "lemon_squeezy",
+  paymentEventReceiptSchemaVersion: "1",
   termsVersion: tripPassProductCatalog.policyVersions.terms,
   tripPassProductFamilyVersion: tripPassProductFamily,
   tripPassProductVersion: String(tripPassProductVersion),
@@ -286,7 +295,7 @@ export function createFoundationBlockers(): TripPassLaunchManifestBlocker[] {
       id: "protected-provider-release-candidate-pending",
       owner: "operator",
       reason:
-        "An eligible human must run the protected Clerk and Stripe release-candidate workflow after merge.",
+        "An eligible human must run the protected Clerk and Lemon Squeezy release-candidate workflow after merge.",
     },
     {
       id: "production-configuration-and-change-review-pending",
@@ -334,6 +343,11 @@ function buildConfigurationPresence(env: Record<string, string | undefined>) {
     CLERK_SECRET_KEY: hasEnvValue(env.CLERK_SECRET_KEY),
     COMMERCE_RETENTION_POLICY_VERSION: hasEnvValue(env.COMMERCE_RETENTION_POLICY_VERSION),
     DATABASE_URL: hasEnvValue(env.DATABASE_URL),
+    LEMON_SQUEEZY_API_KEY: hasEnvValue(env.LEMON_SQUEEZY_API_KEY),
+    LEMON_SQUEEZY_PRODUCT_ID: hasEnvValue(env.LEMON_SQUEEZY_PRODUCT_ID),
+    LEMON_SQUEEZY_STORE_ID: hasEnvValue(env.LEMON_SQUEEZY_STORE_ID),
+    LEMON_SQUEEZY_VARIANT_ID: hasEnvValue(env.LEMON_SQUEEZY_VARIANT_ID),
+    LEMON_SQUEEZY_WEBHOOK_SECRET: hasEnvValue(env.LEMON_SQUEEZY_WEBHOOK_SECRET),
     OPERATOR_ACCOUNT_IDS: hasEnvValue(env.OPERATOR_ACCOUNT_IDS),
     REDIS_URL: hasEnvValue(env.REDIS_URL),
     SENTRY_DSN: hasEnvValue(env.SENTRY_DSN),
@@ -355,6 +369,11 @@ function validateConfigurationPresence(configurationPresence: unknown, errors: s
     "CLERK_SECRET_KEY",
     "COMMERCE_RETENTION_POLICY_VERSION",
     "DATABASE_URL",
+    "LEMON_SQUEEZY_API_KEY",
+    "LEMON_SQUEEZY_PRODUCT_ID",
+    "LEMON_SQUEEZY_STORE_ID",
+    "LEMON_SQUEEZY_VARIANT_ID",
+    "LEMON_SQUEEZY_WEBHOOK_SECRET",
     "OPERATOR_ACCOUNT_IDS",
     "REDIS_URL",
     "SENTRY_DSN",

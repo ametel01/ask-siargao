@@ -1,4 +1,9 @@
 export const siteConfig = {
+  contact: {
+    primaryEmail: "hello@asksiargao.com",
+    supportEmail: "support@asksiargao.com",
+    supportMailto: "mailto:support@asksiargao.com",
+  },
   name: "Ask Siargao",
   tripPass: {
     label: "Siargao Trip Pass",

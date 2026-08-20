@@ -14,6 +14,7 @@ test("Account Closure copy names terminal forfeiture, sharing, and refund bounda
   expect(copy).toContain("Public sharing stops");
   expect(copy).toContain("Trip Pass time and answers are forfeited");
   expect(copy).toContain("no automatic proration");
+  expect(copy).toContain("support@asksiargao.com");
 });
 
 test("Account Closure copy never describes a server-committed closure as still available", () => {

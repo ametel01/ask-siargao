@@ -24,6 +24,7 @@ describe("quota-efficient operational schedule sentinel", () => {
         issues: [],
         ok: true,
         states: [
+          { scheduleKey: "commerce_reconciliation", status: "observing" },
           { scheduleKey: "marine", status: "observing" },
           { scheduleKey: "places_prune", status: "observing" },
           { scheduleKey: "weather", status: "observing" },
@@ -75,6 +76,12 @@ describe("quota-efficient operational schedule sentinel", () => {
 
       expect(stale.issues).toEqual([
         {
+          errorCode: "scheduled_commerce_reconciliation_stale",
+          lifecycle: 1,
+          scheduleKey: "commerce_reconciliation",
+          status: "stale",
+        },
+        {
           errorCode: "scheduled_marine_stale",
           lifecycle: 1,
           scheduleKey: "marine",
@@ -105,7 +112,10 @@ describe("quota-efficient operational schedule sentinel", () => {
       expect(result).toEqual({
         issues: [],
         ok: true,
-        states: [{ scheduleKey: "places_prune", status: "observing" }],
+        states: [
+          { scheduleKey: "commerce_reconciliation", status: "observing" },
+          { scheduleKey: "places_prune", status: "observing" },
+        ],
       });
     });
   });

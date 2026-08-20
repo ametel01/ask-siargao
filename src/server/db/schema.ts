@@ -607,19 +607,46 @@ export const tripPassOrders = pgTable(
     productCode: text("product_code").notNull(),
     productFamily: text("product_family").notNull().default("siargao_trip_pass"),
     productVersion: integer("product_version").notNull(),
-    stripePriceId: text("stripe_price_id").notNull(),
+    stripePriceId: text("stripe_price_id"),
     amountTotalMinor: integer("amount_total_minor"),
     capturedAmountMinor: integer("captured_amount_minor"),
     successfulRefundAmountMinor: integer("successful_refund_amount_minor").notNull().default(0),
     refundState: text("refund_state").notNull().default("none"),
+    refundRemainingAmountMinor: integer("refund_remaining_amount_minor"),
+    refundReviewDeadlineAt: timestamp("refund_review_deadline_at", { withTimezone: true }),
+    refundReviewAlertedAt: timestamp("refund_review_alerted_at", { withTimezone: true }),
     disputeState: text("dispute_state").notNull().default("none"),
     terminalRevocationReason: text("terminal_revocation_reason"),
     lifecycleUpdatedAt: timestamp("lifecycle_updated_at", { withTimezone: true }),
+    paymentProvider: text("payment_provider").notNull().default("stripe"),
+    providerStoreId: text("provider_store_id"),
+    providerProductId: text("provider_product_id"),
+    providerVariantId: text("provider_variant_id"),
+    providerCheckoutId: text("provider_checkout_id"),
+    providerOrderId: text("provider_order_id"),
+    providerPaymentId: text("provider_payment_id"),
+    providerUpdatedAt: timestamp("provider_updated_at", { withTimezone: true }),
+    checkoutAttemptId: text("checkout_attempt_id"),
+    acceptedPaymentFactId: text("accepted_payment_fact_id"),
+    paymentSuspensionState: text("payment_suspension_state").notNull().default("none"),
     currency: text("currency"),
     checkoutIdempotencyKey: text("checkout_idempotency_key").notNull().unique(),
     stripeCheckoutSessionId: text("stripe_checkout_session_id").unique(),
     checkoutSessionExpiresAt: timestamp("checkout_session_expires_at", { withTimezone: true }),
     checkoutSessionStatus: text("checkout_session_status"),
+    checkoutCommercialTermsVerifiedAt: timestamp("checkout_commercial_terms_verified_at", {
+      withTimezone: true,
+    }),
+    checkoutReturnLookupAttempts: integer("checkout_return_lookup_attempts").notNull().default(0),
+    checkoutReturnLookupClaimedAt: timestamp("checkout_return_lookup_claimed_at", {
+      withTimezone: true,
+    }),
+    checkoutReturnLookupStatus: text("checkout_return_lookup_status").notNull().default("pending"),
+    checkoutReturnLookupCompletedAt: timestamp("checkout_return_lookup_completed_at", {
+      withTimezone: true,
+    }),
+    checkoutReturnProviderOrderId: text("checkout_return_provider_order_id"),
+    checkoutReturnProviderOrderIdentifier: text("checkout_return_provider_order_identifier"),
     checkoutCancellationConfirmedAt: timestamp("checkout_cancellation_confirmed_at", {
       withTimezone: true,
     }),
@@ -654,6 +681,11 @@ export const tripPassOrders = pgTable(
       .where(sql`${table.status} in ('pending', 'checkout_created')`),
     index("trip_pass_orders_closure_tombstone_id_idx").on(table.closureTombstoneId),
     index("trip_pass_orders_closure_refund_obligation_id_idx").on(table.closureRefundObligationId),
+    index("trip_pass_orders_checkout_return_lookup_due_idx")
+      .on(table.checkoutReturnLookupStatus, table.checkoutReturnLookupCompletedAt, table.id)
+      .where(
+        sql`${table.checkoutReturnLookupAttempts} > 0 and ${table.acceptedPaymentFactId} is null`,
+      ),
     check(
       "trip_pass_orders_status_check",
       sql`${table.status} in ('pending', 'checkout_created', 'paid', 'cancelled', 'expired', 'refunded', 'disputed', 'failed')`,
@@ -679,6 +711,186 @@ export const tripPassOrders = pgTable(
     check(
       "trip_pass_orders_closure_outcome_check",
       sql`${table.closureOutcome} is null or ${table.closureOutcome} in ('blocked_at_closure', 'paid_after_closure')`,
+    ),
+    check(
+      "trip_pass_orders_payment_provider_check",
+      sql`${table.paymentProvider} in ('stripe', 'lemon_squeezy')`,
+    ),
+    check(
+      "trip_pass_orders_payment_suspension_check",
+      sql`${table.paymentSuspensionState} in ('none', 'fraudulent', 'disputed')`,
+    ),
+    check(
+      "trip_pass_orders_refund_state_check",
+      sql`${table.refundState} in ('none', 'review', 'partial_final', 'full')`,
+    ),
+    check(
+      "trip_pass_orders_checkout_return_lookup_attempts_check",
+      sql`${table.checkoutReturnLookupAttempts} >= 0`,
+    ),
+    check(
+      "trip_pass_orders_checkout_return_lookup_status_check",
+      sql`${table.checkoutReturnLookupStatus} in ('pending', 'succeeded', 'not_found', 'exhausted')`,
+    ),
+    check(
+      "trip_pass_orders_checkout_return_provider_reference_check",
+      sql`(${table.checkoutReturnProviderOrderId} is null and ${table.checkoutReturnProviderOrderIdentifier} is null) or (${table.checkoutReturnProviderOrderId} is not null and ${table.checkoutReturnProviderOrderIdentifier} is not null)`,
+    ),
+  ],
+);
+
+export const tripPassCheckoutAttempts = pgTable(
+  "trip_pass_checkout_attempts",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => tripPassOrders.id),
+    provider: text("provider").notNull(),
+    providerCheckoutId: text("provider_checkout_id"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    checkoutUrl: text("checkout_url"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("trip_pass_checkout_attempts_order_idx").on(table.orderId, table.createdAt),
+    index("trip_pass_checkout_attempts_idempotency_idx").on(table.idempotencyKey),
+    uniqueIndex("trip_pass_checkout_attempts_provider_checkout_idx")
+      .on(table.provider, table.providerCheckoutId)
+      .where(sql`${table.providerCheckoutId} is not null`),
+    check(
+      "trip_pass_checkout_attempts_provider_check",
+      sql`${table.provider} in ('lemon_squeezy', 'stripe')`,
+    ),
+    check(
+      "trip_pass_checkout_attempts_status_check",
+      sql`${table.status} in ('pending', 'created', 'expired', 'failed', 'paid', 'cancelled')`,
+    ),
+  ],
+);
+
+export const tripPassPaymentEventReceipts = pgTable(
+  "trip_pass_payment_event_receipts",
+  {
+    id: text("id").primaryKey(),
+    fingerprint: text("fingerprint").notNull().unique(),
+    provider: text("provider").notNull(),
+    eventName: text("event_name").notNull(),
+    objectId: text("object_id").notNull(),
+    providerUpdatedAt: timestamp("provider_updated_at", { withTimezone: true }).notNull(),
+    orderId: text("order_id"),
+    providerOrderId: text("provider_order_id"),
+    status: text("status").notNull().default("pending"),
+    amountTotalMinor: integer("amount_total_minor"),
+    refundedAmountMinor: integer("refunded_amount_minor"),
+    currency: text("currency"),
+    normalizedFactsJson: jsonb("normalized_facts_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("trip_pass_payment_event_receipts_due_idx").on(
+      table.status,
+      table.nextAttemptAt,
+      table.createdAt,
+    ),
+    check(
+      "trip_pass_payment_event_receipts_provider_check",
+      sql`${table.provider} in ('lemon_squeezy', 'stripe')`,
+    ),
+    check(
+      "trip_pass_payment_event_receipts_status_check",
+      sql`${table.status} in ('pending', 'applied', 'blocked')`,
+    ),
+    check(
+      "trip_pass_payment_event_receipts_amount_check",
+      sql`(${table.amountTotalMinor} is null or ${table.amountTotalMinor} >= 0) and (${table.refundedAmountMinor} is null or ${table.refundedAmountMinor} >= 0)`,
+    ),
+  ],
+);
+
+export const tripPassPaymentFacts = pgTable(
+  "trip_pass_payment_facts",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id").references(() => tripPassOrders.id),
+    receiptId: text("receipt_id")
+      .notNull()
+      .references(() => tripPassPaymentEventReceipts.id),
+    provider: text("provider").notNull(),
+    providerOrderId: text("provider_order_id").notNull(),
+    providerPaymentId: text("provider_payment_id"),
+    fingerprint: text("fingerprint").notNull().unique(),
+    status: text("status").notNull(),
+    amountTotalMinor: integer("amount_total_minor"),
+    refundedAmountMinor: integer("refunded_amount_minor"),
+    currency: text("currency"),
+    providerUpdatedAt: timestamp("provider_updated_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("trip_pass_payment_facts_provider_order_idx").on(
+      table.provider,
+      table.providerOrderId,
+      table.fingerprint,
+    ),
+    check("trip_pass_payment_facts_provider_check", sql`${table.provider} = 'lemon_squeezy'`),
+    check(
+      "trip_pass_payment_facts_status_check",
+      sql`${table.status} in ('pending', 'failed', 'paid', 'refunded', 'partial_refund', 'fraudulent')`,
+    ),
+  ],
+);
+
+export const tripPassRefundOperations = pgTable(
+  "trip_pass_refund_operations",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => tripPassOrders.id),
+    provider: text("provider").notNull(),
+    providerOrderId: text("provider_order_id").notNull(),
+    reason: text("reason").notNull(),
+    amountMinor: integer("amount_minor"),
+    providerCapturedAmountMinor: integer("provider_captured_amount_minor"),
+    status: text("status").notNull().default("pending"),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lastErrorCode: text("last_error_code"),
+    leaseToken: text("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("trip_pass_refund_operations_active_provider_order_idx")
+      .on(table.orderId, table.provider, table.providerOrderId)
+      .where(sql`${table.status} in ('pending', 'running')`),
+    check("trip_pass_refund_operations_provider_check", sql`${table.provider} = 'lemon_squeezy'`),
+    check(
+      "trip_pass_refund_operations_reason_check",
+      sql`${table.reason} in ('duplicate_payment', 'paid_after_closure', 'partial_refund_deadline', 'operator_refund')`,
+    ),
+    check(
+      "trip_pass_refund_operations_status_check",
+      sql`${table.status} in ('pending', 'running', 'succeeded', 'failed', 'cancelled')`,
+    ),
+    check(
+      "trip_pass_refund_operations_lease_check",
+      sql`(${table.status} = 'running' and ${table.leaseToken} is not null and ${table.leaseExpiresAt} is not null) or (${table.status} <> 'running' and ${table.leaseToken} is null and ${table.leaseExpiresAt} is null)`,
     ),
   ],
 );
@@ -764,7 +976,7 @@ export const tripPassGrants = pgTable(
     index("trip_pass_grants_user_expires_at_idx").on(table.userId, table.expiresAt),
     check(
       "trip_pass_grants_source_type_check",
-      sql`${table.sourceType} in ('stripe_checkout', 'manual_operator', 'refund_adjustment', 'dispute_adjustment')`,
+      sql`${table.sourceType} in ('stripe_checkout', 'lemon_squeezy_checkout', 'manual_operator', 'refund_adjustment', 'dispute_adjustment')`,
     ),
     check("trip_pass_grants_product_version_check", sql`${table.productVersion} > 0`),
     check("trip_pass_grants_quantity_check", sql`${table.quantity} > 0`),
@@ -2130,6 +2342,18 @@ export const operationalReconciliationObservations = pgTable(
   ],
 );
 
+export const operationalReconciliationCursors = pgTable(
+  "operational_reconciliation_cursors",
+  {
+    scopeKey: text("scope_key").primaryKey(),
+    cursorOffset: integer("cursor_offset").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("operational_reconciliation_cursors_offset_check", sql`${table.cursorOffset} >= 0`),
+  ],
+);
+
 export const operationalFindings = pgTable(
   "operational_findings",
   {
@@ -2216,6 +2440,35 @@ export const operatorRepairActions = pgTable(
   ],
 );
 
+export const operatorRefundActions = pgTable(
+  "operator_refund_actions",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => tripPassOrders.id),
+    operatorAccountId: text("operator_account_id").notNull(),
+    idempotencyKeyHash: text("idempotency_key_hash").notNull(),
+    commandHash: text("command_hash").notNull(),
+    decision: text("decision").notNull(),
+    reasonCode: text("reason_code").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown>>().notNull(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("operator_refund_actions_idempotency_key").on(
+      table.operatorAccountId,
+      table.idempotencyKeyHash,
+    ),
+    index("operator_refund_actions_order_id_idx").on(table.orderId, table.createdAt),
+    check(
+      "operator_refund_actions_decision_check",
+      sql`${table.decision} in ('full_refund', 'accept_partial_refund')`,
+    ),
+  ],
+);
+
 export const operationalAlertDeliveries = pgTable(
   "operational_alert_deliveries",
   {
@@ -2279,7 +2532,7 @@ export const operationalWorkerTasks = pgTable(
     ),
     check(
       "operational_worker_tasks_type_check",
-      sql`${table.taskType} in ('account_closure', 'pending_stripe_event', 'paid_after_closure_refund', 'retention_purge', 'commerce_reconciliation')`,
+      sql`${table.taskType} in ('account_closure', 'checkout_return_lookup', 'pending_payment_event', 'pending_stripe_event', 'paid_after_closure_refund', 'lemon_squeezy_refund', 'retention_purge', 'commerce_reconciliation')`,
     ),
     check(
       "operational_worker_tasks_status_check",
@@ -2323,7 +2576,7 @@ export const operationalScheduleStates = pgTable(
     ),
     check(
       "operational_schedule_states_key_check",
-      sql`${table.scheduleKey} in ('weather', 'marine', 'places_prune')`,
+      sql`${table.scheduleKey} in ('weather', 'marine', 'places_prune', 'commerce_reconciliation')`,
     ),
     check(
       "operational_schedule_states_schedule_check",

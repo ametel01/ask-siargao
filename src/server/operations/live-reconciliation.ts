@@ -2,21 +2,27 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { createOperationTrace, type OperationEventRecorder } from "@/server/operations/contracts";
+import type { NormalizedPaymentFact } from "@/server/payments/lemon-squeezy";
 import {
   lockTripPassAccountFamily,
   lockTripPassAccountWrites,
 } from "@/server/trip-pass/payment-lifecycle";
 
+export type ReconciliationScope = "risk" | "daily" | "all";
+
 export type AuthoritativePaymentFact = {
   paymentState: "pending" | "paid" | "refunded" | "disputed" | "unpaid";
   amountMinor: number | null;
   currency: string | null;
+  providerFact?: NormalizedPaymentFact;
 };
 
 export type AuthoritativeCommerceReader = {
   readPaymentFact(input: {
     checkoutSessionId: string | null;
     paymentIntentId: string | null;
+    providerOrderId?: string | null;
+    signal?: AbortSignal;
   }): Promise<AuthoritativePaymentFact>;
 };
 
@@ -56,6 +62,8 @@ type LocalCommerceSnapshot = {
   currency: string;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
+  payment_provider: string;
+  provider_order_id: string | null;
   created_at: Date | string;
   pass_count: string | number;
 };
@@ -78,14 +86,21 @@ export async function reconcileLiveCommerce(
   input: {
     source: "cli" | "authenticated_adapter" | "worker";
     orderId?: string;
+    scope?: ReconciliationScope;
   },
   dependencies: {
     commerceReader: AuthoritativeCommerceReader;
+    commerceReaders?: Partial<Record<"stripe" | "lemon_squeezy", AuthoritativeCommerceReader>>;
     createId?: (prefix: string) => string;
     db?: DatabaseQueryClient;
     now?: () => Date;
     recordEvent?: OperationEventRecorder;
+    signal?: AbortSignal;
     alertFinding?: (finding: OperationalFindingView) => Promise<void>;
+    applyVerifiedPaymentFact?: (input: {
+      local: { id: string; paymentProvider: string };
+      fact: NormalizedPaymentFact;
+    }) => Promise<void>;
   },
 ): Promise<LiveReconciliationResult> {
   const db = dependencies.db ?? getDefaultDatabaseQueryClient();
@@ -93,16 +108,22 @@ export async function reconcileLiveCommerce(
   const createId = dependencies.createId ?? ((prefix: string) => `${prefix}_${randomUUID()}`);
   const trace = createOperationTrace(dependencies.recordEvent);
   const runId = createId("reconciliation_run");
+  const scope = input.scope ?? "all";
   await trace.record({ index: 0, operation: "load_local_commerce", result: "started" });
-  const localRows = await loadLocalCommerce(db, input.orderId);
+  const localRows = await loadLocalCommerce(db, input.orderId, scope);
   await trace.record({ index: 0, operation: "load_local_commerce", result: "succeeded" });
 
   const observations: CommerceObservation[] = [];
   for (const local of localRows) {
     await trace.record({ index: 0, operation: "authoritative_payment_lookup", result: "started" });
-    const provider = await dependencies.commerceReader.readPaymentFact({
+    const commerceReader =
+      dependencies.commerceReaders?.[local.payment_provider as "stripe" | "lemon_squeezy"] ??
+      dependencies.commerceReader;
+    const provider = await commerceReader.readPaymentFact({
       checkoutSessionId: local.stripe_checkout_session_id,
       paymentIntentId: local.stripe_payment_intent_id,
+      providerOrderId: local.provider_order_id,
+      signal: dependencies.signal,
     });
     await trace.record({
       index: 0,
@@ -158,7 +179,7 @@ export async function reconcileLiveCommerce(
       );
       if (!freshness.rows[0]) continue;
 
-      const currentLocal = (await loadLocalCommerce(transaction, localId))[0];
+      const currentLocal = (await loadLocalCommerce(transaction, localId, "all"))[0];
       if (!currentLocal) continue;
       const observationFindings: OperationalFindingView[] = [];
       for (const candidate of compareCommerce(
@@ -249,6 +270,16 @@ export async function reconcileLiveCommerce(
     operation: "record_reconciliation_findings",
     result: "succeeded",
   });
+  if (dependencies.applyVerifiedPaymentFact) {
+    for (const observation of observations) {
+      if (observation.provider.providerFact) {
+        await dependencies.applyVerifiedPaymentFact({
+          local: { id: observation.local.id, paymentProvider: observation.local.payment_provider },
+          fact: observation.provider.providerFact,
+        });
+      }
+    }
+  }
   await Promise.all(findings.map((finding) => dependencies.alertFinding?.(finding)));
   return { checkedCount: localRows.length, findings, runId, trace: trace.events };
 }
@@ -274,19 +305,32 @@ function createIncidentKey(candidate: FindingCandidate) {
     .digest("hex")}`;
 }
 
-async function loadLocalCommerce(db: DatabaseQueryClient, orderId?: string) {
+async function loadLocalCommerce(
+  db: DatabaseQueryClient,
+  orderId?: string,
+  scope: ReconciliationScope = "all",
+) {
   const params = orderId ? [orderId] : [];
-  const filter = orderId ? "where o.id = $1" : "";
+  const filter = orderId
+    ? "where o.id = $1"
+    : scope === "risk"
+      ? "where o.status in ('pending', 'checkout_created', 'paid', 'disputed')"
+      : scope === "daily"
+        ? "where o.status not in ('pending', 'checkout_created', 'paid', 'disputed')"
+        : "where true";
   const result = await db.query<LocalCommerceSnapshot>(
     `select o.id, o.user_id, o.product_family, o.status, o.amount_total_minor, o.currency,
-       o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.created_at,
+       o.stripe_checkout_session_id, o.stripe_payment_intent_id, o.payment_provider,
+       o.provider_order_id, o.created_at,
        count(distinct p.id)::text as pass_count
      from trip_pass_orders o
      left join trip_pass_grants g on g.order_id = o.id
      left join trip_passes p on p.id = g.trip_pass_id
-     ${filter}
+     ${filter}${orderId ? "" : " and o.updated_at <= statement_timestamp()"}
      group by o.id
-     order by o.id`,
+     order by case when o.status in ('paid', 'checkout_created') then 0 else 1 end,
+       o.updated_at desc, o.created_at, o.id
+     `,
     params,
   );
   return result.rows;

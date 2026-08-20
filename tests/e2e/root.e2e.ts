@@ -565,7 +565,7 @@ test("renders Trip Pass pricing and legal copy without unsupported promises", as
   await legalPrimaryAction.hover();
   await expect(legalPrimaryAction).toHaveCSS("background-color", "rgb(10, 111, 103)");
   await expect(legalPrimaryAction).toHaveCSS("color", "rgb(255, 249, 233)");
-  await expect(page.getByText("verified Stripe payment event")).toBeVisible();
+  await expect(page.getByText("verified Lemon Squeezy payment event")).toBeVisible();
   await expect(page.getByText("Full refunds revoke remaining pass access.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Provider availability" })).toBeVisible();
   const purchaseAction = page.getByRole("link", {

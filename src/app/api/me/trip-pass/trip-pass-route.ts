@@ -3,7 +3,16 @@ import { type EnsureCurrentUserDependencies, ensureCurrentUser } from "@/server/
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import { trackServerEvent } from "@/server/observability/events";
 import { isAllowedMutationOrigin } from "@/server/security/request-origin";
-import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/catalog";
+import {
+  readLemonSqueezyEnvironment,
+  tripPassProductCode,
+  tripPassProductVersion,
+} from "@/server/trip-pass/catalog";
+import {
+  applyExistingCheckoutReturnReceipt,
+  enqueueCheckoutReturnLookup,
+  readCheckoutReturnState,
+} from "@/server/trip-pass/checkout-return-lookup";
 import {
   cancelTripPassCheckout,
   startTripPassCheckout,
@@ -80,9 +89,18 @@ export async function postTripPassCheckoutResponse(
   }
 
   try {
+    const email = readLemonSqueezyEnvironment(dependencies.env).configured
+      ? (
+          await dependencies.db.query<{ email: string | null }>(
+            "select email from users where id = $1 and deleted_at is null",
+            [currentUser.userId],
+          )
+        ).rows[0]?.email
+      : undefined;
     const result = await dependencies.startTripPassCheckout(
       {
         userId: currentUser.userId,
+        email,
         appUrl: dependencies.env?.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin,
       },
       {
@@ -167,6 +185,88 @@ export async function postTripPassCheckoutResponse(
   }
 }
 
+export async function postTripPassCheckoutReturnResponse(
+  request: Request,
+  dependencies: TripPassAccountRouteDependencies = createDefaultTripPassAccountRouteDependencies(),
+  headers?: HeadersInit,
+) {
+  const responseHeaders = { ...privateNoStoreHeaders, ...headers };
+  if (!isAllowedMutationOrigin(request)) {
+    return Response.json(
+      { error: "invalid_request_origin" },
+      { status: 403, headers: responseHeaders },
+    );
+  }
+  const currentUser = await ensureTripPassUser(dependencies);
+  if (!currentUser)
+    return Response.json({ error: "unauthenticated" }, { status: 401, headers: responseHeaders });
+  const body = await request.json().catch(() => null);
+  const orderId =
+    typeof body === "object" &&
+    body !== null &&
+    "orderId" in body &&
+    typeof body.orderId === "string"
+      ? body.orderId.trim()
+      : "";
+  const providerOrderId = readCheckoutReturnField(body, "providerOrderId");
+  const providerOrderIdentifier = readCheckoutReturnField(body, "providerOrderIdentifier");
+  if (!orderId || orderId.length > 200) {
+    return Response.json(
+      { error: "invalid_checkout_return" },
+      { status: 400, headers: responseHeaders },
+    );
+  }
+  const state = await readCheckoutReturnState(dependencies.db, {
+    orderId,
+    userId: currentUser.userId,
+    now: dependencies.now(),
+  });
+  if (state === "applied") {
+    return Response.json({ status: "applied" }, { headers: responseHeaders });
+  }
+  if (state === "missing" || state === "before_grace" || state === "pending") {
+    return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
+  }
+  try {
+    const receipt = await applyExistingCheckoutReturnReceipt({
+      db: dependencies.db,
+      env: dependencies.env,
+      now: dependencies.now(),
+      orderId,
+      userId: currentUser.userId,
+    });
+    if (receipt) {
+      const afterReceipt = await readCheckoutReturnState(dependencies.db, {
+        orderId,
+        userId: currentUser.userId,
+        now: dependencies.now(),
+      });
+      return afterReceipt === "applied"
+        ? Response.json({ status: "applied" }, { headers: responseHeaders })
+        : Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
+    }
+    const enqueue = await enqueueCheckoutReturnLookup(dependencies.db, {
+      now: dependencies.now(),
+      orderId,
+      providerOrderId,
+      providerOrderIdentifier,
+      userId: currentUser.userId,
+    });
+    if (enqueue.status === "applied") {
+      return Response.json({ status: "applied" }, { headers: responseHeaders });
+    }
+    return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
+  } catch {
+    return Response.json({ status: "pending" }, { status: 202, headers: responseHeaders });
+  }
+}
+
+function readCheckoutReturnField(body: unknown, key: string) {
+  if (typeof body !== "object" || body === null || !(key in body)) return "";
+  const value = (body as Record<string, unknown>)[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export async function deleteTripPassCheckoutResponse(
   request: Request,
   dependencies: TripPassAccountRouteDependencies = createDefaultTripPassAccountRouteDependencies(),
@@ -190,6 +290,7 @@ export async function deleteTripPassCheckoutResponse(
       { userId: currentUser.userId },
       {
         db: dependencies.db,
+        env: dependencies.env,
         now: dependencies.now(),
       },
     );

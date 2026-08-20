@@ -11,9 +11,10 @@ records the historical evidence and decisions behind this policy.
 ## Launch contract
 
 The as-built product is `siargao_trip_pass_14d_v2`: a one-time USD 9.99 Checkout payment for a
-14-day/336-hour pass and 150 successful `chat_message` answers. Stripe owns amount and currency;
-the local ledger owns access and meter balance. Stripe API `2026-07-29.dahlia` and normalized event
-schema `2` are the accepted payment contract.
+14-day/336-hour pass and 150 successful `chat_message` answers. Lemon Squeezy owns the merchant,
+transaction, receipt, amount, currency, and refund facts; the local ledger owns access and meter
+balance. The accepted contract is one immutable Store/Variant, signed `order_created` and
+`order_refunded` facts, and normalized Payment Event Receipt fingerprints.
 
 `TRIP_PASS_CHECKOUT_MODE` is the only rollout control: `off`, `canary`, or `on`. Empty configuration
 resolves to `off`. Deployment validation must reject malformed values; if an invalid value is still
@@ -29,7 +30,7 @@ An Evidence Owner creates a dedicated GitHub launch issue for one full trusted-`
 - the immutable SHA and deployment URL bound to that SHA;
 - the SHA-qualified engineering manifest and checksum;
 - the complete ordered migration ledger fingerprint;
-- exact CI and protected Clerk/Stripe release-candidate run links;
+- exact CI and protected Clerk/Lemon Squeezy release-candidate run links;
 - legal, privacy, finance, security, Operator, monitoring, backup/restore, and rollback sign-offs;
 - the intended rollout mode, canary accounts if applicable, observation window, and named rollback
   owner.
@@ -57,7 +58,7 @@ backup/restore. Raw provider payload retention is prohibited.
 Require a successful database restore drill from the previous 30 days and an exercised application
 rollback before first authorization and at least quarterly thereafter. Confirm a health/readiness
 surface, named signal owners, and tested alert routes. Provider QA must match the exact deployed SHA
-and be rerun after relevant Clerk or Stripe configuration changes.
+and be rerun after relevant Clerk or Lemon Squeezy configuration changes.
 
 Exercise the deployed scheduler adapters with bounded invocations and verify only scrubbed counts:
 
@@ -111,7 +112,7 @@ changes exposure.
 
 Set `TRIP_PASS_CHECKOUT_MODE=off` and redeploy. Existing paid access, refunds, disputes, closure
 operations, inbox rows, usage events, and audit evidence continue forward; do not delete them or
-reverse migrations. Reconcile authoritative Stripe facts, open Findings, and use only the
+reverse migrations. Reconcile authoritative Lemon Squeezy facts, open Findings, and use only the
 allowlisted fresh-MFA Operator repair path. Record the rollback and follow-up evidence in the same
 dedicated GitHub launch issue.
 

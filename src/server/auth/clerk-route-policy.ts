@@ -113,6 +113,12 @@ export const clerkRoutePolicyEntries = [
     "protected",
     "MFA-gated Operator Repair Actions",
   ),
+  api(
+    "src/app/api/admin/trip-pass/refunds/route.ts",
+    "/api/admin/trip-pass/refunds",
+    "protected",
+    "MFA-gated Operator Trip Pass refunds",
+  ),
   api("src/app/api/chat/route.ts", "/api/chat", "public", "anonymous chat API"),
   api(
     "src/app/api/chat/ratings/route.ts",
@@ -201,6 +207,12 @@ export const clerkRoutePolicyEntries = [
     "authenticated Trip Pass checkout API",
   ),
   api(
+    "src/app/api/me/trip-pass/checkout/return/route.ts",
+    "/api/me/trip-pass/checkout/return",
+    "protected",
+    "authenticated Lemon Squeezy checkout return convergence API",
+  ),
+  api(
     "src/app/api/me/trip-pass/route.ts",
     "/api/me/trip-pass",
     "protected",
@@ -249,6 +261,12 @@ export const clerkRoutePolicyEntries = [
     "/api/stripe/webhook",
     "externally_verified",
     "Stripe signature-verified webhook",
+  ),
+  api(
+    "src/app/api/payments/lemon-squeezy/webhook/route.ts",
+    "/api/payments/lemon-squeezy/webhook",
+    "externally_verified",
+    "Lemon Squeezy signature-verified webhook",
   ),
   api(
     "src/app/api/trips/saved/route.ts",

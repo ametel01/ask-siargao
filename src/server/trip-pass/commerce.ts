@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
 
 import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
-import { readTripPassEnvironment, tripPassProductFamily } from "@/server/trip-pass/catalog";
+import {
+  readLemonSqueezyEnvironment,
+  readTripPassEnvironment,
+  tripPassProductFamily,
+} from "@/server/trip-pass/catalog";
+import {
+  cancelLemonSqueezyTripPassCheckout,
+  type LemonTripPassCheckoutOptions,
+  startLemonSqueezyTripPassCheckout,
+} from "@/server/trip-pass/lemon-commerce";
 import {
   buildTripPassCheckoutSessionParams,
   createTripPassCheckoutClient,
@@ -45,11 +54,13 @@ export type StartTripPassCheckoutOptions = {
   db?: DatabaseQueryClient;
   env?: Record<string, string | undefined>;
   now?: Date;
+  lemonCheckoutClient?: LemonTripPassCheckoutOptions["client"];
 };
 
 export type CancelTripPassCheckoutOptions = {
   checkoutClient?: TripPassCheckoutClient;
   db?: DatabaseQueryClient;
+  env?: Record<string, string | undefined>;
   now?: Date;
 };
 
@@ -61,7 +72,7 @@ type TripPassOrderRow = {
   product_code: string;
   product_family: string;
   product_version: number;
-  stripe_price_id: string;
+  stripe_price_id: string | null;
   amount_total_minor: number | null;
   currency: string | null;
   checkout_idempotency_key: string;
@@ -94,6 +105,19 @@ export async function startTripPassCheckout(
   input: StartTripPassCheckoutInput,
   options: StartTripPassCheckoutOptions = {},
 ): Promise<TripPassCheckoutResult> {
+  const lemonEnvironment = readLemonSqueezyEnvironment(options.env);
+  if (lemonEnvironment.configured) {
+    return startLemonSqueezyTripPassCheckout(input, {
+      db: options.db ?? getDefaultDatabaseQueryClient(),
+      env: options.env,
+      now: options.now,
+      client: options.lemonCheckoutClient,
+      createId: options.createId,
+    });
+  }
+  if (!legacyStripeCompatibilityAllowed(options.env)) {
+    return { status: "unavailable", reason: "lemon_squeezy_configuration_unavailable" };
+  }
   const environment = readTripPassEnvironment(options.env);
   const checkoutAvailability = checkoutAvailabilityForAccount(input.userId, environment.checkout);
   if (checkoutAvailability) {
@@ -150,6 +174,14 @@ export async function cancelTripPassCheckout(
   input: CancelTripPassCheckoutInput,
   options: CancelTripPassCheckoutOptions = {},
 ): Promise<CancelTripPassCheckoutResult> {
+  if (readLemonSqueezyEnvironment(options.env).configured) {
+    return cancelLemonSqueezyTripPassCheckout(input, {
+      db: options.db ?? getDefaultDatabaseQueryClient(),
+    });
+  }
+  if (!legacyStripeCompatibilityAllowed(options.env)) {
+    return { status: "unavailable", reason: "checkout_cancellation_unavailable" };
+  }
   const db = options.db ?? getDefaultDatabaseQueryClient();
   const checkoutClient = options.checkoutClient ?? createTripPassCheckoutClient();
   const order = await loadLatestEffectivePendingOrder(
@@ -498,7 +530,7 @@ async function markOrderCheckoutCreationFailed(
   );
 }
 
-async function acquireFamilyReservationLock(
+export async function acquireFamilyReservationLock(
   input: { userId: string; productFamily: string },
   db: DatabaseQueryClient,
 ) {
@@ -508,12 +540,7 @@ async function acquireFamilyReservationLock(
       input.productFamily,
     ]);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      /pg_advisory|hashtext|function|syntax|unsupported/i.test(error.message)
-    ) {
-      return;
-    }
+    if (db.dialect === "pglite") return;
     throw error;
   }
 }
@@ -556,7 +583,7 @@ function orderSnapshotFromRow(
     checkoutSessionExpiresAt: order.checkout_session_expires_at
       ? dateFromDatabaseValue(order.checkout_session_expires_at)
       : checkoutExpiryFromReservationTime(dateFromDatabaseValue(order.created_at)),
-    stripePriceId: order.stripe_price_id,
+    stripePriceId: order.stripe_price_id ?? "",
     createdForRequest: input.createdForRequest,
   };
 }
@@ -591,4 +618,10 @@ function checkoutExpiryFromReservationTime(reservationTime: Date) {
 
 function dateFromDatabaseValue(value: Date | string) {
   return value instanceof Date ? value : new Date(String(value));
+}
+
+function legacyStripeCompatibilityAllowed(env?: Record<string, string | undefined>) {
+  if (env?.LEGACY_STRIPE_TRIP_PASS_COMPAT === "true") return true;
+  const runtimeEnvironment = env?.NODE_ENV ?? process.env.NODE_ENV;
+  return runtimeEnvironment !== "production";
 }

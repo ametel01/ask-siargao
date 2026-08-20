@@ -118,6 +118,13 @@ export function TripPassLegalPage() {
                 {tripPassPublicOffer.purchaseActionLabel}
               </Link>
             </Button>
+            <Button
+              asChild
+              className="min-h-11 rounded-md border-border-default bg-white px-4 text-sm font-extrabold text-text-strong hover:bg-brand-lagoon-100 focus-visible:ring-3 focus-visible:ring-brand-lagoon-500/20"
+              variant="outline"
+            >
+              <a href={tripPassPublicOffer.links.support}>Email support</a>
+            </Button>
           </div>
         </section>
       </div>

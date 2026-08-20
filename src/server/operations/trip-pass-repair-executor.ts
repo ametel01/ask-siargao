@@ -1,9 +1,9 @@
-import Stripe from "stripe";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import type {
   AuthoritativeCommerceReader,
   AuthoritativePaymentFact,
 } from "@/server/operations/live-reconciliation";
+import { createProductionStripeCommerceReader } from "@/server/operations/production-stripe-commerce-reader";
 import type {
   PreparedRepairAction,
   RepairActionContext,
@@ -11,7 +11,6 @@ import type {
   RepairFinding,
   RepairStateChange,
 } from "@/server/operations/repair-actions";
-import { createStripeCommerceReader } from "@/server/operations/stripe-commerce-reader";
 import { initializeTripPassMeters, tripPassMeterLimits } from "@/server/payments/trip-pass";
 import { grantTripPass } from "@/server/trip-pass/entitlement";
 import {
@@ -39,7 +38,7 @@ export function createTripPassRepairActionDispatcher(dependencies: {
 export type RepairActionType = keyof ReturnType<typeof createTripPassRepairActions>;
 
 export const tripPassRepairActionDispatcher = createTripPassRepairActionDispatcher({
-  commerceReader: createProductionCommerceReader(),
+  commerceReader: createProductionRepairCommerceReader(),
 });
 
 export const repairActionTypes = tripPassRepairActionDispatcher.actionTypes;
@@ -580,12 +579,12 @@ async function loadAuthoritativeOrderState(orderId: string, db: DatabaseQueryCli
   };
 }
 
-function createProductionCommerceReader(): AuthoritativeCommerceReader {
+export function createProductionRepairCommerceReader(
+  options: Parameters<typeof createProductionStripeCommerceReader>[0] = {},
+): AuthoritativeCommerceReader {
   return {
     async readPaymentFact(input) {
-      const apiKey = process.env.STRIPE_RESTRICTED_KEY ?? process.env.STRIPE_SECRET_KEY;
-      if (!apiKey) throw new Error("stripe_configuration_unavailable");
-      return createStripeCommerceReader(new Stripe(apiKey)).readPaymentFact(input);
+      return createProductionStripeCommerceReader(options).readPaymentFact(input);
     },
   };
 }

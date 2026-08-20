@@ -967,6 +967,7 @@ function PassPanel() {
     "idle",
   );
   const [checkoutReturn, setCheckoutReturn] = useState<"none" | "return" | "cancelled">("none");
+  const returnConvergenceStarted = useRef(false);
   const {
     data: tripPass,
     error: tripPassError,
@@ -1005,6 +1006,23 @@ function PassPanel() {
     if (result === "return" || result === "cancelled") {
       setCheckoutReturn(result);
       void refreshTripPass();
+      if (result === "return" && !returnConvergenceStarted.current) {
+        const orderId = params.get("order");
+        const providerOrderId = params.get("provider_order");
+        const providerOrderIdentifier = params.get("provider_identifier");
+        if (orderId) {
+          returnConvergenceStarted.current = true;
+          window.setTimeout(() => {
+            void fetch("/api/me/trip-pass/checkout/return", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ orderId, providerOrderId, providerOrderIdentifier }),
+            }).finally(() => {
+              void refreshTripPass();
+            });
+          }, 10_000);
+        }
+      }
     }
   }, [refreshTripPass]);
 

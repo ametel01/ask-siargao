@@ -4,6 +4,7 @@ import { readOpenMeteoApiMode } from "@/server/providers/production-provider-mod
 export const operationalScheduleDefinitions = {
   marine: { graceMinutes: 30, scheduleMinutes: 180 },
   places_prune: { graceMinutes: 60, scheduleMinutes: 1440 },
+  commerce_reconciliation: { graceMinutes: 5, scheduleMinutes: 5 },
   weather: { graceMinutes: 30, scheduleMinutes: 180 },
 } as const;
 

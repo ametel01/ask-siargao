@@ -29,6 +29,7 @@ export async function runPaidAfterClosureRefundBatch(
     jitterUnit?: number;
     createLeaseToken?: () => string;
     obligationId?: string;
+    signal?: AbortSignal;
   } = {},
 ): Promise<PaidAfterClosureRefundBatchResult> {
   const db = input.db ?? getDefaultDatabaseQueryClient();
@@ -49,11 +50,12 @@ export async function runPaidAfterClosureRefundBatch(
     result.claimed += 1;
     try {
       const refund = claim.stripe_refund_id
-        ? await stripe.retrieveRefund(claim.stripe_refund_id)
+        ? await stripe.retrieveRefund(claim.stripe_refund_id, { signal: input.signal })
         : await stripe.createFullRefund({
             paymentIntentId: claim.stripe_payment_intent_id,
             amountMinor: claim.expected_amount_minor,
             idempotencyKey: `paid_after_closure:${claim.id}`,
+            signal: input.signal,
           });
       const committed =
         refund.status === "succeeded"
