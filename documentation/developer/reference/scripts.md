@@ -124,7 +124,8 @@ under Migration Ledger Behavior; do not give the deployed runtime credential sch
 The provider commands are not normal local or pull-request gates. Dispatch the protected workflow
 from the default branch after its requested full SHA is present in `main`; GitHub environment
 approval supplies dedicated test-only resources. A normal invocation without that context must
-fail before contacting Clerk or Stripe.
+fail before contacting Clerk or Lemon Squeezy. Stripe is retained only for historical accounting
+evidence.
 
 ## Real Service Integration Lanes
 

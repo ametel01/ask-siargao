@@ -123,11 +123,14 @@ export async function startHistoricalStripeTripPassCheckout(
   options: StartTripPassCheckoutOptions = {},
 ): Promise<TripPassCheckoutResult> {
   const environment = readTripPassEnvironment(options.env);
-  const checkoutAvailability = checkoutAvailabilityForAccount(input.userId, environment.checkout);
+  const checkoutAvailability = checkoutAvailabilityForAccount(
+    input.userId,
+    environment.historicalStripeCheckout,
+  );
   if (checkoutAvailability) {
     return checkoutAvailability;
   }
-  if (!environment.checkout.priceId) {
+  if (!environment.historicalStripeCheckout.priceId) {
     return { status: "unavailable", reason: "trip_pass_checkout_unavailable" };
   }
 
@@ -135,7 +138,7 @@ export async function startHistoricalStripeTripPassCheckout(
   const order = await ensurePendingCheckoutOrder(
     {
       userId: input.userId,
-      stripePriceId: environment.checkout.priceId,
+      stripePriceId: environment.historicalStripeCheckout.priceId,
       createId: options.createId ?? defaultCreateId,
     },
     db,

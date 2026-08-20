@@ -93,6 +93,11 @@ test("checkout, return-before-webhook, signed duplicate facts, settlement, and r
     inboxStatus: "duplicate",
   });
   await expectTripPassStatus(page, "active");
+  await recordScenarios([
+    "return_before_webhook_convergence",
+    "signed_webhook_ingestion",
+    "duplicate_payment_fact",
+  ]);
 
   const before = await chatAllowance(page);
   const chat = await page.request.post("/api/chat", {
@@ -102,6 +107,7 @@ test("checkout, return-before-webhook, signed duplicate facts, settlement, and r
   expect(chat.status()).toBe(200);
   const after = await chatAllowance(page);
   expect(after.used).toBe(before.used + 1);
+  await recordScenarios(["paid_answer_settlement"]);
 
   await assertLiveBoundary(page);
   const total = requiredAmount(paid);
@@ -114,6 +120,7 @@ test("checkout, return-before-webhook, signed duplicate facts, settlement, and r
   );
   await deliverSignedLemonSqueezyEvent(page, paymentPayload(partial, "order_refunded"));
   await expectTripPassStatus(page, "refund_review");
+  await recordScenarios(["partial_refund"]);
 
   const full = await safeProviderCall("complete test refund", () =>
     lemonClient.refundOrder(paid.providerOrderId, {
@@ -123,14 +130,7 @@ test("checkout, return-before-webhook, signed duplicate facts, settlement, and r
   );
   await deliverSignedLemonSqueezyEvent(page, paymentPayload(full, "order_refunded"));
   await expectTripPassStatus(page, "revoked");
-  await recordScenarios([
-    "return_before_webhook_convergence",
-    "signed_webhook_ingestion",
-    "duplicate_payment_fact",
-    "partial_refund",
-    "full_refund",
-    "paid_answer_settlement",
-  ]);
+  await recordScenarios(["full_refund"]);
 });
 
 test("a second provider payment creates durable refund recovery", async ({ page }) => {

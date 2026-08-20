@@ -18,8 +18,11 @@ import { tripPassProductCode, tripPassProductVersion } from "@/server/trip-pass/
 
 const now = new Date("2026-07-04T08:00:00.000Z");
 const availableEnv = {
+  LEMON_SQUEEZY_API_KEY: "lemon_test_key",
+  LEMON_SQUEEZY_PRODUCT_ID: "product_trip_pass",
+  LEMON_SQUEEZY_STORE_ID: "store_trip_pass",
+  LEMON_SQUEEZY_VARIANT_ID: "variant_trip_pass",
   TRIP_PASS_CHECKOUT_MODE: "on",
-  STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass",
 };
 
 describe("Trip Pass account API routes", () => {
@@ -79,7 +82,7 @@ describe("Trip Pass account API routes", () => {
     });
   });
 
-  test("rejects cross-origin checkout attempts before starting Stripe checkout", async () => {
+  test("rejects cross-origin checkout attempts before starting Lemon Squeezy checkout", async () => {
     await withRouteDb(async (db) => {
       const dependencies = routeDependencies(db, { userId: "user_origin" });
       const response = await postTripPassCheckoutResponse(
@@ -107,13 +110,13 @@ describe("Trip Pass account API routes", () => {
       expect(response.headers.get("x-ratelimit-limit")).toBe("4");
       expect(body).toEqual({
         status: "started",
-        checkoutUrl: "https://checkout.stripe.test/trip-pass",
+        checkoutUrl: "https://checkout.lemonsqueezy.test/trip-pass",
       });
       expect(JSON.stringify(body)).not.toContain("order_route_secret");
       expect(dependencies.checkoutCalls).toEqual([
         {
           userId: "user_checkout",
-          email: undefined,
+          email: null,
           appUrl: "https://siargao.test",
         },
       ]);
@@ -142,11 +145,14 @@ describe("Trip Pass account API routes", () => {
       });
       const unavailable = routeDependencies(db, {
         userId: "user_unavailable",
-        checkoutResult: { status: "unavailable", reason: "missing_stripe_trip_pass_price_id" },
+        checkoutResult: {
+          status: "unavailable",
+          reason: "lemon_squeezy_configuration_unavailable",
+        },
       });
       const throwing = routeDependencies(db, {
         userId: "user_throwing",
-        checkoutError: new Error("stripe secret pi_should_not_render"),
+        checkoutError: new Error("lemon secret order_should_not_render"),
       });
 
       const disabledBody = await (
@@ -173,8 +179,10 @@ describe("Trip Pass account API routes", () => {
         error: "trip_pass_checkout_unavailable",
         message: "Trip Pass checkout could not be started.",
       });
-      expect(JSON.stringify(unavailableBody)).not.toContain("missing_stripe_trip_pass_price_id");
-      expect(JSON.stringify(throwingBody)).not.toContain("pi_should_not_render");
+      expect(JSON.stringify(unavailableBody)).not.toContain(
+        "lemon_squeezy_configuration_unavailable",
+      );
+      expect(JSON.stringify(throwingBody)).not.toContain("order_should_not_render");
       expect(disabled.events.map((event) => event.name)).toEqual([
         "trip_pass_checkout_started",
         "trip_pass_checkout_failed",
@@ -193,8 +201,10 @@ describe("Trip Pass account API routes", () => {
           },
         },
       ]);
-      expect(JSON.stringify(unavailable.events)).not.toContain("missing_stripe_trip_pass_price_id");
-      expect(JSON.stringify(throwing.events)).not.toContain("pi_should_not_render");
+      expect(JSON.stringify(unavailable.events)).not.toContain(
+        "lemon_squeezy_configuration_unavailable",
+      );
+      expect(JSON.stringify(throwing.events)).not.toContain("order_should_not_render");
     });
   });
 
@@ -599,7 +609,7 @@ function routeDependencies(
         input.checkoutResult ?? {
           status: "started",
           orderId: "order_route_secret",
-          checkoutUrl: "https://checkout.stripe.test/trip-pass",
+          checkoutUrl: "https://checkout.lemonsqueezy.test/trip-pass",
         }
       );
     },
