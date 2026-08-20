@@ -4,9 +4,81 @@ import { PGlite } from "@electric-sql/pglite";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { runInitialMigration } from "@/server/db/test-database";
 import { createOperationTrace, operationalTaskTypes } from "@/server/operations/contracts";
-import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
+import {
+  createDefaultCommerceReaders,
+  createProductionOperationalTaskHandlers,
+  deleteClerkUserThroughBackendApi,
+} from "@/server/operations/production-handlers";
 
 describe("production operational task handlers", () => {
+  test("builds the retained Stripe reader through the bounded client factory", async () => {
+    let configuredKey: string | undefined;
+    const readers = createDefaultCommerceReaders({
+      env: { STRIPE_RESTRICTED_KEY: "rk_test_bounded_reader" },
+      createStripeClient(apiKey) {
+        configuredKey = apiKey;
+        return {
+          checkout: { sessions: { retrieve: async () => ({}) } },
+          paymentIntents: {
+            retrieve: async () => ({
+              amount: 999,
+              amount_received: 999,
+              currency: "usd",
+              latest_charge: null,
+              status: "succeeded",
+            }),
+          },
+        } as never;
+      },
+    });
+
+    expect(configuredKey).toBe("rk_test_bounded_reader");
+    await expect(
+      readers.stripe?.readPaymentFact({ checkoutSessionId: null, paymentIntentId: "pi_retained" }),
+    ).resolves.toMatchObject({ paymentState: "paid" });
+  });
+
+  test("cancels the Clerk deletion transport at its provider deadline", async () => {
+    let transportSignal: AbortSignal | undefined;
+    const fetchLike = async (_request: string, init?: RequestInit) => {
+      transportSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        const abort = () => reject(transportSignal?.reason ?? new Error("aborted"));
+        transportSignal?.addEventListener("abort", abort, { once: true });
+      });
+    };
+
+    await expect(
+      deleteClerkUserThroughBackendApi("user_bounded_delete", {
+        fetch: fetchLike,
+        secretKey: "sk_test_redacted",
+        timeoutMs: 20,
+      }),
+    ).rejects.toThrow();
+    expect(transportSignal?.aborted).toBe(true);
+  });
+
+  test("uses Clerk's bounded Backend API deletion and treats an absent user as converged", async () => {
+    let request: { init?: RequestInit; url: string } | undefined;
+    await expect(
+      deleteClerkUserThroughBackendApi("user/already deleted", {
+        apiUrl: "https://clerk.example.test/",
+        fetch: async (url, init) => {
+          request = { init, url };
+          return new Response(null, { status: 404 });
+        },
+        secretKey: "sk_test_redacted",
+      }),
+    ).resolves.toBeUndefined();
+    expect(request).toMatchObject({
+      url: "https://clerk.example.test/v1/users/user%2Falready%20deleted",
+      init: {
+        method: "DELETE",
+        headers: { Authorization: "Bearer sk_test_redacted" },
+      },
+    });
+  });
+
   test("binds every durable task kind to its concrete scoped production path", async () => {
     for (const taskType of operationalTaskTypes) {
       const queries: string[] = [];

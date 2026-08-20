@@ -30,6 +30,8 @@ export type LemonTripPassCheckoutOptions = {
   now?: Date;
 };
 
+export const lemonCheckoutSettlementGraceMs = 5 * 60_000;
+
 export async function startLemonSqueezyTripPassCheckout(
   input: { userId: string; email?: string | null; appUrl: string },
   options: LemonTripPassCheckoutOptions,
@@ -174,16 +176,52 @@ async function ensureLemonOrder(input: {
         createdForRequest: false,
       };
     }
+    const settlementFence = await db.query<{ id: string }>(
+      `select o.id from trip_pass_orders o
+       where o.user_id = $1 and o.product_family = $2
+         and o.payment_provider = 'lemon_squeezy'
+         and o.status in ('pending', 'checkout_created')
+         and o.checkout_session_expires_at is not null
+         and o.checkout_session_expires_at <= $3
+         and o.accepted_payment_fact_id is null
+         and coalesce(o.captured_amount_minor, 0) = 0
+         and (
+           o.checkout_session_expires_at > $4
+           or exists (
+             select 1 from trip_pass_payment_event_receipts receipt
+             where receipt.order_id = o.id and receipt.status = 'pending'
+           )
+           or (
+             o.checkout_return_lookup_attempts > 0
+             and o.checkout_return_lookup_status = 'pending'
+           )
+         )
+       order by o.created_at desc, o.id desc limit 1`,
+      [
+        input.userId,
+        tripPassProductFamily,
+        now,
+        new Date(now.getTime() - lemonCheckoutSettlementGraceMs),
+      ],
+    );
+    if (settlementFence.rows[0]) return { reason: "trip_pass_checkout_settling" };
     await acquireRiskReconciliationCapacityLock(db);
     const expiredOrders = await db.query<{ id: string }>(
       `update trip_pass_orders set status = 'expired', checkout_session_status = 'expired',
          updated_at = $1
        where payment_provider = 'lemon_squeezy'
          and status in ('pending', 'checkout_created')
-         and checkout_session_expires_at is not null and checkout_session_expires_at <= $1
+         and checkout_session_expires_at is not null and checkout_session_expires_at <= $2
          and accepted_payment_fact_id is null and coalesce(captured_amount_minor, 0) = 0
+         and not exists (
+           select 1 from trip_pass_payment_event_receipts receipt
+           where receipt.order_id = trip_pass_orders.id and receipt.status = 'pending'
+         )
+         and not (
+           checkout_return_lookup_attempts > 0 and checkout_return_lookup_status = 'pending'
+         )
        returning id`,
-      [now],
+      [now, new Date(now.getTime() - lemonCheckoutSettlementGraceMs)],
     );
     if (expiredOrders.rows.length > 0) {
       await db.query(

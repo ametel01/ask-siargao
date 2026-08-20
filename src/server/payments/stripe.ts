@@ -6,7 +6,7 @@ import {
   type VerifiedCheckoutPayment,
 } from "@/server/audit/lifecycle";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
-import { runProviderOperation } from "@/server/providers/provider-abort";
+import { providerRequestTimeoutMs, runProviderOperation } from "@/server/providers/provider-abort";
 
 export const AUDIT_PRICE_CENTS = 999;
 
@@ -35,22 +35,22 @@ export type StripeRefundClient = {
   ) => Promise<Pick<Stripe.Refund, "id" | "status">>;
 };
 
-function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
+export function createStripeServerClient(apiKey = stripeApiKeyFromEnv()) {
   return new Stripe(apiKey, {
     apiVersion: STRIPE_API_VERSION,
     maxNetworkRetries: 0,
-    timeout: 45_000,
+    timeout: providerRequestTimeoutMs,
   });
 }
 
-function createStripeCheckoutClient(stripe = createStripeClient()): StripeCheckoutClient {
+function createStripeCheckoutClient(stripe = createStripeServerClient()): StripeCheckoutClient {
   return {
     createCheckoutSession: (params) => stripe.checkout.sessions.create(params),
   };
 }
 
 export function createStripeLifecycleObjectRetriever(
-  stripe = createStripeClient(),
+  stripe = createStripeServerClient(),
 ): StripeLifecycleObjectRetriever {
   return {
     retrieveCharge: (chargeId) => stripe.charges.retrieve(chargeId),
@@ -59,7 +59,7 @@ export function createStripeLifecycleObjectRetriever(
   };
 }
 
-export function createStripeRefundClient(stripe = createStripeClient()): StripeRefundClient {
+export function createStripeRefundClient(stripe = createStripeServerClient()): StripeRefundClient {
   return {
     createFullRefund: (input) =>
       runProviderOperation(
@@ -136,7 +136,7 @@ export async function verifyStripeWebhookPayload(input: {
   webhookSecret: string;
   stripe?: Stripe;
 }) {
-  const stripe = input.stripe ?? createStripeClient();
+  const stripe = input.stripe ?? createStripeServerClient();
 
   return stripe.webhooks.constructEventAsync(input.payload, input.signature, input.webhookSecret);
 }

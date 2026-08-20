@@ -26,10 +26,12 @@ import {
   runOperationalWorker,
   runOperationalWorkerConcurrently,
 } from "@/server/operations/worker-runner";
+import { receiveLemonSqueezyPaymentFact } from "@/server/payments/payment-event-receipts";
 import {
   type LemonTripPassCheckoutOptions,
   startLemonSqueezyTripPassCheckout,
 } from "@/server/trip-pass/lemon-commerce";
+import { applyLemonSqueezyPaymentFact } from "@/server/trip-pass/lemon-squeezy-webhook-application";
 
 type NativeOperationsClient = DatabaseQueryClient & { end(): Promise<void> };
 
@@ -119,6 +121,7 @@ export async function runOperationsPostgresIntegration(
   await runRepairActionRegressions(db);
   await runReconciliationRepairLockOrderingRegressions(db, createQueryClient);
   await runOperatorRefundConcurrencyRegression(db, createQueryClient);
+  await runLemonCompetingPaymentConcurrencyRegression(db, createQueryClient);
   await runOperationalProducerRegressions(db);
   await runConcurrentBatchWorkerRegressions(db, createQueryClient);
   await runClosureTaskCompletionRegression(db);
@@ -746,6 +749,106 @@ async function runOperatorRefundConcurrencyRegression(
   } finally {
     await Promise.all([firstDb.end(), secondDb.end()]);
   }
+}
+
+async function runLemonCompetingPaymentConcurrencyRegression(
+  db: DatabaseQueryClient,
+  createQueryClient: () => NativeOperationsClient,
+) {
+  await db.query("insert into users (id, email) values ('native_lemon_competing_account', null)");
+  await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_family, product_version,
+       amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+       provider_store_id, provider_variant_id, checkout_commercial_terms_verified_at,
+       created_at, updated_at
+     ) values
+       ('native_lemon_competing_old', 'native_lemon_competing_account', 'checkout_created',
+        'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+        'native_lemon_competing_old_key', 'lemon_squeezy', 'native_store',
+        'native_variant', clock_timestamp(), clock_timestamp(), clock_timestamp()),
+       ('native_lemon_competing_new', 'native_lemon_competing_account', 'checkout_created',
+        'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+        'native_lemon_competing_new_key', 'lemon_squeezy', 'native_store',
+        'native_variant', clock_timestamp(), clock_timestamp(), clock_timestamp())`,
+  );
+  const holderAcquired = deferred<void>();
+  const releaseHolder = deferred<void>();
+  const contenderReached = deferred<void>();
+  const holderClient = createQueryClient();
+  const contenderClient = createQueryClient();
+  const observerClient = createQueryClient();
+  const holderDb = instrumentFamilyLock(holderClient, {
+    after: async () => {
+      holderAcquired.resolve();
+      await releaseHolder.promise;
+    },
+  });
+  const contenderDb = instrumentFamilyLock(contenderClient, {
+    before: async () => contenderReached.resolve(),
+  });
+  const fact = (orderId: string, suffix: string) => ({
+    provider: "lemon_squeezy" as const,
+    eventName: "order_lookup",
+    objectId: `native_provider_order_${suffix}`,
+    providerUpdatedAt: new Date().toISOString(),
+    orderId,
+    providerOrderId: `native_provider_order_${suffix}`,
+    paymentId: null,
+    storeId: "native_store",
+    variantId: "native_variant",
+    status: "paid" as const,
+    amountTotalMinor: 999,
+    refundedAmountMinor: 0,
+    currency: "usd",
+    testMode: false,
+    discountTotalMinor: 0,
+  });
+  const applyFact = ({
+    fact: paymentFact,
+    db: factDb,
+    now,
+  }: Parameters<
+    NonNullable<Parameters<typeof receiveLemonSqueezyPaymentFact>[1]["applyFact"]>
+  >[0]) => applyLemonSqueezyPaymentFact(paymentFact, { db: factDb, now });
+
+  try {
+    const first = receiveLemonSqueezyPaymentFact(fact("native_lemon_competing_new", "new"), {
+      applyFact,
+      db: holderDb,
+    });
+    await holderAcquired.promise;
+    const second = receiveLemonSqueezyPaymentFact(fact("native_lemon_competing_old", "old"), {
+      applyFact,
+      db: contenderDb,
+    });
+    await contenderReached.promise;
+    assert(
+      await hasBlockedAdvisoryLock(observerClient),
+      "native competing Lemon payment did not block on the Family lock",
+    );
+    releaseHolder.resolve();
+    await Promise.all([first, second]);
+  } finally {
+    releaseHolder.resolve();
+    await Promise.all([holderClient.end(), contenderClient.end(), observerClient.end()]);
+  }
+  const outcome = await db.query<{ facts: string; grants: string; refunds: string }>(
+    `select
+       (select count(*)::text from trip_pass_payment_facts
+        where order_id in ('native_lemon_competing_old', 'native_lemon_competing_new')) as facts,
+       (select count(*)::text from trip_pass_grants
+        where order_id in ('native_lemon_competing_old', 'native_lemon_competing_new')) as grants,
+       (select count(*)::text from trip_pass_refund_operations
+        where order_id in ('native_lemon_competing_old', 'native_lemon_competing_new')
+          and reason = 'duplicate_payment') as refunds`,
+  );
+  assert(
+    outcome.rows[0]?.facts === "2" &&
+      outcome.rows[0]?.grants === "1" &&
+      outcome.rows[0]?.refunds === "1",
+    "native competing Lemon payments did not converge to one grant and one refund",
+  );
 }
 
 async function runOperationalProducerRegressions(db: DatabaseQueryClient) {

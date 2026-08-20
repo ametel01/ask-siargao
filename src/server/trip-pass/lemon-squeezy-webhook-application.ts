@@ -7,6 +7,10 @@ import {
 } from "@/server/payments/lemon-squeezy";
 import { tripPassProductCatalog } from "@/server/trip-pass/catalog";
 import { grantTripPass } from "@/server/trip-pass/entitlement";
+import {
+  lockTripPassAccountFamily,
+  lockTripPassAccountWrites,
+} from "@/server/trip-pass/payment-lifecycle";
 
 export type LemonSqueezyPaymentApplicationResult =
   | { status: "ignored"; reason: "not_trip_pass_event" | "not_paid"; orderId?: string }
@@ -58,8 +62,17 @@ export async function applyLemonSqueezyPaymentFact(
   const result = await withTransaction<LemonSqueezyPaymentApplicationResult>(
     options.db,
     async (db) => {
+      const candidate = await db.query<{ user_id: string | null; product_family: string }>(
+        "select user_id, product_family from trip_pass_orders where id = $1",
+        [orderId],
+      );
+      const owner = candidate.rows[0];
+      if (owner?.user_id) {
+        await lockTripPassAccountFamily(owner.user_id, owner.product_family, db);
+        await lockTripPassAccountWrites(owner.user_id, db);
+      }
       const orderResult = await db.query<TripPassOrderRow>(
-        `select id, user_id, status, product_code, product_version, amount_total_minor, currency,
+        `select id, user_id, status, product_code, product_family, product_version, amount_total_minor, currency,
         payment_provider,
           provider_store_id, provider_product_id, provider_variant_id, provider_order_id, accepted_payment_fact_id,
         provider_updated_at, payment_suspension_state, refund_state, successful_refund_amount_minor,
@@ -79,25 +92,6 @@ export async function applyLemonSqueezyPaymentFact(
         order.provider_order_id !== fact.providerOrderId;
       if (order.provider_order_id && !fact.providerOrderId) {
         return { status: "rejected", reason: "trip_pass_provider_order_id_missing", orderId };
-      }
-      if (isAdditionalProviderPayment) {
-        const inserted = await recordPaymentFact(db, {
-          order,
-          fact,
-          receiptId: factFingerprintForFact(fact),
-          now,
-        });
-        if (!inserted) return { status: "duplicate", orderId };
-        if (fact.status !== "refunded" && remainingRefundAmount(fact) !== 0) {
-          await createRefundOperation(db, {
-            order,
-            fact,
-            reason: "duplicate_payment",
-            amountMinor: remainingRefundAmount(fact),
-            now,
-          });
-        }
-        return { status: "applied", action: "refunded", orderId };
       }
       if (!order.checkout_commercial_terms_verified_at) {
         return { status: "rejected", reason: "trip_pass_checkout_terms_unverified", orderId };
@@ -132,6 +126,25 @@ export async function applyLemonSqueezyPaymentFact(
       }
       if (!fact.storeId || !order.provider_store_id || fact.storeId !== order.provider_store_id) {
         return { status: "rejected", reason: "trip_pass_store_mismatch", orderId };
+      }
+      if (isAdditionalProviderPayment) {
+        const inserted = await recordPaymentFact(db, {
+          order,
+          fact,
+          receiptId: factFingerprintForFact(fact),
+          now,
+        });
+        if (!inserted) return { status: "duplicate", orderId };
+        if (fact.status !== "refunded" && remainingRefundAmount(fact) !== 0) {
+          await createRefundOperation(db, {
+            order,
+            fact,
+            reason: "duplicate_payment",
+            amountMinor: remainingRefundAmount(fact),
+            now,
+          });
+        }
+        return { status: "applied", action: "refunded", orderId };
       }
 
       const factId = `payment_fact_${factFingerprintForFact(fact).slice(0, 32)}`;
@@ -226,6 +239,39 @@ export async function applyLemonSqueezyPaymentFact(
       }
       if (!order.user_id)
         return { status: "rejected", reason: "trip_pass_order_missing_owner", orderId };
+      const competingPass = await db.query<{ id: string }>(
+        `select p.id from trip_passes p
+         join trip_pass_grants grant_record on grant_record.trip_pass_id = p.id
+         join trip_pass_orders granted_order on granted_order.id = grant_record.order_id
+         left join trip_usage_meters meter
+           on meter.trip_pass_id = p.id and meter.meter_type = 'chat_message'
+         where p.user_id = $1 and granted_order.product_family = $2
+           and granted_order.id <> $3
+           and p.status in ('active', 'suspended') and p.starts_at <= $4 and p.expires_at > $4
+           and (p.status = 'suspended' or meter.id is null or meter.used < meter."limit")
+         limit 1`,
+        [order.user_id, order.product_family, orderId, now],
+      );
+      if (competingPass.rows[0]) {
+        await db.query(
+          `update trip_pass_orders set status = 'paid', payment_provider = 'lemon_squeezy',
+           provider_order_id = coalesce(provider_order_id, $2),
+           provider_payment_id = coalesce(provider_payment_id, $3),
+           accepted_payment_fact_id = $4,
+           captured_amount_minor = coalesce(captured_amount_minor, amount_total_minor),
+           provider_updated_at = $5, lifecycle_updated_at = $6,
+           completed_at = coalesce(completed_at, $6), updated_at = $6 where id = $1`,
+          [orderId, fact.providerOrderId, fact.paymentId, factId, fact.providerUpdatedAt, now],
+        );
+        await createRefundOperation(db, {
+          order,
+          fact,
+          reason: "duplicate_payment",
+          amountMinor: remainingRefundAmount(fact),
+          now,
+        });
+        return { status: "applied", action: "refunded", orderId };
+      }
       const grant = await grantTripPass(
         {
           userId: order.user_id,
@@ -257,6 +303,7 @@ type TripPassOrderRow = {
   user_id: string | null;
   status: string;
   product_code: string;
+  product_family: string;
   product_version: number;
   amount_total_minor: number | null;
   currency: string | null;

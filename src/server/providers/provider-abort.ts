@@ -1,3 +1,5 @@
+export const providerRequestTimeoutMs = 45_000;
+
 export function combineAbortSignals(
   signals: ReadonlyArray<AbortSignal | null | undefined>,
 ): AbortSignal {

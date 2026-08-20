@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-import { combineAbortSignals } from "@/server/providers/provider-abort";
+import { combineAbortSignals, providerRequestTimeoutMs } from "@/server/providers/provider-abort";
 
 export const LEMON_SQUEEZY_API_ORIGIN = "https://api.lemonsqueezy.com";
 export const LEMON_SQUEEZY_WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
@@ -84,7 +84,7 @@ export function createLemonSqueezyHttpClient(
   const apiKey = input.apiKey ?? lemonSqueezyApiKeyFromEnv();
   const fetchLike = input.fetch ?? fetch;
   const origin = input.origin ?? LEMON_SQUEEZY_API_ORIGIN;
-  const timeoutMs = input.timeoutMs ?? 45_000;
+  const timeoutMs = input.timeoutMs ?? providerRequestTimeoutMs;
 
   return {
     async request(request) {

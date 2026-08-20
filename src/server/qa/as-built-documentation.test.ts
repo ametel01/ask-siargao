@@ -260,12 +260,12 @@ test("reconciliation docs match the exact finding scope and keep mutation at the
   expect(reference).toContain("read-only `operations:worker -- --task=commerce_reconciliation`");
   expect(reference).toMatch(/concurrently claims at most 50 reconciliation\s+tasks/);
   expect(reference).toContain("safe launch population of 50 Orders");
-  expect(reference).toContain("risk Orders become eligible after four minutes");
+  expect(reference).toContain("risk Orders become eligible after three minutes");
   expect(reference).toContain("fits in one every-minute reconciliation batch");
   expect(reference).toContain(
     "Every producer query and insert receives a cancellable database deadline",
   );
-  expect(reference).toContain("production lock errors fail checkout closed");
+  expect(reference).toMatch(/production lock errors fail checkout\s+closed/);
   expect(reference).toContain("durably consumes its single exact-Order provider access");
   expect(reference).toContain("while the 46-second worker reserve remains");
   expect(reference).not.toContain("drains that lane");

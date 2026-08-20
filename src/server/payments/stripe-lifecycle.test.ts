@@ -16,6 +16,7 @@ import {
   AUDIT_PRICE_CENTS,
   buildAuditCheckoutSessionParams,
   buildVerifiedPaymentEventRecord,
+  createStripeServerClient,
   extractVerifiedCheckoutPayment,
   verifyStripeWebhookPayload,
 } from "@/server/payments/stripe";
@@ -65,6 +66,14 @@ function checkoutSessionCompletedPayload() {
 }
 
 describe("Stripe checkout gating", () => {
+  test("configures every server Stripe client for one bounded zero-retry request", () => {
+    const stripe = createStripeServerClient("sk_test_bounded_client") as Stripe & {
+      _api: { maxNetworkRetries: number; timeout: number };
+    };
+
+    expect(stripe._api).toMatchObject({ maxNetworkRetries: 0, timeout: 45_000 });
+  });
+
   test("loads persisted eligibility before creating and persisting Checkout", async () => {
     const events: string[] = [];
     const result = await startAuditCheckoutPaymentLifecycle(

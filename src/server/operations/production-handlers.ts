@@ -1,4 +1,4 @@
-import Stripe from "stripe";
+import type Stripe from "stripe";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import type { OperationalTaskHandlers } from "@/server/operations/contracts";
@@ -14,10 +14,14 @@ import {
   applyPendingLemonSqueezyPaymentEvent,
   receiveLemonSqueezyPaymentFact,
 } from "@/server/payments/payment-event-receipts";
-import type { StripeRefundClient } from "@/server/payments/stripe";
+import { createStripeServerClient, type StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
 import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
-import { runProviderOperation } from "@/server/providers/provider-abort";
+import {
+  combineAbortSignals,
+  providerRequestTimeoutMs,
+  runProviderOperation,
+} from "@/server/providers/provider-abort";
 import { readLemonSqueezyEnvironment } from "@/server/trip-pass/catalog";
 import { runCheckoutReturnLookup } from "@/server/trip-pass/checkout-return-lookup";
 import {
@@ -242,26 +246,33 @@ function createDefaultCommerceReader() {
   return createStripeCommerceReader(createStripeServerClient());
 }
 
-function createDefaultCommerceReaders() {
+export function createDefaultCommerceReaders(
+  options: {
+    env?: Record<string, string | undefined>;
+    createStripeClient?: (apiKey: string) => Pick<Stripe, "checkout" | "paymentIntents">;
+  } = {},
+) {
+  const env = options.env ?? process.env;
   const readers: Partial<Record<"stripe" | "lemon_squeezy", AuthoritativeCommerceReader>> = {};
-  if (readLemonSqueezyEnvironment().configured) {
+  if (readLemonSqueezyEnvironment(env).configured) {
     readers.lemon_squeezy = createLemonSqueezyCommerceReader();
   }
-  const stripeKey = process.env.STRIPE_RESTRICTED_KEY ?? process.env.STRIPE_SECRET_KEY;
-  if (stripeKey) readers.stripe = createStripeCommerceReader(new Stripe(stripeKey));
+  const stripeKey = env.STRIPE_RESTRICTED_KEY ?? env.STRIPE_SECRET_KEY;
+  if (stripeKey) {
+    readers.stripe = createStripeCommerceReader(
+      options.createStripeClient?.(stripeKey) ?? createStripeServerClient(stripeKey),
+    );
+  }
   return readers;
 }
 
 function createDefaultClosureProviders(): ClosureProviders {
   return {
     async deleteClerkUser(userId, signal) {
-      const { clerkClient } = await import("@clerk/nextjs/server");
-      const clerk = await clerkClient();
-      try {
-        await runProviderOperation(() => clerk.users.deleteUser(userId), signal);
-      } catch (error) {
-        if (!isNotFound(error)) throw error;
-      }
+      await deleteClerkUserThroughBackendApi(userId, {
+        secretKey: process.env.CLERK_SECRET_KEY,
+        signal,
+      });
     },
     async expireCheckoutSession(sessionId, signal) {
       const stripe = createStripeServerClient();
@@ -276,17 +287,33 @@ function createDefaultClosureProviders(): ClosureProviders {
   };
 }
 
-function createStripeServerClient() {
-  const apiKey = process.env.STRIPE_RESTRICTED_KEY ?? process.env.STRIPE_SECRET_KEY;
-  if (!apiKey) throw new Error("stripe_configuration_unavailable");
-  return new Stripe(apiKey, { maxNetworkRetries: 0, timeout: 45_000 });
-}
-
-function isNotFound(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    (error as { status?: unknown }).status === 404
+export async function deleteClerkUserThroughBackendApi(
+  userId: string,
+  options: {
+    fetch?: (request: string, init?: RequestInit) => Promise<Response>;
+    secretKey?: string;
+    apiUrl?: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  },
+) {
+  if (!options.secretKey) throw new Error("clerk_configuration_unavailable");
+  const signal = combineAbortSignals([
+    options.signal,
+    AbortSignal.timeout(options.timeoutMs ?? providerRequestTimeoutMs),
+  ]);
+  const apiUrl = (options.apiUrl ?? process.env.CLERK_API_URL ?? "https://api.clerk.com").replace(
+    /\/$/,
+    "",
   );
+  const response = await (options.fetch ?? fetch)(
+    `${apiUrl}/v1/users/${encodeURIComponent(userId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${options.secretKey}` },
+      signal,
+    },
+  );
+  if (response.status === 404) return;
+  if (!response.ok) throw new Error("clerk_user_deletion_failed");
 }

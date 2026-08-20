@@ -6,18 +6,24 @@ import { runInitialMigration } from "@/server/db/test-database";
 import { operationalTaskTypes } from "@/server/operations/contracts";
 import {
   operationalWorkerMinimumStartBudgetMs,
+  riskReconciliationApplicationBudgetMs,
   riskReconciliationBatchSize,
+  riskReconciliationCronAlignmentBudgetMs,
+  riskReconciliationEligibilityMs,
   riskReconciliationOrderCapacity,
+  riskReconciliationRequiredIntervalMs,
 } from "@/server/operations/operational-capacity";
 import {
   enqueueAllDueReconciliationTasks,
   enqueueDueOperationalTasks,
 } from "@/server/operations/operational-task-producer";
+import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   authorizeVercelCron,
   enqueueAndRunOperationalWorker,
   runWeatherCron,
 } from "@/server/operations/vercel-cron";
+import { providerRequestTimeoutMs } from "@/server/providers/provider-abort";
 
 describe("authenticated Vercel Cron adapters", () => {
   test("returns a no-op without touching the database when forecasts are disabled", async () => {
@@ -266,7 +272,7 @@ describe("authenticated Vercel Cron adapters", () => {
     }
   });
 
-  test("attempts the entire safe risk population before five minutes elapse", async () => {
+  test("attempts the entire safe risk population early enough for provider latency", async () => {
     const db = new PGlite();
     try {
       await runInitialMigration(db);
@@ -285,7 +291,7 @@ describe("authenticated Vercel Cron adapters", () => {
         `insert into operational_reconciliation_observations (
            local_entity_type, local_entity_ref, last_applied_sequence, observed_at
          ) select 'trip_pass_order', 'order_cadence_' || value, value,
-           clock_timestamp() - interval '3 minutes 30 seconds'
+           clock_timestamp() - interval '2 minutes 30 seconds'
          from generate_series(1, $1::integer) value`,
         [riskReconciliationOrderCapacity],
       );
@@ -300,7 +306,7 @@ describe("authenticated Vercel Cron adapters", () => {
       ).resolves.toMatchObject({ commerce_reconciliation: 0 });
       await db.query(
         `update operational_reconciliation_observations
-         set observed_at = clock_timestamp() - interval '4 minutes 30 seconds'`,
+         set observed_at = clock_timestamp() - interval '3 minutes 30 seconds'`,
       );
 
       let attempts = 0;
@@ -322,6 +328,73 @@ describe("authenticated Vercel Cron adapters", () => {
          where task_type = 'commerce_reconciliation' and status = 'pending'`,
       );
       expect(remaining.rows[0]?.pending).toBe("0");
+    } finally {
+      await db.close();
+    }
+  });
+
+  test("records a completed slow-provider observation within the five-minute cadence", async () => {
+    const db = new PGlite();
+    try {
+      await runInitialMigration(db);
+      await db.query("insert into users (id, email) values ('account_slow_cadence', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+           created_at, updated_at
+         ) values ('order_slow_cadence', 'account_slow_cadence', 'pending',
+           'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+           'checkout_slow_cadence', 'lemon_squeezy',
+           clock_timestamp() - interval '1 hour', clock_timestamp() - interval '1 minute')`,
+      );
+      await db.query(
+        `insert into operational_reconciliation_observations (
+           local_entity_type, local_entity_ref, last_applied_sequence, observed_at
+         ) values ('trip_pass_order', 'order_slow_cadence', 1,
+           clock_timestamp() - interval '3 minutes 5 seconds')`,
+      );
+      const before = await db.query<{ observed_at: Date | string }>(
+        `select observed_at from operational_reconciliation_observations
+         where local_entity_ref = 'order_slow_cadence'`,
+      );
+      let providerSettled = false;
+      const commerceReader = {
+        async readPaymentFact() {
+          await Bun.sleep(100);
+          providerSettled = true;
+          return { amountMinor: 999, currency: "usd", paymentState: "pending" as const };
+        },
+      };
+      const handlers = createProductionOperationalTaskHandlers({
+        commerceReader,
+        commerceReaders: { lemon_squeezy: commerceReader },
+        db,
+      });
+
+      const result = await enqueueAndRunOperationalWorker({
+        db,
+        handlers,
+        sentry: { send: async () => undefined },
+      });
+      const after = await db.query<{ observed_at: Date | string }>(
+        `select observed_at from operational_reconciliation_observations
+         where local_entity_ref = 'order_slow_cadence'`,
+      );
+      const completedIntervalMs =
+        new Date(after.rows[0]?.observed_at ?? 0).getTime() -
+        new Date(before.rows[0]?.observed_at ?? 0).getTime();
+
+      expect(riskReconciliationEligibilityMs).toBe(3 * 60_000);
+      expect(
+        riskReconciliationEligibilityMs +
+          riskReconciliationCronAlignmentBudgetMs +
+          providerRequestTimeoutMs +
+          riskReconciliationApplicationBudgetMs,
+      ).toBe(riskReconciliationRequiredIntervalMs);
+      expect(providerSettled).toBe(true);
+      expect(result.worker.succeeded).toBeGreaterThanOrEqual(1);
+      expect(completedIntervalMs).toBeLessThan(riskReconciliationRequiredIntervalMs);
     } finally {
       await db.close();
     }

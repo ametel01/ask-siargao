@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { type DatabaseQueryClient, queryDatabaseWithSignal } from "@/server/db/query-client";
 import { type OperationalTaskType, operationalTaskTypes } from "@/server/operations/contracts";
+import { riskReconciliationEligibilityMs } from "@/server/operations/operational-capacity";
 import { enqueueOperationalTask } from "@/server/operations/worker-runner";
 
 type DueTarget = { resource_ref: string };
@@ -271,7 +272,7 @@ async function loadDueTargets(
            and (
              (o.status in ('pending', 'checkout_created', 'paid', 'disputed')
                and (observation.observed_at is null
-                 or observation.observed_at <= clock_timestamp() - interval '4 minutes'))
+                 or observation.observed_at <= clock_timestamp() - ($3 * interval '1 millisecond')))
              or
              (o.status not in ('pending', 'checkout_created', 'paid', 'disputed')
                and (observation.observed_at is null
@@ -279,7 +280,7 @@ async function loadDueTargets(
            )
          order by observation.observed_at nulls first, o.updated_at, o.created_at, o.id
          limit $1`,
-        [limit, encodeURIComponent(cycleKey)],
+        [limit, encodeURIComponent(cycleKey), riskReconciliationEligibilityMs],
       )
     ).rows;
     return rows.map((row) => ({

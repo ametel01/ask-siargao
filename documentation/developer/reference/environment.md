@@ -125,8 +125,10 @@ The app reads these environment variables.
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
 
-Stripe clients and webhook normalization pin Stripe API version `2026-07-29.dahlia` and local
-normalized event schema version `2` in code. These are not runtime environment switches. Version 2
+Stripe clients, including retained historical reconciliation readers, use a 45-second timeout with
+SDK network retries disabled. Stripe clients and webhook normalization pin Stripe API version
+`2026-07-29.dahlia` and local normalized event schema version `2` in code. These are not runtime
+environment switches. Version 2
 preserves Stripe's signed event creation timestamp for deterministic closure ordering. A Stripe
 webhook delivered with another API version is durably recorded as blocked after signature
 verification rather than guessed from an unsupported shape.

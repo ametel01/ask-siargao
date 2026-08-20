@@ -517,11 +517,12 @@ export async function runClosureCleanupBatch(input: {
   let retrying = 0;
   for (const stepType of closureStepTypes) {
     while (attempted < limit) {
+      const leaseMs = input.leaseMs ?? 60_000;
       const step = await claimClosureStep(
         input.db,
         stepType,
         input.now,
-        input.leaseMs ?? 60_000,
+        leaseMs,
         input.operationId,
       );
       if (!step) {
@@ -529,7 +530,7 @@ export async function runClosureCleanupBatch(input: {
       }
       attempted += 1;
       try {
-        await executeClosureStep(step, input);
+        await executeClosureStep(step, { ...input, leaseMs });
         await markClosureStepSucceeded(input.db, step, input.now);
       } catch (error) {
         await markClosureStepRetryable(input.db, step, input.now, input.jitterUnit ?? 0.5, error);
@@ -682,12 +683,15 @@ async function executeClosureStep(
     now: Date;
     policy: AccountClosurePolicy;
     providers: AccountClosureProviders;
+    leaseMs: number;
     signal?: AbortSignal;
   },
 ) {
   if (step.step_type === "clerk_deletion") {
     const userId = await decryptOperationSubject(step.operation_id, input.db, input.policy);
-    await input.providers.deleteClerkUser(userId, input.signal);
+    await withClosureStepLeaseRenewal(step, input.db, input.leaseMs, () =>
+      input.providers.deleteClerkUser(userId, input.signal),
+    );
     return;
   }
   if (step.step_type === "checkout_expiry") {
@@ -697,7 +701,9 @@ async function executeClosureStep(
       [step.operation_id],
     );
     for (const session of sessions.rows) {
-      await input.providers.expireCheckoutSession(session.stripe_checkout_session_id, input.signal);
+      await withClosureStepLeaseRenewal(step, input.db, input.leaseMs, () =>
+        input.providers.expireCheckoutSession(session.stripe_checkout_session_id, input.signal),
+      );
       await input.db.query(
         `update account_closure_checkout_sessions
          set status = 'succeeded', completed_at = $3, updated_at = $3, last_error_category = null
@@ -747,6 +753,64 @@ async function executeClosureStep(
     await configureCleanupBypass(transaction, step.lease_token);
     await transaction.query("delete from users where id = $1", [userId]);
   });
+}
+
+async function withClosureStepLeaseRenewal<T>(
+  step: ClosureStepRow,
+  db: DatabaseQueryClient,
+  leaseMs: number,
+  operation: () => Promise<T>,
+) {
+  const intervalMs = Math.max(5, Math.floor(leaseMs / 3));
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let renewal: Promise<void> | undefined;
+  let leaseLost = false;
+
+  const schedule = () => {
+    timer = setTimeout(() => {
+      renewal = renewClosureStepLease(db, step, leaseMs)
+        .then((renewed) => {
+          if (!renewed) leaseLost = true;
+        })
+        .catch(() => {
+          leaseLost = true;
+        })
+        .finally(() => {
+          renewal = undefined;
+          if (!stopped && !leaseLost) schedule();
+        });
+    }, intervalMs);
+  };
+
+  schedule();
+  let result: T;
+  try {
+    result = await operation();
+  } finally {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    await renewal;
+  }
+  if (leaseLost) throw new Error("closure_step_lease_lost");
+  return result;
+}
+
+async function renewClosureStepLease(
+  db: DatabaseQueryClient,
+  step: ClosureStepRow,
+  leaseMs: number,
+) {
+  const result = await db.query<{ id: string }>(
+    `update account_closure_steps
+     set lease_expires_at = clock_timestamp() + ($3 * interval '1 millisecond'),
+       updated_at = clock_timestamp()
+     where id = $1 and status = 'running' and lease_token = $2
+       and lease_expires_at > clock_timestamp()
+     returning id`,
+    [step.id, step.lease_token, leaseMs],
+  );
+  return Boolean(result.rows[0]);
 }
 
 async function eraseLocalProductData(
