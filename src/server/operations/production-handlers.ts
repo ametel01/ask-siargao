@@ -9,19 +9,19 @@ import type {
 } from "@/server/operations/live-reconciliation";
 import { reconcileLiveCommerce } from "@/server/operations/live-reconciliation";
 import { runTrackedOperationalSchedule } from "@/server/operations/operational-schedule-sentinel";
-import { createStripeCommerceReader } from "@/server/operations/stripe-commerce-reader";
+import { createProductionStripeCommerceReader } from "@/server/operations/production-stripe-commerce-reader";
 import {
   applyPendingLemonSqueezyPaymentEvent,
   receiveLemonSqueezyPaymentFact,
 } from "@/server/payments/payment-event-receipts";
-import { createStripeServerClient, type StripeRefundClient } from "@/server/payments/stripe";
+import type { StripeRefundClient } from "@/server/payments/stripe";
 import { applyStripeInboxEvent } from "@/server/payments/stripe-event-inbox";
-import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
 import {
-  combineAbortSignals,
-  providerRequestTimeoutMs,
-  runProviderOperation,
-} from "@/server/providers/provider-abort";
+  type AccountClosureProviders,
+  readAccountClosurePolicy,
+  runClosureCleanupBatch,
+} from "@/server/privacy/account-closure";
+import { createProductionAccountClosureProviders } from "@/server/privacy/account-closure-providers";
 import { readLemonSqueezyEnvironment } from "@/server/trip-pass/catalog";
 import { runCheckoutReturnLookup } from "@/server/trip-pass/checkout-return-lookup";
 import {
@@ -37,14 +37,9 @@ import {
   prepareTripPassStripeEvent,
 } from "@/server/trip-pass/webhook-application";
 
-type ClosureProviders = {
-  deleteClerkUser(userId: string, signal?: AbortSignal): Promise<void>;
-  expireCheckoutSession(sessionId: string, signal?: AbortSignal): Promise<void>;
-};
-
 export function createProductionOperationalTaskHandlers(dependencies: {
   alertFinding?: (finding: OperationalFindingView) => Promise<void>;
-  closureProviders?: ClosureProviders;
+  closureProviders?: AccountClosureProviders;
   commerceReader?: AuthoritativeCommerceReader;
   commerceReaders?: Partial<Record<"stripe" | "lemon_squeezy", AuthoritativeCommerceReader>>;
   db: DatabaseQueryClient;
@@ -62,7 +57,7 @@ export function createProductionOperationalTaskHandlers(dependencies: {
         now: new Date(),
         operationId: resourceRef,
         policy: readAccountClosurePolicy(),
-        providers: dependencies.closureProviders ?? createDefaultClosureProviders(),
+        providers: dependencies.closureProviders ?? createProductionAccountClosureProviders(),
         signal,
       });
       const operation = await db.query<{ status: string }>(
@@ -243,7 +238,7 @@ export function parseCommerceReconciliationTarget(resourceRef: string) {
 
 function createDefaultCommerceReader() {
   if (readLemonSqueezyEnvironment().configured) return createLemonSqueezyCommerceReader();
-  return createStripeCommerceReader(createStripeServerClient());
+  return createProductionStripeCommerceReader();
 }
 
 export function createDefaultCommerceReaders(
@@ -259,61 +254,10 @@ export function createDefaultCommerceReaders(
   }
   const stripeKey = env.STRIPE_RESTRICTED_KEY ?? env.STRIPE_SECRET_KEY;
   if (stripeKey) {
-    readers.stripe = createStripeCommerceReader(
-      options.createStripeClient?.(stripeKey) ?? createStripeServerClient(stripeKey),
-    );
+    readers.stripe = createProductionStripeCommerceReader({
+      createStripeClient: options.createStripeClient,
+      env,
+    });
   }
   return readers;
-}
-
-function createDefaultClosureProviders(): ClosureProviders {
-  return {
-    async deleteClerkUser(userId, signal) {
-      await deleteClerkUserThroughBackendApi(userId, {
-        secretKey: process.env.CLERK_SECRET_KEY,
-        signal,
-      });
-    },
-    async expireCheckoutSession(sessionId, signal) {
-      const stripe = createStripeServerClient();
-      const session = await runProviderOperation(
-        () => stripe.checkout.sessions.retrieve(sessionId),
-        signal,
-      );
-      if (session.status === "open") {
-        await runProviderOperation(() => stripe.checkout.sessions.expire(sessionId), signal);
-      }
-    },
-  };
-}
-
-export async function deleteClerkUserThroughBackendApi(
-  userId: string,
-  options: {
-    fetch?: (request: string, init?: RequestInit) => Promise<Response>;
-    secretKey?: string;
-    apiUrl?: string;
-    timeoutMs?: number;
-    signal?: AbortSignal;
-  },
-) {
-  if (!options.secretKey) throw new Error("clerk_configuration_unavailable");
-  const signal = combineAbortSignals([
-    options.signal,
-    AbortSignal.timeout(options.timeoutMs ?? providerRequestTimeoutMs),
-  ]);
-  const apiUrl = (options.apiUrl ?? process.env.CLERK_API_URL ?? "https://api.clerk.com").replace(
-    /\/$/,
-    "",
-  );
-  const response = await (options.fetch ?? fetch)(
-    `${apiUrl}/v1/users/${encodeURIComponent(userId)}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${options.secretKey}` },
-      signal,
-    },
-  );
-  if (response.status === 404) return;
-  if (!response.ok) throw new Error("clerk_user_deletion_failed");
 }

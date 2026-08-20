@@ -7,6 +7,7 @@ import {
   operationalCronInternalDeadlineMs,
   operationalWorkerLeaseSeconds,
   operationalWorkerMinimumStartBudgetMs,
+  riskReconciliationApplicationBudgetMs,
   riskReconciliationBatchSize,
 } from "@/server/operations/operational-capacity";
 import {
@@ -159,6 +160,7 @@ export async function enqueueAndRunOperationalWorker({
     runOperationalWorkerConcurrently(
       {
         batchSize: riskReconciliationBatchSize,
+        completionAbortReserveMs: riskReconciliationApplicationBudgetMs,
         deadlineAt,
         leaseSeconds: operationalWorkerLeaseSeconds,
         minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,
@@ -171,6 +173,7 @@ export async function enqueueAndRunOperationalWorker({
       runOperationalWorkerConcurrently(
         {
           batchSize: 25,
+          completionAbortReserveMs: riskReconciliationApplicationBudgetMs,
           deadlineAt,
           leaseSeconds: operationalWorkerLeaseSeconds,
           minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,
@@ -183,6 +186,7 @@ export async function enqueueAndRunOperationalWorker({
     runOperationalWorkerConcurrently(
       {
         batchSize: 25,
+        completionAbortReserveMs: riskReconciliationApplicationBudgetMs,
         deadlineAt,
         leaseSeconds: operationalWorkerLeaseSeconds,
         minimumStartBudgetMs: operationalWorkerMinimumStartBudgetMs,

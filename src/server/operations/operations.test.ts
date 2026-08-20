@@ -1243,6 +1243,56 @@ describe("durable provider-neutral workers", () => {
     });
   });
 
+  test("reserves time to persist a provider fact that arrives near the provider cutoff", async () => {
+    await withTestDb(async (db) => {
+      await enqueueOperationalTask(
+        {
+          id: "worker_task_application_reserve",
+          resourceRef: "near_cutoff_provider_fact",
+          taskType: "commerce_reconciliation",
+        },
+        db,
+      );
+      let persisted = false;
+      let signalAtProviderCompletion: boolean | undefined;
+      let signalDuringApplication: boolean | undefined;
+      const startedAt = performance.now();
+      const result = await runOperationalWorkerConcurrently(
+        {
+          batchSize: 1,
+          completionAbortReserveMs: 120,
+          deadlineAt: startedAt + 300,
+          leaseSeconds: 60,
+          minimumStartBudgetMs: 0,
+          taskTypes: ["commerce_reconciliation"],
+        },
+        {
+          db,
+          handlers: {
+            commerce_reconciliation: async ({ signal }) => {
+              await Bun.sleep(130);
+              signalAtProviderCompletion = signal?.aborted;
+              await Bun.sleep(70);
+              signalDuringApplication = signal?.aborted;
+              await db.query(
+                `insert into operational_reconciliation_observations (
+                   local_entity_type, local_entity_ref, last_applied_sequence, observed_at
+                 ) values ('trip_pass_order', 'near_cutoff_provider_fact', 1, now())`,
+              );
+              persisted = true;
+            },
+          },
+        },
+      );
+
+      expect(signalAtProviderCompletion).toBe(false);
+      expect(signalDuringApplication).toBe(true);
+      expect(persisted).toBe(true);
+      expect(result).toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      expect(performance.now() - startedAt).toBeLessThan(300);
+    });
+  });
+
   test("returns at the internal deadline when a batch claim does not complete", async () => {
     const stalledDb: DatabaseQueryClient = {
       async query<T>() {

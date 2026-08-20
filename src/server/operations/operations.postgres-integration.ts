@@ -763,7 +763,7 @@ async function runLemonCompetingPaymentConcurrencyRegression(
        provider_store_id, provider_variant_id, checkout_commercial_terms_verified_at,
        created_at, updated_at
      ) values
-       ('native_lemon_competing_old', 'native_lemon_competing_account', 'checkout_created',
+       ('native_lemon_competing_old', 'native_lemon_competing_account', 'expired',
         'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
         'native_lemon_competing_old_key', 'lemon_squeezy', 'native_store',
         'native_variant', clock_timestamp(), clock_timestamp(), clock_timestamp()),
@@ -813,12 +813,12 @@ async function runLemonCompetingPaymentConcurrencyRegression(
   >[0]) => applyLemonSqueezyPaymentFact(paymentFact, { db: factDb, now });
 
   try {
-    const first = receiveLemonSqueezyPaymentFact(fact("native_lemon_competing_new", "new"), {
+    const first = receiveLemonSqueezyPaymentFact(fact("native_lemon_competing_old", "old"), {
       applyFact,
       db: holderDb,
     });
     await holderAcquired.promise;
-    const second = receiveLemonSqueezyPaymentFact(fact("native_lemon_competing_old", "old"), {
+    const second = receiveLemonSqueezyPaymentFact(fact("native_lemon_competing_new", "new"), {
       applyFact,
       db: contenderDb,
     });

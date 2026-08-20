@@ -594,6 +594,124 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
     });
   });
 
+  test("refunds an expired Order paid before its replacement and grants only the replacement", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_expired_old_first', null)");
+      await insertLemonOrder(db, "order_expired_old", "account_expired_old_first");
+      await insertLemonOrder(db, "order_expired_replacement", "account_expired_old_first");
+      await db.query("update trip_pass_orders set status = 'expired' where id = $1", [
+        "order_expired_old",
+      ]);
+      const paymentFact = (orderId: string, suffix: string, updatedAt: string) => ({
+        provider: "lemon_squeezy" as const,
+        eventName: "order_lookup",
+        objectId: `provider_expired_${suffix}`,
+        providerUpdatedAt: updatedAt,
+        orderId,
+        providerOrderId: `provider_expired_${suffix}`,
+        paymentId: null,
+        storeId: "store_test",
+        variantId: "variant_test",
+        status: "paid" as const,
+        amountTotalMinor: 999,
+        refundedAmountMinor: 0,
+        currency: "usd",
+        testMode: false,
+        discountTotalMinor: 0,
+      });
+
+      const applyFact = ({
+        fact,
+        db: factDb,
+        now: factNow,
+      }: Parameters<
+        NonNullable<Parameters<typeof receiveLemonSqueezyPaymentFact>[1]["applyFact"]>
+      >[0]) => applyLemonSqueezyPaymentFact(fact, { db: factDb, now: factNow });
+      const expired = await receiveLemonSqueezyPaymentFact(
+        paymentFact("order_expired_old", "old", "2026-08-19T00:01:00.000Z"),
+        { applyFact, db, now },
+      );
+      const replacement = await receiveLemonSqueezyPaymentFact(
+        paymentFact("order_expired_replacement", "replacement", "2026-08-19T00:02:00.000Z"),
+        { applyFact, db, now },
+      );
+
+      expect(expired).toMatchObject({
+        status: "applied",
+        applicationResult: { action: "refunded" },
+      });
+      expect(replacement).toMatchObject({
+        status: "applied",
+        applicationResult: { action: "activated" },
+      });
+      const outcome = await db.query<{ grants: string; old_facts: string; old_refunds: string }>(
+        `select
+           (select count(*)::text from trip_pass_grants
+            where order_id in ('order_expired_old', 'order_expired_replacement')) as grants,
+           (select count(*)::text from trip_pass_payment_facts
+            where order_id = 'order_expired_old') as old_facts,
+           (select count(*)::text from trip_pass_refund_operations
+            where order_id = 'order_expired_old' and amount_minor = 999) as old_refunds`,
+      );
+      expect(outcome.rows[0]).toEqual({ grants: "1", old_facts: "1", old_refunds: "1" });
+    });
+  });
+
+  test("fails concurrent paid facts closed when the production Family lock is unavailable", async () => {
+    let applicationQueries = 0;
+    const lockFailureDb: DatabaseQueryClient = {
+      dialect: "postgres",
+      async query<T>(query: string): Promise<{ rows: T[] }> {
+        if (query.startsWith("select user_id, product_family")) {
+          return {
+            rows: [{ user_id: "account_lock_failure", product_family: "siargao_trip_pass" }] as T[],
+          };
+        }
+        if (query.includes("pg_advisory_xact_lock(hashtext($1), hashtext($2))")) {
+          throw new Error("permission denied for function pg_advisory_xact_lock");
+        }
+        applicationQueries += 1;
+        return { rows: [] };
+      },
+      async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+        return callback({ ...lockFailureDb, inTransaction: true });
+      },
+    };
+    const fact = (suffix: string) => ({
+      provider: "lemon_squeezy" as const,
+      eventName: "order_lookup",
+      objectId: `provider_lock_failure_${suffix}`,
+      providerUpdatedAt: "2026-08-19T00:01:00.000Z",
+      orderId: `order_lock_failure_${suffix}`,
+      providerOrderId: `provider_lock_failure_${suffix}`,
+      paymentId: null,
+      storeId: "store_test",
+      variantId: "variant_test",
+      status: "paid" as const,
+      amountTotalMinor: 999,
+      refundedAmountMinor: 0,
+      currency: "usd",
+      testMode: false,
+      discountTotalMinor: 0,
+    });
+
+    const outcomes = await Promise.allSettled([
+      applyLemonSqueezyPaymentFact(fact("one"), { db: lockFailureDb, now }),
+      applyLemonSqueezyPaymentFact(fact("two"), { db: lockFailureDb, now }),
+    ]);
+
+    expect(outcomes.every((outcome) => outcome.status === "rejected")).toBe(true);
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") {
+        expect(outcome.reason).toHaveProperty(
+          "message",
+          "permission denied for function pg_advisory_xact_lock",
+        );
+      }
+    }
+    expect(applicationQueries).toBe(0);
+  });
+
   test("ignores provider facts older than the Order lifecycle watermark", async () => {
     await withTestDb(async (db) => {
       await db.query("insert into users (id, email) values ($1, $2)", [

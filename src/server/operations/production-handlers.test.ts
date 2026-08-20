@@ -7,8 +7,16 @@ import { createOperationTrace, operationalTaskTypes } from "@/server/operations/
 import {
   createDefaultCommerceReaders,
   createProductionOperationalTaskHandlers,
-  deleteClerkUserThroughBackendApi,
 } from "@/server/operations/production-handlers";
+import { runCommerceReconciliationCommand } from "@/server/operations/run-commerce-reconciliation";
+import { createProductionRepairCommerceReader } from "@/server/operations/trip-pass-repair-executor";
+import {
+  clerkBackendApiUrl,
+  createProductionAccountClosureProviders,
+  deleteClerkUserThroughBackendApi,
+  readProductionClerkApiUrl,
+} from "@/server/privacy/account-closure-providers";
+import { runAccountClosureWorker } from "@/server/privacy/run-account-closure-worker";
 
 describe("production operational task handlers", () => {
   test("builds the retained Stripe reader through the bounded client factory", async () => {
@@ -77,6 +85,130 @@ describe("production operational task handlers", () => {
         headers: { Authorization: "Bearer sk_test_redacted" },
       },
     });
+  });
+
+  test("rejects every non-canonical production Clerk API target", () => {
+    const unsafeTargets = [
+      "http://api.clerk.com",
+      "https://secret@api.clerk.com",
+      "https://api.clerk.com/v1",
+      "https://api.clerk.com?redirect=https://attacker.test",
+      "https://api.clerk.com.evil.test",
+      "https://clerk.example.test",
+    ];
+    for (const target of unsafeTargets) {
+      expect(() => readProductionClerkApiUrl({ CLERK_API_URL: target })).toThrow(
+        "CLERK_API_URL must be exactly",
+      );
+    }
+    expect(readProductionClerkApiUrl({})).toBe(clerkBackendApiUrl);
+    expect(readProductionClerkApiUrl({ CLERK_API_URL: clerkBackendApiUrl })).toBe(
+      clerkBackendApiUrl,
+    );
+    expect(() =>
+      createProductionAccountClosureProviders({
+        env: { NODE_ENV: "production" },
+        testClerkApiUrl: "https://clerk.test",
+      }),
+    ).toThrow("Custom Clerk API URLs are test-only");
+  });
+
+  test("runs the standalone closure worker through the shared bounded providers", async () => {
+    const db = new PGlite();
+    try {
+      await runInitialMigration(db);
+      const providerCalls: string[] = [];
+      const providers = createProductionAccountClosureProviders({
+        testClerkApiUrl: "https://clerk.test",
+        createStripeClient: () =>
+          ({
+            checkout: {
+              sessions: {
+                expire: async (id: string) => {
+                  providerCalls.push(`expire:${id}`);
+                },
+                retrieve: async (id: string) => {
+                  providerCalls.push(`retrieve:${id}`);
+                  return { status: "open" };
+                },
+              },
+            },
+          }) as never,
+        env: { CLERK_SECRET_KEY: "sk_test_redacted" },
+        fetch: async (url) => {
+          providerCalls.push(`delete:${url}`);
+          return new Response(null, { status: 204 });
+        },
+      });
+      const logs: string[] = [];
+      const result = await runAccountClosureWorker({
+        db: db as unknown as DatabaseQueryClient,
+        env: {},
+        log: (message) => logs.push(message),
+        providers,
+      });
+      await providers.deleteClerkUser("user_worker");
+      await providers.expireCheckoutSession("cs_worker");
+
+      expect(result.attempted).toBe(0);
+      expect(providerCalls).toEqual([
+        "delete:https://clerk.test/v1/users/user_worker",
+        "retrieve:cs_worker",
+        "expire:cs_worker",
+      ]);
+      expect(logs).toHaveLength(1);
+    } finally {
+      await db.close();
+    }
+  });
+
+  test("routes the reconciliation CLI and repair reader through the bounded Stripe factory", async () => {
+    const db = new PGlite();
+    try {
+      await runInitialMigration(db);
+      await db.query("insert into users (id, email) values ('account_retained_cli', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+           stripe_payment_intent_id, created_at, updated_at
+         ) values ('order_retained_cli', 'account_retained_cli', 'pending',
+           'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+           'checkout_retained_cli', 'stripe', 'pi_retained_cli', now(), now())`,
+      );
+      const configuredKeys: string[] = [];
+      const createStripeClient = (apiKey: string) => {
+        configuredKeys.push(apiKey);
+        return {
+          checkout: { sessions: { retrieve: async () => ({}) } },
+          paymentIntents: {
+            retrieve: async () => ({
+              amount: 999,
+              amount_received: 0,
+              currency: "usd",
+              latest_charge: null,
+              status: "processing",
+            }),
+          },
+        } as never;
+      };
+      const cli = await runCommerceReconciliationCommand({
+        argv: ["--order=order_retained_cli"],
+        createStripeClient,
+        db: db as unknown as DatabaseQueryClient,
+        env: { STRIPE_RESTRICTED_KEY: "rk_test_cli" },
+      });
+      const repair = createProductionRepairCommerceReader({
+        createStripeClient,
+        env: { STRIPE_RESTRICTED_KEY: "rk_test_repair" },
+      });
+      await repair.readPaymentFact({ checkoutSessionId: null, paymentIntentId: "pi_repair" });
+
+      expect(cli.checkedCount).toBe(1);
+      expect(configuredKeys).toEqual(["rk_test_cli", "rk_test_repair"]);
+    } finally {
+      await db.close();
+    }
   });
 
   test("binds every durable task kind to its concrete scoped production path", async () => {

@@ -46,10 +46,13 @@ concurrently claims at most 50 reconciliation tasks, 25 tasks from each lifecycl
 and 25 retention tasks. Every producer query and insert receives a cancellable database deadline;
 production stops all producer families while the 46-second worker reserve remains. Claims use the
 same statement cancellation and release a batch if it commits too late to start safely. Provider
-clients receive the worker abort signal and have a 45-second network timeout. Natively cancellable
-requests stop on abort. A retained SDK request that cannot be cancelled keeps its durable lease
-until the transport settles; its five-minute lease also exceeds the bounded provider transports,
-so a deadline cannot expose it to an overlapping retry.
+clients receive the worker abort signal and have a 45-second transport timeout. The cron worker
+aborts provider work 15 seconds before its internal deadline, so a task admitted at the nine-second
+producer boundary has at most 31 seconds of provider runtime and still reserves 15 seconds to
+persist the fact and complete its durable task. Natively cancellable requests stop on abort. A
+retained SDK request that cannot be cancelled keeps its durable lease until the transport settles;
+its five-minute lease also exceeds the bounded provider transports, so a deadline cannot expose it
+to an overlapping retry.
 
 Checkout creation enforces a safe launch population of 50 Orders in the risk statuses `pending`,
 `checkout_created`, `paid`, or `disputed`. That fits in one every-minute reconciliation batch, and

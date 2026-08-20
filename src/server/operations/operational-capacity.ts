@@ -7,6 +7,8 @@ export const riskReconciliationBatchSize = 50;
 export const riskReconciliationRequiredIntervalMs = 5 * 60_000;
 export const riskReconciliationCronAlignmentBudgetMs = 60_000;
 export const riskReconciliationApplicationBudgetMs = 15_000;
+export const operationalWorkerProviderCompletionBudgetMs =
+  operationalWorkerMinimumStartBudgetMs - riskReconciliationApplicationBudgetMs;
 export const riskReconciliationEligibilityMs =
   riskReconciliationRequiredIntervalMs -
   riskReconciliationCronAlignmentBudgetMs -

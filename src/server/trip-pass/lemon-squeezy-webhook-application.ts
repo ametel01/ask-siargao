@@ -168,6 +168,27 @@ export async function applyLemonSqueezyPaymentFact(
         return { status: "applied", action: "refunded", orderId };
       }
 
+      if (order.status === "expired" && fact.status === "paid") {
+        await db.query(
+          `update trip_pass_orders set status = 'paid', payment_provider = 'lemon_squeezy',
+           provider_order_id = coalesce(provider_order_id, $2),
+           provider_payment_id = coalesce(provider_payment_id, $3),
+           accepted_payment_fact_id = $4,
+           captured_amount_minor = coalesce(captured_amount_minor, amount_total_minor),
+           provider_updated_at = $5, lifecycle_updated_at = $6,
+           completed_at = coalesce(completed_at, $6), updated_at = $6 where id = $1`,
+          [orderId, fact.providerOrderId, fact.paymentId, factId, fact.providerUpdatedAt, now],
+        );
+        await createRefundOperation(db, {
+          order,
+          fact,
+          reason: "duplicate_payment",
+          amountMinor: remainingRefundAmount(fact),
+          now,
+        });
+        return { status: "applied", action: "refunded", orderId };
+      }
+
       if (fact.status === "partial_refund") {
         const remainingAmountMinor = remainingRefundAmount(fact);
         if (remainingAmountMinor === null) {

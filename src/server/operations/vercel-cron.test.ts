@@ -5,7 +5,9 @@ import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { runInitialMigration } from "@/server/db/test-database";
 import { operationalTaskTypes } from "@/server/operations/contracts";
 import {
+  operationalCronInternalDeadlineMs,
   operationalWorkerMinimumStartBudgetMs,
+  operationalWorkerProviderCompletionBudgetMs,
   riskReconciliationApplicationBudgetMs,
   riskReconciliationBatchSize,
   riskReconciliationCronAlignmentBudgetMs,
@@ -386,6 +388,9 @@ describe("authenticated Vercel Cron adapters", () => {
         new Date(before.rows[0]?.observed_at ?? 0).getTime();
 
       expect(riskReconciliationEligibilityMs).toBe(3 * 60_000);
+      expect(operationalCronInternalDeadlineMs - operationalWorkerMinimumStartBudgetMs).toBe(9_000);
+      expect(operationalWorkerProviderCompletionBudgetMs).toBe(31_000);
+      expect(providerRequestTimeoutMs).toBeGreaterThan(operationalWorkerProviderCompletionBudgetMs);
       expect(
         riskReconciliationEligibilityMs +
           riskReconciliationCronAlignmentBudgetMs +
