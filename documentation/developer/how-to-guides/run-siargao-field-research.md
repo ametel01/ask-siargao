@@ -747,23 +747,27 @@ changes later.
 
 ## Bulk Processing Workflow
 
-When the importer exists, process iPad data in this order:
+Use the [offline field ingestion desk](use-offline-field-ingestion-desk.md) for the implemented local
+validation boundary. Process iPad data in this order:
 
 1. Export the day's or week's UUID-named records and assets from the iPad.
-2. Package them into the versioned batch layout.
-3. Generate file hashes and the manifest.
-4. Run the local validator.
-5. Fix capture-format errors by adding corrected records; preserve originals.
-6. Run a database import dry run.
-7. Review duplicates, unresolved subjects, privacy blocks, consent gaps, and validation errors.
+2. Transfer the record files explicitly through AirDrop, Finder file sharing, iCloud Drive, or an
+   external drive; a cable connection does not grant silent access to every Files location.
+3. Import the JSON or JSON Lines records at `/admin/field-ingestion` on the Mac.
+4. Resolve schema errors, duplicates, same-ID conflicts, missing visit references, consent gaps, and
+   unsafe permission flags.
+5. Export the record-only `field-batch.v1` envelope and keep the original iPad records and media.
+6. When the server packager exists, add governed media, generate per-file hashes and the final
+   manifest, and run the bundle validator.
+7. Run a database import dry run.
 8. Import only the accepted staging batch.
 9. Complete subject resolution and editorial review in the application.
 10. Admit approved atomic observations into existing `source_records`, `facts`, and `evidence`.
 11. Run conflict, confidence, freshness, permission, and public-projection gates.
 12. Verify the exact chat retrieval boundary and affected guide claims before publication.
 
-Until those tools exist, stop after the private export and manual completeness audit. Do not bypass
-the design with direct SQL inserts.
+Until the server packager and importer exist, stop after the dashboard's private validated envelope
+and manual media completeness audit. Do not bypass the design with direct SQL inserts.
 
 ## End-Of-Week Coverage Report
 

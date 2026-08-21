@@ -10,8 +10,10 @@ import {
   ShieldCheck,
   Wrench,
 } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Empty,
@@ -68,6 +70,11 @@ export function AdminDiagnosticsPage({
     <AppBackdrop>
       <section className={appShellClass}>
         <PageHeader
+          actions={
+            <Button asChild size="sm" variant="outline">
+              <Link href="/admin/field-ingestion">Open field desk</Link>
+            </Button>
+          }
           description={
             <>
               Inspect blocked audits, stale facts, reviewer rejections, provider failures, job

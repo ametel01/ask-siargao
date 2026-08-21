@@ -33,6 +33,7 @@ describe("Clerk route policy", () => {
       ["/settings", "protected"],
       ["/profile", "protected"],
       ["/admin/diagnostics", "protected"],
+      ["/admin/field-ingestion", "protected"],
       ["/api/admin/repairs", "protected"],
       ["/api/admin/trip-pass/refunds", "protected"],
       ["/audits/audit_123/status", "protected"],
@@ -68,7 +69,7 @@ describe("Clerk route policy", () => {
     const policyFiles = clerkRoutePolicyEntries.map((entry) => entry.routeFile).toSorted();
 
     expect(policyFiles).toEqual(routeFiles.toSorted());
-    expect(routeFiles).toHaveLength(74);
+    expect(routeFiles).toHaveLength(75);
   });
 
   test("proves a seeded omitted route would fail inventory coverage", () => {

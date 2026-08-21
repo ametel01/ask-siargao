@@ -36,6 +36,13 @@ export const clerkRoutePolicyEntries = [
     "admin token remains required by the page",
   ),
   page(
+    "src/app/admin/field-ingestion/page.tsx",
+    "/admin/field-ingestion",
+    "protected",
+    "operator field ingestion surface",
+    "operator allowlist or local admin token remains required by the page",
+  ),
+  page(
     "src/app/audits/[auditRequestId]/status/page.tsx",
     "/audits/audit_123/status",
     "protected",

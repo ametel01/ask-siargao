@@ -9,6 +9,7 @@ releasing the codebase.
 - [First local run](developer/tutorials/first-local-run.md)
 - [Build the data pipeline with local Postgres](developer/how-to-guides/build-the-data-pipeline-with-local-postgres.md)
 - [Run Siargao field research](developer/how-to-guides/run-siargao-field-research.md)
+- [Use the offline field ingestion desk](developer/how-to-guides/use-offline-field-ingestion-desk.md)
 - [Release-candidate QA](developer/how-to-guides/run-release-candidate-qa.md)
 - [Launch the free product](developer/how-to-guides/launch-free-product.md)
 - [Launch Trip Pass](developer/how-to-guides/launch-trip-pass.md)

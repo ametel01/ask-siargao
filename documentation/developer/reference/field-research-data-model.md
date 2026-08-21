@@ -516,6 +516,13 @@ record UUID. The Shortcut is a convenience layer; the bundle schema remains auth
 Do not automate a direct database connection, service credential, or production write from the
 iPad. Do not make upload success equivalent to publication.
 
+The implemented Mac-side bridge is `/admin/field-ingestion`, documented in
+[Use the offline field ingestion desk](../how-to-guides/use-offline-field-ingestion-desk.md). It
+imports JSON and JSON Lines into private browser IndexedDB, validates schema and cross-record
+integrity, preserves same-ID conflicts, and exports a record-only `field-batch.v1` envelope with a
+canonical payload SHA-256. It does not ingest media, call a server upload API, or write to capture
+tables. The final bundle packager remains responsible for governed media and per-file hashes.
+
 ## Automation Components
 
 The bulk path should be implemented as separate, observable components:
