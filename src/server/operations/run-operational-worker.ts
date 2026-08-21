@@ -116,6 +116,7 @@ function positiveInteger(raw: string) {
 
 function operationForTask(taskType: OperationalTaskType) {
   if (taskType === "account_closure") return "account_closure" as const;
+  if (taskType === "checkout_return_lookup") return "payment_event_application" as const;
   if (taskType === "pending_payment_event") return "payment_event_application" as const;
   if (taskType === "pending_stripe_event") return "stripe_application" as const;
   if (taskType === "paid_after_closure_refund") return "paid_after_closure_refund" as const;

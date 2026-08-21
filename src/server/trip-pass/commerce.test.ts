@@ -14,7 +14,11 @@ import {
   beginAccountClosure,
   runClosureCleanupBatch,
 } from "@/server/privacy/account-closure";
-import { cancelTripPassCheckout, startTripPassCheckout } from "@/server/trip-pass/commerce";
+import {
+  cancelHistoricalStripeTripPassCheckout as cancelTripPassCheckout,
+  startTripPassCheckout as startActiveTripPassCheckout,
+  startHistoricalStripeTripPassCheckout as startTripPassCheckout,
+} from "@/server/trip-pass/commerce";
 import type {
   TripPassCheckoutClient,
   TripPassCheckoutSessionSummary,
@@ -41,7 +45,34 @@ const closurePolicy: AccountClosurePolicy = {
   tombstoneHashVersion: 1,
 };
 
-describe("Trip Pass checkout commerce", () => {
+describe("historical Stripe Trip Pass checkout commerce", () => {
+  test("never routes missing Lemon Squeezy configuration to legacy Stripe checkout", async () => {
+    const checkoutClient = createFakeCheckoutClient();
+
+    await expect(
+      startActiveTripPassCheckout(
+        {
+          userId: "user_production_legacy_fallback",
+          email: "legacy-fallback@example.com",
+          appUrl: "https://asksiargao.com",
+        },
+        {
+          checkoutClient,
+          env: {
+            ...enabledEnv,
+            LEGACY_STRIPE_TRIP_PASS_COMPAT: "true",
+            NODE_ENV: "test",
+          },
+          now,
+        },
+      ),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "lemon_squeezy_configuration_unavailable",
+    });
+    expect(checkoutClient.calls).toHaveLength(0);
+  });
+
   test("does not create orders or call Stripe when checkout is disabled or unavailable", async () => {
     await withTestDb(async (db) => {
       await insertUser(db, "user_disabled");
@@ -1054,6 +1085,7 @@ async function withTestDb(work: (db: DatabaseQueryClient) => Promise<void>) {
 
 function createPgliteQueryClient(db: PGlite): DatabaseQueryClient {
   const client: DatabaseQueryClient = {
+    dialect: "pglite",
     async query<T>(query: string, params: unknown[] = []) {
       return db.query<T>(query, params);
     },

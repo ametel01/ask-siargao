@@ -34,6 +34,9 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
       { variant_id: 999, quantity: 1 },
     ]);
     expect(request.data.attributes.product_options.enabled_variants).toEqual([999]);
+    expect(request.data.attributes.product_options.redirect_url).toBe(
+      "https://www.asksiargao.com/settings?trip_pass_checkout=return&order=trip_pass_order_1&provider_order=[order_id]&provider_identifier=[order_identifier]",
+    );
     expect(request.data.attributes).not.toHaveProperty("custom_price");
     expect(request.data.attributes.checkout_options).toEqual({ discount: false });
     expect(request.data.attributes.preview).toBe(true);
@@ -93,11 +96,44 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
     ).toThrow("Store is missing");
   });
 
+  test("accepts tax-inclusive previews when the advertised total is unchanged", () => {
+    expect(() =>
+      validateLemonSqueezyCheckout({
+        order,
+        checkout: {
+          id: "checkout_taxed",
+          url: "https://lemonsqueezy.test/checkout_taxed",
+          orderId: order.id,
+          storeId: order.storeId,
+          variantId: order.variantId,
+          customPrice: null,
+          enabledVariants: [order.variantId],
+          quantity: 1,
+          discountEnabled: false,
+          previewSubtotal: 909,
+          previewDiscountTotal: 0,
+          previewTax: 90,
+          previewTotal: 999,
+          testMode: false,
+          expiresAt: order.checkoutSessionExpiresAt,
+        },
+      }),
+    ).not.toThrow();
+  });
+
   test("normalizes numeric Store and Variant response attributes", async () => {
-    let capturedRequest: unknown;
+    const capturedRequests: unknown[] = [];
     const client = createLemonSqueezyCheckoutClient({
       request: async (request) => {
-        capturedRequest = request;
+        capturedRequests.push(request);
+        if (request.method === "GET") {
+          return {
+            data: {
+              id: "999",
+              attributes: { has_license_keys: false, test_mode: false },
+            },
+          };
+        }
         return {
           data: {
             id: "checkout_numeric",
@@ -118,9 +154,33 @@ describe("Lemon Squeezy Trip Pass adapter", () => {
     );
     expect(checkout.storeId).toBe("7");
     expect(checkout.variantId).toBe("999");
-    expect(capturedRequest).toMatchObject({
+    expect(capturedRequests[0]).toEqual({ method: "GET", path: "/v1/variants/999" });
+    expect(capturedRequests[1]).toMatchObject({
       body: { data: { attributes: { product_options: { enabled_variants: [999] } } } },
     });
+  });
+
+  test("rejects a configured Variant that issues license keys before checkout creation", async () => {
+    const requests: unknown[] = [];
+    const client = createLemonSqueezyCheckoutClient({
+      request: async (request) => {
+        requests.push(request);
+        return {
+          data: {
+            id: "999",
+            attributes: { has_license_keys: true, test_mode: false },
+          },
+        };
+      },
+    });
+
+    await expect(
+      client.createCheckout(
+        { order, appUrl: "https://siargao.test" },
+        { idempotencyKey: order.checkoutIdempotencyKey },
+      ),
+    ).rejects.toThrow("did not complete");
+    expect(requests).toHaveLength(1);
   });
 
   test("uses the official JSON:API order refund request for partial refunds", async () => {

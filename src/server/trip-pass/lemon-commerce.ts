@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+import { riskReconciliationOrderCapacity } from "@/server/operations/operational-capacity";
 import {
   readLemonSqueezyEnvironment,
   readTripPassEnvironment,
@@ -28,6 +29,8 @@ export type LemonTripPassCheckoutOptions = {
   env?: Record<string, string | undefined>;
   now?: Date;
 };
+
+export const lemonCheckoutSettlementGraceMs = 5 * 60_000;
 
 export async function startLemonSqueezyTripPassCheckout(
   input: { userId: string; email?: string | null; appUrl: string },
@@ -173,6 +176,67 @@ async function ensureLemonOrder(input: {
         createdForRequest: false,
       };
     }
+    const settlementFence = await db.query<{ id: string }>(
+      `select o.id from trip_pass_orders o
+       where o.user_id = $1 and o.product_family = $2
+         and o.payment_provider = 'lemon_squeezy'
+         and o.status in ('pending', 'checkout_created')
+         and o.checkout_session_expires_at is not null
+         and o.checkout_session_expires_at <= $3
+         and o.accepted_payment_fact_id is null
+         and coalesce(o.captured_amount_minor, 0) = 0
+         and (
+           o.checkout_session_expires_at > $4
+           or exists (
+             select 1 from trip_pass_payment_event_receipts receipt
+             where receipt.order_id = o.id and receipt.status = 'pending'
+           )
+           or (
+             o.checkout_return_lookup_attempts > 0
+             and o.checkout_return_lookup_status = 'pending'
+           )
+         )
+       order by o.created_at desc, o.id desc limit 1`,
+      [
+        input.userId,
+        tripPassProductFamily,
+        now,
+        new Date(now.getTime() - lemonCheckoutSettlementGraceMs),
+      ],
+    );
+    if (settlementFence.rows[0]) return { reason: "trip_pass_checkout_settling" };
+    await acquireRiskReconciliationCapacityLock(db);
+    const expiredOrders = await db.query<{ id: string }>(
+      `update trip_pass_orders set status = 'expired', checkout_session_status = 'expired',
+         updated_at = $1
+       where payment_provider = 'lemon_squeezy'
+         and status in ('pending', 'checkout_created')
+         and checkout_session_expires_at is not null and checkout_session_expires_at <= $2
+         and accepted_payment_fact_id is null and coalesce(captured_amount_minor, 0) = 0
+         and not exists (
+           select 1 from trip_pass_payment_event_receipts receipt
+           where receipt.order_id = trip_pass_orders.id and receipt.status = 'pending'
+         )
+         and not (
+           checkout_return_lookup_attempts > 0 and checkout_return_lookup_status = 'pending'
+         )
+       returning id`,
+      [now, new Date(now.getTime() - lemonCheckoutSettlementGraceMs)],
+    );
+    if (expiredOrders.rows.length > 0) {
+      await db.query(
+        `update trip_pass_checkout_attempts set status = 'expired', updated_at = $2
+         where order_id = any($1::text[]) and status = 'created'`,
+        [expiredOrders.rows.map((order) => order.id), now],
+      );
+    }
+    const riskPopulation = await db.query<{ count: number | string }>(
+      `select count(*)::text as count from trip_pass_orders
+       where status in ('pending', 'checkout_created', 'paid', 'disputed')`,
+    );
+    if (Number(riskPopulation.rows[0]?.count ?? 0) >= riskReconciliationOrderCapacity) {
+      return { reason: "trip_pass_reconciliation_capacity_reached" };
+    }
     const id = input.createId("trip_pass_order");
     const expiresAt = new Date(Math.floor(now.getTime() / 1_000) * 1_000 + 30 * 60_000);
     const idempotencyKey = `trip_pass_checkout:${id}`;
@@ -221,6 +285,18 @@ async function ensureLemonOrder(input: {
   });
 }
 
+async function acquireRiskReconciliationCapacityLock(db: DatabaseQueryClient) {
+  try {
+    await db.query(
+      `select pg_advisory_xact_lock(
+         hashtext('ask-siargao-reconciliation-capacity'), hashtext('siargao_trip_pass'))`,
+    );
+  } catch (error) {
+    if (db.dialect === "pglite") return;
+    throw error;
+  }
+}
+
 async function markLemonOrderCreated(input: {
   db: DatabaseQueryClient;
   order: LemonOrder;
@@ -229,18 +305,24 @@ async function markLemonOrderCreated(input: {
 }) {
   await input.db.query(
     `update trip_pass_orders set status = 'checkout_created', provider_checkout_id = $2,
+      checkout_commercial_terms_verified_at = $4,
       checkout_session_status = 'open', checkout_attempt_id = $3, updated_at = $4
      where id = $1 and status in ('pending', 'checkout_created')`,
-    [input.order.id, input.checkout.id, `checkout_attempt_${input.order.id}`, input.now],
+    [
+      input.order.id,
+      input.checkout.id,
+      `checkout_attempt_${input.order.id}_${input.checkout.id}`,
+      input.now,
+    ],
   );
   await input.db.query(
     `insert into trip_pass_checkout_attempts (
       id, order_id, provider, provider_checkout_id, idempotency_key, checkout_url, expires_at, status, created_at, updated_at
     ) values ($1, $2, 'lemon_squeezy', $3, $4, $5, $6, 'created', $7, $7)
-    on conflict (idempotency_key) do update set provider_checkout_id = excluded.provider_checkout_id,
+    on conflict (id) do update set provider_checkout_id = excluded.provider_checkout_id,
       checkout_url = excluded.checkout_url, status = 'created', updated_at = excluded.updated_at`,
     [
-      `checkout_attempt_${input.order.id}`,
+      `checkout_attempt_${input.order.id}_${input.checkout.id}`,
       input.order.id,
       input.checkout.id,
       input.order.checkoutIdempotencyKey,

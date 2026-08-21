@@ -5,10 +5,12 @@ import {
   reconcileLiveCommerce,
   reconciliationAlertKey,
 } from "@/server/operations/live-reconciliation";
+import { riskReconciliationOrderCapacity } from "@/server/operations/operational-capacity";
 import {
   enqueueDueOperationalTasks,
   stableOperationalTaskId,
 } from "@/server/operations/operational-task-producer";
+import { executeOperatorRefund, previewOperatorRefund } from "@/server/operations/operator-refunds";
 import { createProductionOperationalTaskHandlers } from "@/server/operations/production-handlers";
 import {
   executeRepairAction,
@@ -22,7 +24,14 @@ import {
   enqueueOperationalTask,
   opaqueTaskKey,
   runOperationalWorker,
+  runOperationalWorkerConcurrently,
 } from "@/server/operations/worker-runner";
+import { receiveLemonSqueezyPaymentFact } from "@/server/payments/payment-event-receipts";
+import {
+  type LemonTripPassCheckoutOptions,
+  startLemonSqueezyTripPassCheckout,
+} from "@/server/trip-pass/lemon-commerce";
+import { applyLemonSqueezyPaymentFact } from "@/server/trip-pass/lemon-squeezy-webhook-application";
 
 type NativeOperationsClient = DatabaseQueryClient & { end(): Promise<void> };
 
@@ -111,7 +120,10 @@ export async function runOperationsPostgresIntegration(
 
   await runRepairActionRegressions(db);
   await runReconciliationRepairLockOrderingRegressions(db, createQueryClient);
+  await runOperatorRefundConcurrencyRegression(db, createQueryClient);
+  await runLemonCompetingPaymentConcurrencyRegression(db, createQueryClient);
   await runOperationalProducerRegressions(db);
+  await runConcurrentBatchWorkerRegressions(db, createQueryClient);
   await runClosureTaskCompletionRegression(db);
 
   await enqueueOperationalTask(
@@ -332,6 +344,511 @@ export async function runOperationsPostgresIntegration(
     nativeEventIds[0] === nativeEventIds[1] && nativeEventIds[2] !== nativeEventIds[0],
     "native alert retries did not reuse one event identity per lifecycle",
   );
+  await runLemonCheckoutCapacityConcurrencyRegression(db, createQueryClient);
+}
+
+async function runConcurrentBatchWorkerRegressions(
+  db: DatabaseQueryClient,
+  createQueryClient: () => NativeOperationsClient,
+) {
+  const firstDb = createQueryClient();
+  const secondDb = createQueryClient();
+  try {
+    const resourceRefs = Array.from(
+      { length: 4 },
+      (_, index) => `native_concurrent_batch_resource_${index + 1}`,
+    );
+    await Promise.all(
+      resourceRefs.map((resourceRef, index) =>
+        enqueueOperationalTask(
+          {
+            id: `native_concurrent_batch_task_${index + 1}`,
+            resourceRef,
+            taskType: "retention_purge",
+          },
+          db,
+        ),
+      ),
+    );
+    const release = deferred<void>();
+    const allStarted = deferred<void>();
+    const firstClaims: string[] = [];
+    const secondClaims: string[] = [];
+    let started = 0;
+    const handler =
+      (claims: string[]) =>
+      async ({ resourceRef }: { resourceRef: string }) => {
+        claims.push(resourceRef);
+        started += 1;
+        if (started === resourceRefs.length) allStarted.resolve();
+        await release.promise;
+      };
+    const first = runOperationalWorkerConcurrently(
+      { batchSize: 2, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+      {
+        createLeaseToken: () => "native_concurrent_batch_lease_one",
+        db: firstDb,
+        handlers: { retention_purge: handler(firstClaims) },
+      },
+    );
+    const second = runOperationalWorkerConcurrently(
+      { batchSize: 2, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+      {
+        createLeaseToken: () => "native_concurrent_batch_lease_two",
+        db: secondDb,
+        handlers: { retention_purge: handler(secondClaims) },
+      },
+    );
+    await allStarted.promise;
+    release.resolve();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    assert(
+      firstResult.claimed === 2 &&
+        firstResult.succeeded === 2 &&
+        secondResult.claimed === 2 &&
+        secondResult.succeeded === 2,
+      "native concurrent batch workers did not split four claims",
+    );
+    const secondClaimSet = new Set(secondClaims);
+    const allClaimedSet = new Set([...firstClaims, ...secondClaims]);
+    assert(
+      firstClaims.every((resourceRef) => !secondClaimSet.has(resourceRef)) &&
+        allClaimedSet.size === resourceRefs.length &&
+        resourceRefs.every((resourceRef) => allClaimedSet.has(resourceRef)),
+      "native concurrent batch workers claimed overlapping resources",
+    );
+
+    await enqueueOperationalTask(
+      {
+        id: "native_inflight_claim_deadline",
+        resourceRef: "native_inflight_claim_deadline_resource",
+        taskType: "retention_purge",
+      },
+      db,
+    );
+    let claimStatementStarted = false;
+    const delayedClaimDb: DatabaseQueryClient = {
+      ...firstDb,
+      async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+        return firstDb.transaction?.(async (transaction) =>
+          callback({
+            ...transaction,
+            async queryWithSignal<Result>(query: string, params: unknown[], signal: AbortSignal) {
+              let statement = query;
+              if (query.includes("with due as (")) {
+                claimStatementStarted = true;
+                statement = query
+                  .replace(
+                    "with due as (",
+                    "with claim_delay as materialized (select pg_sleep(1)), due as (",
+                  )
+                  .replace(
+                    "select id from operational_worker_tasks",
+                    "select operational_worker_tasks.id from operational_worker_tasks cross join claim_delay",
+                  );
+              }
+              if (!transaction.queryWithSignal) {
+                throw new Error("native query cancellation unavailable");
+              }
+              return transaction.queryWithSignal<Result>(statement, params, signal);
+            },
+          }),
+        ) as Promise<T>;
+      },
+    };
+    const claimStartedAt = performance.now();
+    const timedOutClaim = await runOperationalWorkerConcurrently(
+      {
+        batchSize: 1,
+        completionAbortReserveMs: 25,
+        deadlineAt: claimStartedAt + 75,
+        leaseSeconds: 60,
+        minimumStartBudgetMs: 0,
+        taskTypes: ["retention_purge"],
+      },
+      {
+        createLeaseToken: () => "native_inflight_claim_lease",
+        db: delayedClaimDb,
+        handlers: { retention_purge: async () => undefined },
+      },
+    );
+    assert(claimStatementStarted, "native deadline regression did not start a PostgreSQL claim");
+    assert(
+      performance.now() - claimStartedAt < 500 && timedOutClaim.claimed === 0,
+      "native in-flight PostgreSQL claim did not stop at its deadline",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    const timedOutTask = await db.query<{ attempts: number; status: string }>(
+      `select attempts, status from operational_worker_tasks
+       where id = 'native_inflight_claim_deadline'`,
+    );
+    assert(
+      timedOutTask.rows[0]?.status === "pending" && timedOutTask.rows[0]?.attempts === 0,
+      "native in-flight claim committed a late running lease",
+    );
+    await db.query(
+      "delete from operational_worker_tasks where id = 'native_inflight_claim_deadline'",
+    );
+
+    await enqueueOperationalTask(
+      {
+        id: "native_concurrent_deadline_refusal",
+        resourceRef: "native_concurrent_deadline_resource",
+        taskType: "retention_purge",
+      },
+      db,
+    );
+    const refused = await runOperationalWorkerConcurrently(
+      {
+        batchSize: 1,
+        deadlineAt: 100,
+        leaseSeconds: 60,
+        minimumStartBudgetMs: 0,
+        now: () => 100,
+        taskTypes: ["retention_purge"],
+      },
+      { db: firstDb, handlers: { retention_purge: async () => undefined } },
+    );
+    assert(refused.claimed === 0, "native concurrent worker claimed at its deadline");
+    const refusedTask = await db.query<{ status: string }>(
+      `select status from operational_worker_tasks
+       where id = 'native_concurrent_deadline_refusal'`,
+    );
+    assert(refusedTask.rows[0]?.status === "pending", "deadline refusal mutated a native task");
+    await db.query(
+      "delete from operational_worker_tasks where id = 'native_concurrent_deadline_refusal'",
+    );
+
+    await enqueueOperationalTask(
+      {
+        id: "native_concurrent_lease_fencing",
+        resourceRef: "native_concurrent_lease_resource",
+        taskType: "retention_purge",
+      },
+      db,
+    );
+    const firstEntered = deferred<void>();
+    const releaseFirst = deferred<void>();
+    const fencedFirst = runOperationalWorkerConcurrently(
+      { batchSize: 1, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+      {
+        createLeaseToken: () => "native_concurrent_fencing_lease_one",
+        db: firstDb,
+        handlers: {
+          retention_purge: async () => {
+            firstEntered.resolve();
+            await releaseFirst.promise;
+          },
+        },
+      },
+    );
+    await firstEntered.promise;
+    await db.query(
+      `update operational_worker_tasks
+       set lease_expires_at = clock_timestamp() - interval '1 second'
+       where id = 'native_concurrent_lease_fencing'`,
+    );
+    const takeover = await runOperationalWorkerConcurrently(
+      { batchSize: 1, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+      {
+        createLeaseToken: () => "native_concurrent_fencing_lease_two",
+        db: secondDb,
+        handlers: { retention_purge: async () => undefined },
+      },
+    );
+    releaseFirst.resolve();
+    const stale = await fencedFirst;
+    assert(
+      takeover.succeeded === 1 && stale.stale === 1,
+      "native concurrent takeover was not lease-fenced",
+    );
+    const fencedTask = await db.query<{ attempts: number; status: string }>(
+      `select attempts, status from operational_worker_tasks
+       where id = 'native_concurrent_lease_fencing'`,
+    );
+    assert(
+      fencedTask.rows[0]?.attempts === 2 && fencedTask.rows[0]?.status === "succeeded",
+      "native concurrent lease takeover did not preserve terminal evidence",
+    );
+  } finally {
+    await Promise.all([firstDb.end(), secondDb.end()]);
+  }
+}
+
+async function runLemonCheckoutCapacityConcurrencyRegression(
+  db: DatabaseQueryClient,
+  createQueryClient: () => NativeOperationsClient,
+) {
+  await db.query(
+    `update trip_pass_orders set status = 'failed'
+     where status in ('pending', 'checkout_created', 'paid', 'disputed')`,
+  );
+  const current = await db.query<{ count: string }>(
+    `select count(*)::text as count from trip_pass_orders
+     where status in ('pending', 'checkout_created', 'paid', 'disputed')`,
+  );
+  const capacityRemaining =
+    riskReconciliationOrderCapacity - 1 - Number(current.rows[0]?.count ?? 0);
+  assert(capacityRemaining > 0, "native capacity fixture already exceeds the safe launch bound");
+  await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_family, product_version,
+       amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+       created_at, updated_at
+     ) select 'native_capacity_order_' || value, null, 'paid',
+       'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+       'native_capacity_checkout_' || value, 'lemon_squeezy',
+       clock_timestamp(), clock_timestamp()
+     from generate_series(1, $1::integer) value`,
+    [capacityRemaining],
+  );
+  await db.query(
+    `insert into users (id, email) values
+       ('native_capacity_account_one', null), ('native_capacity_account_two', null)`,
+  );
+  const firstDb = createQueryClient();
+  const secondDb = createQueryClient();
+  let providerCalls = 0;
+  const client: NonNullable<LemonTripPassCheckoutOptions["client"]> = {
+    async createCheckout({ order }) {
+      providerCalls += 1;
+      return {
+        id: `native_capacity_provider_checkout_${order.id}`,
+        url: "https://checkout.lemonsqueezy.test/native-capacity",
+        orderId: order.id,
+        storeId: order.storeId,
+        productId: order.productId ?? "native_product",
+        variantId: order.variantId,
+        customPrice: null,
+        enabledVariants: [order.variantId],
+        quantity: 1,
+        discountEnabled: false,
+        previewSubtotal: 999,
+        previewDiscountTotal: 0,
+        previewTax: 0,
+        previewTotal: 999,
+        testMode: false,
+        expiresAt: order.checkoutSessionExpiresAt,
+      };
+    },
+    async refundOrder() {
+      throw new Error("native_capacity_refund_not_expected");
+    },
+    async retrieveOrder() {
+      throw new Error("native_capacity_lookup_not_expected");
+    },
+  };
+  const options = (queryDb: DatabaseQueryClient, orderId: string) => ({
+    client,
+    createId: () => orderId,
+    db: queryDb,
+    env: {
+      TRIP_PASS_CHECKOUT_MODE: "on",
+      LEMON_SQUEEZY_API_KEY: "native_capacity_key",
+      LEMON_SQUEEZY_STORE_ID: "native_store",
+      LEMON_SQUEEZY_PRODUCT_ID: "native_product",
+      LEMON_SQUEEZY_VARIANT_ID: "native_variant",
+    },
+  });
+  try {
+    const outcomes = await Promise.all([
+      startLemonSqueezyTripPassCheckout(
+        { appUrl: "https://www.asksiargao.com", userId: "native_capacity_account_one" },
+        options(firstDb, "native_capacity_winner_one"),
+      ),
+      startLemonSqueezyTripPassCheckout(
+        { appUrl: "https://www.asksiargao.com", userId: "native_capacity_account_two" },
+        options(secondDb, "native_capacity_winner_two"),
+      ),
+    ]);
+    assert(
+      outcomes.filter((outcome) => outcome.status === "started").length === 1 &&
+        outcomes.filter(
+          (outcome) =>
+            outcome.status === "blocked" &&
+            outcome.reason === "trip_pass_reconciliation_capacity_reached",
+        ).length === 1,
+      "native concurrent checkout creation exceeded the safe risk capacity",
+    );
+    const final = await db.query<{ count: string }>(
+      `select count(*)::text as count from trip_pass_orders
+       where status in ('pending', 'checkout_created', 'paid', 'disputed')`,
+    );
+    assert(
+      Number(final.rows[0]?.count) === riskReconciliationOrderCapacity && providerCalls === 1,
+      "native capacity lock did not preserve one final slot and one provider call",
+    );
+  } finally {
+    await Promise.all([firstDb.end(), secondDb.end()]);
+  }
+}
+
+async function runOperatorRefundConcurrencyRegression(
+  db: DatabaseQueryClient,
+  createQueryClient: () => NativeOperationsClient,
+) {
+  await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_family, product_version,
+       amount_total_minor, captured_amount_minor, successful_refund_amount_minor,
+       refund_state, currency, checkout_idempotency_key, payment_provider,
+       provider_order_id, created_at, updated_at
+     ) values ('native_operator_refund_order', 'native_operations_account', 'paid',
+       'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 999, 0, 'none', 'usd',
+       'native_operator_refund_checkout', 'lemon_squeezy', 'native_provider_order',
+       clock_timestamp(), clock_timestamp())`,
+  );
+  const preview = await previewOperatorRefund(
+    { decision: "full_refund", orderId: "native_operator_refund_order" },
+    db,
+  );
+  const firstDb = createQueryClient();
+  const secondDb = createQueryClient();
+  try {
+    const command = (idempotencyKey: string) => ({
+      auth: { accountId: "native_operator", mfaFresh: true },
+      confirmation: "APPLY REFUND",
+      decision: "full_refund" as const,
+      idempotencyKey,
+      orderId: "native_operator_refund_order",
+      previewDigest: preview.digest,
+      reasonCode: "native_concurrent_refund",
+    });
+    const outcomes = await Promise.allSettled([
+      executeOperatorRefund(command("native-operator-refund-key-one"), {
+        allowlist: new Set(["native_operator"]),
+        db: firstDb,
+      }),
+      executeOperatorRefund(command("native-operator-refund-key-two"), {
+        allowlist: new Set(["native_operator"]),
+        db: secondDb,
+      }),
+    ]);
+    assert(
+      outcomes.filter((outcome) => outcome.status === "fulfilled").length === 1 &&
+        outcomes.filter(
+          (outcome) =>
+            outcome.status === "rejected" &&
+            outcome.reason instanceof Error &&
+            outcome.reason.message === "refund_operation_already_active",
+        ).length === 1,
+      "concurrent operator refunds did not fence the second command",
+    );
+    const records = await db.query<{ actions: string; active_operations: string }>(
+      `select
+         (select count(*)::text from operator_refund_actions
+          where order_id = 'native_operator_refund_order') as actions,
+         (select count(*)::text from trip_pass_refund_operations
+          where order_id = 'native_operator_refund_order'
+            and status in ('pending', 'running')) as active_operations`,
+    );
+    assert(
+      records.rows[0]?.actions === "1" && records.rows[0]?.active_operations === "1",
+      "concurrent operator refunds persisted duplicate active work",
+    );
+  } finally {
+    await Promise.all([firstDb.end(), secondDb.end()]);
+  }
+}
+
+async function runLemonCompetingPaymentConcurrencyRegression(
+  db: DatabaseQueryClient,
+  createQueryClient: () => NativeOperationsClient,
+) {
+  await db.query("insert into users (id, email) values ('native_lemon_competing_account', null)");
+  await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_family, product_version,
+       amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+       provider_store_id, provider_variant_id, checkout_commercial_terms_verified_at,
+       created_at, updated_at
+     ) values
+       ('native_lemon_competing_old', 'native_lemon_competing_account', 'expired',
+        'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+        'native_lemon_competing_old_key', 'lemon_squeezy', 'native_store',
+        'native_variant', clock_timestamp(), clock_timestamp(), clock_timestamp()),
+       ('native_lemon_competing_new', 'native_lemon_competing_account', 'checkout_created',
+        'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+        'native_lemon_competing_new_key', 'lemon_squeezy', 'native_store',
+        'native_variant', clock_timestamp(), clock_timestamp(), clock_timestamp())`,
+  );
+  const holderAcquired = deferred<void>();
+  const releaseHolder = deferred<void>();
+  const contenderReached = deferred<void>();
+  const holderClient = createQueryClient();
+  const contenderClient = createQueryClient();
+  const observerClient = createQueryClient();
+  const holderDb = instrumentFamilyLock(holderClient, {
+    after: async () => {
+      holderAcquired.resolve();
+      await releaseHolder.promise;
+    },
+  });
+  const contenderDb = instrumentFamilyLock(contenderClient, {
+    before: async () => contenderReached.resolve(),
+  });
+  const fact = (orderId: string, suffix: string) => ({
+    provider: "lemon_squeezy" as const,
+    eventName: "order_lookup",
+    objectId: `native_provider_order_${suffix}`,
+    providerUpdatedAt: new Date().toISOString(),
+    orderId,
+    providerOrderId: `native_provider_order_${suffix}`,
+    paymentId: null,
+    storeId: "native_store",
+    variantId: "native_variant",
+    status: "paid" as const,
+    amountTotalMinor: 999,
+    refundedAmountMinor: 0,
+    currency: "usd",
+    testMode: false,
+    discountTotalMinor: 0,
+  });
+  const applyFact = ({
+    fact: paymentFact,
+    db: factDb,
+    now,
+  }: Parameters<
+    NonNullable<Parameters<typeof receiveLemonSqueezyPaymentFact>[1]["applyFact"]>
+  >[0]) => applyLemonSqueezyPaymentFact(paymentFact, { db: factDb, now });
+
+  try {
+    const first = receiveLemonSqueezyPaymentFact(fact("native_lemon_competing_old", "old"), {
+      applyFact,
+      db: holderDb,
+    });
+    await holderAcquired.promise;
+    const second = receiveLemonSqueezyPaymentFact(fact("native_lemon_competing_new", "new"), {
+      applyFact,
+      db: contenderDb,
+    });
+    await contenderReached.promise;
+    assert(
+      await hasBlockedAdvisoryLock(observerClient),
+      "native competing Lemon payment did not block on the Family lock",
+    );
+    releaseHolder.resolve();
+    await Promise.all([first, second]);
+  } finally {
+    releaseHolder.resolve();
+    await Promise.all([holderClient.end(), contenderClient.end(), observerClient.end()]);
+  }
+  const outcome = await db.query<{ facts: string; grants: string; refunds: string }>(
+    `select
+       (select count(*)::text from trip_pass_payment_facts
+        where order_id in ('native_lemon_competing_old', 'native_lemon_competing_new')) as facts,
+       (select count(*)::text from trip_pass_grants
+        where order_id in ('native_lemon_competing_old', 'native_lemon_competing_new')) as grants,
+       (select count(*)::text from trip_pass_refund_operations
+        where order_id in ('native_lemon_competing_old', 'native_lemon_competing_new')
+          and reason = 'duplicate_payment') as refunds`,
+  );
+  assert(
+    outcome.rows[0]?.facts === "2" &&
+      outcome.rows[0]?.grants === "1" &&
+      outcome.rows[0]?.refunds === "1",
+    "native competing Lemon payments did not converge to one grant and one refund",
+  );
 }
 
 async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
@@ -417,11 +934,31 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
        clock_timestamp(), 'pending', '{"provider":"lemon_squeezy"}'::jsonb
      )`,
   );
+  await db.query(
+    `insert into trip_pass_orders (
+       id, user_id, status, product_code, product_family, product_version,
+       amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+       checkout_return_lookup_attempts, checkout_return_lookup_status,
+       checkout_return_provider_order_id, checkout_return_provider_order_identifier
+     ) values (
+       'native_producer_checkout_return', 'native_operations_account', 'checkout_created',
+       'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+       'native_producer_checkout_return_key', 'lemon_squeezy', 1, 'pending', '123456789',
+       '12345678-1234-4123-8123-123456789abc'
+     )`,
+  );
+  await db.query(
+    `update operational_reconciliation_observations
+     set observed_at = clock_timestamp() - interval '6 minutes'
+     where local_entity_type = 'trip_pass_order'
+       and local_entity_ref = 'native_operations_order'`,
+  );
 
   const cycleKey = "native-cycle-20260808T12";
+  const reconciliationRef = `risk:${cycleKey}:native_operations_order`;
   const concurrent = await Promise.all([
-    enqueueDueOperationalTasks({ cycleKey }, db),
-    enqueueDueOperationalTasks({ cycleKey }, db),
+    enqueueDueOperationalTasks({ cycleKey, limitPerType: 1_000 }, db),
+    enqueueDueOperationalTasks({ cycleKey, limitPerType: 1_000 }, db),
   ]);
   for (const taskType of Object.keys(concurrent[0]) as (keyof (typeof concurrent)[0])[]) {
     assert(
@@ -431,20 +968,21 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   }
   const expected = [
     ["account_closure", "native_producer_closure"],
+    ["checkout_return_lookup", "native_producer_checkout_return"],
     ["pending_payment_event", "native_producer_payment_receipt"],
     ["pending_stripe_event", "native_producer_stripe_event"],
     ["paid_after_closure_refund", "native_producer_refund"],
     ["lemon_squeezy_refund", "native_producer_lemon_refund"],
     ["retention_purge", "native_producer_reservation"],
-    ["commerce_reconciliation", `all:${cycleKey}`],
+    ["commerce_reconciliation", reconciliationRef],
   ] as const;
   const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(
     `select id, resource_ref, task_type from operational_worker_tasks
      where resource_ref like 'native_producer_%' or resource_ref = $1
      order by task_type`,
-    [`all:${cycleKey}`],
+    [reconciliationRef],
   );
-  assert(queued.rows.length === 7, "native producer did not create exactly seven tasks");
+  assert(queued.rows.length === 8, "native producer did not create exactly eight tasks");
   for (const [taskType, resourceRef] of expected) {
     assert(
       queued.rows.some(
@@ -459,15 +997,16 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
   await db.query(
     `delete from operational_worker_tasks
      where resource_ref not like 'native_producer_%' and resource_ref <> $1`,
-    [`all:${cycleKey}`],
+    [reconciliationRef],
   );
 
   const drained = await runOperationalWorker(
-    { batchSize: 7, leaseSeconds: 60 },
+    { batchSize: 8, leaseSeconds: 60 },
     {
       db,
       handlers: {
         account_closure: async () => undefined,
+        checkout_return_lookup: async () => undefined,
         commerce_reconciliation: async () => undefined,
         pending_payment_event: async () => undefined,
         paid_after_closure_refund: async () => undefined,
@@ -478,8 +1017,8 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
     },
   );
   assert(
-    drained.succeeded === 6 && drained.failed === 1,
-    "native producer worker did not drain six tasks and retain one retry",
+    drained.succeeded === 7 && drained.failed === 1,
+    "native producer worker did not drain seven tasks and retain one retry",
   );
   await db.query(
     `update operational_worker_tasks set next_attempt_at = clock_timestamp()
@@ -505,10 +1044,10 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
      from operational_worker_tasks
      where resource_ref like 'native_producer_%' or resource_ref = $1
      order by task_type`,
-    [`all:${cycleKey}`],
+    [reconciliationRef],
   );
   assert(
-    terminalBeforeReplay.rows.length === 7 &&
+    terminalBeforeReplay.rows.length === 8 &&
       terminalBeforeReplay.rows.every((row) => row.status === "succeeded"),
     "native producer tasks did not reach terminal success",
   );
@@ -537,7 +1076,7 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
      from operational_worker_tasks
      where resource_ref like 'native_producer_%' or resource_ref = $1
      order by task_type`,
-    [`all:${cycleKey}`],
+    [reconciliationRef],
   );
   assert(
     JSON.stringify(terminalAfterReplay.rows) === JSON.stringify(terminalBeforeReplay.rows),
@@ -555,14 +1094,23 @@ async function runOperationalProducerRegressions(db: DatabaseQueryClient) {
       db,
     ),
   ]);
+  const nextReconciliationRef = `risk:${nextCycleKey}:native_operations_order`;
+  const nextOrderTasks = await db.query<{ id: string }>(
+    `select id from operational_worker_tasks
+     where task_type = 'commerce_reconciliation' and resource_ref = $1`,
+    [nextReconciliationRef],
+  );
   assert(
-    nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0) === 1,
-    "native producer did not create exactly one task for a new reconciliation cycle",
+    nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0) >= 1 &&
+      nextOrderTasks.rows.length === 1 &&
+      nextOrderTasks.rows[0]?.id ===
+        stableOperationalTaskId("commerce_reconciliation", nextReconciliationRef),
+    "native producer did not create exactly one task per due Order for a new reconciliation cycle",
   );
   await db.query(
     `delete from operational_worker_tasks
-     where task_type = 'commerce_reconciliation' and resource_ref = $1`,
-    [`all:${nextCycleKey}`],
+     where task_type = 'commerce_reconciliation' and resource_ref like $1`,
+    [`%:${nextCycleKey}:%`],
   );
 }
 

@@ -115,15 +115,22 @@ export async function startTripPassCheckout(
       createId: options.createId,
     });
   }
-  if (!legacyStripeCompatibilityAllowed(options.env)) {
-    return { status: "unavailable", reason: "lemon_squeezy_configuration_unavailable" };
-  }
+  return { status: "unavailable", reason: "lemon_squeezy_configuration_unavailable" };
+}
+
+export async function startHistoricalStripeTripPassCheckout(
+  input: StartTripPassCheckoutInput,
+  options: StartTripPassCheckoutOptions = {},
+): Promise<TripPassCheckoutResult> {
   const environment = readTripPassEnvironment(options.env);
-  const checkoutAvailability = checkoutAvailabilityForAccount(input.userId, environment.checkout);
+  const checkoutAvailability = checkoutAvailabilityForAccount(
+    input.userId,
+    environment.historicalStripeCheckout,
+  );
   if (checkoutAvailability) {
     return checkoutAvailability;
   }
-  if (!environment.checkout.priceId) {
+  if (!environment.historicalStripeCheckout.priceId) {
     return { status: "unavailable", reason: "trip_pass_checkout_unavailable" };
   }
 
@@ -131,7 +138,7 @@ export async function startTripPassCheckout(
   const order = await ensurePendingCheckoutOrder(
     {
       userId: input.userId,
-      stripePriceId: environment.checkout.priceId,
+      stripePriceId: environment.historicalStripeCheckout.priceId,
       createId: options.createId ?? defaultCreateId,
     },
     db,
@@ -179,9 +186,13 @@ export async function cancelTripPassCheckout(
       db: options.db ?? getDefaultDatabaseQueryClient(),
     });
   }
-  if (!legacyStripeCompatibilityAllowed(options.env)) {
-    return { status: "unavailable", reason: "checkout_cancellation_unavailable" };
-  }
+  return { status: "unavailable", reason: "checkout_cancellation_unavailable" };
+}
+
+export async function cancelHistoricalStripeTripPassCheckout(
+  input: CancelTripPassCheckoutInput,
+  options: CancelTripPassCheckoutOptions = {},
+): Promise<CancelTripPassCheckoutResult> {
   const db = options.db ?? getDefaultDatabaseQueryClient();
   const checkoutClient = options.checkoutClient ?? createTripPassCheckoutClient();
   const order = await loadLatestEffectivePendingOrder(
@@ -540,12 +551,7 @@ export async function acquireFamilyReservationLock(
       input.productFamily,
     ]);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      /pg_advisory|hashtext|function|syntax|unsupported/i.test(error.message)
-    ) {
-      return;
-    }
+    if (db.dialect === "pglite") return;
     throw error;
   }
 }
@@ -623,10 +629,4 @@ function checkoutExpiryFromReservationTime(reservationTime: Date) {
 
 function dateFromDatabaseValue(value: Date | string) {
   return value instanceof Date ? value : new Date(String(value));
-}
-
-function legacyStripeCompatibilityAllowed(env?: Record<string, string | undefined>) {
-  if (env?.LEGACY_STRIPE_TRIP_PASS_COMPAT === "true") return true;
-  const runtimeEnvironment = env?.NODE_ENV ?? process.env.NODE_ENV;
-  return runtimeEnvironment !== "production";
 }

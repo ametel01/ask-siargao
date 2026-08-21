@@ -6,6 +6,7 @@ import {
   type VerifiedCheckoutPayment,
 } from "@/server/audit/lifecycle";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
+import { providerRequestTimeoutMs, runProviderOperation } from "@/server/providers/provider-abort";
 
 export const AUDIT_PRICE_CENTS = 999;
 
@@ -26,22 +27,30 @@ export type StripeRefundClient = {
     paymentIntentId: string;
     amountMinor: number;
     idempotencyKey: string;
+    signal?: AbortSignal;
   }) => Promise<Pick<Stripe.Refund, "id" | "status">>;
-  retrieveRefund: (refundId: string) => Promise<Pick<Stripe.Refund, "id" | "status">>;
+  retrieveRefund: (
+    refundId: string,
+    options?: { signal?: AbortSignal },
+  ) => Promise<Pick<Stripe.Refund, "id" | "status">>;
 };
 
-function createStripeClient(apiKey = stripeApiKeyFromEnv()) {
-  return new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION });
+export function createStripeServerClient(apiKey = stripeApiKeyFromEnv()) {
+  return new Stripe(apiKey, {
+    apiVersion: STRIPE_API_VERSION,
+    maxNetworkRetries: 0,
+    timeout: providerRequestTimeoutMs,
+  });
 }
 
-function createStripeCheckoutClient(stripe = createStripeClient()): StripeCheckoutClient {
+function createStripeCheckoutClient(stripe = createStripeServerClient()): StripeCheckoutClient {
   return {
     createCheckoutSession: (params) => stripe.checkout.sessions.create(params),
   };
 }
 
 export function createStripeLifecycleObjectRetriever(
-  stripe = createStripeClient(),
+  stripe = createStripeServerClient(),
 ): StripeLifecycleObjectRetriever {
   return {
     retrieveCharge: (chargeId) => stripe.charges.retrieve(chargeId),
@@ -50,14 +59,19 @@ export function createStripeLifecycleObjectRetriever(
   };
 }
 
-export function createStripeRefundClient(stripe = createStripeClient()): StripeRefundClient {
+export function createStripeRefundClient(stripe = createStripeServerClient()): StripeRefundClient {
   return {
     createFullRefund: (input) =>
-      stripe.refunds.create(
-        { payment_intent: input.paymentIntentId, amount: input.amountMinor },
-        { idempotencyKey: input.idempotencyKey },
+      runProviderOperation(
+        () =>
+          stripe.refunds.create(
+            { payment_intent: input.paymentIntentId, amount: input.amountMinor },
+            { idempotencyKey: input.idempotencyKey },
+          ),
+        input.signal,
       ),
-    retrieveRefund: (refundId) => stripe.refunds.retrieve(refundId),
+    retrieveRefund: (refundId, options) =>
+      runProviderOperation(() => stripe.refunds.retrieve(refundId), options?.signal),
   };
 }
 
@@ -122,7 +136,7 @@ export async function verifyStripeWebhookPayload(input: {
   webhookSecret: string;
   stripe?: Stripe;
 }) {
-  const stripe = input.stripe ?? createStripeClient();
+  const stripe = input.stripe ?? createStripeServerClient();
 
   return stripe.webhooks.constructEventAsync(input.payload, input.signature, input.webhookSecret);
 }

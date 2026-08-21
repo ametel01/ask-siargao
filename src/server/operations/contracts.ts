@@ -25,6 +25,7 @@ export function createOperationTrace(recorder?: OperationEventRecorder): Operati
 
 export const operationalTaskTypes = [
   "account_closure",
+  "checkout_return_lookup",
   "pending_payment_event",
   "pending_stripe_event",
   "paid_after_closure_refund",
@@ -36,7 +37,9 @@ export const operationalTaskTypes = [
 export type OperationalTaskType = (typeof operationalTaskTypes)[number];
 
 export type OperationalTaskHandler = (input: {
+  deadlineAt?: number;
   resourceRef: string;
+  signal?: AbortSignal;
   trace: OperationTrace;
 }) => Promise<void>;
 

@@ -1,43 +1,36 @@
-import { clerkClient } from "@clerk/nextjs/server";
-import Stripe from "stripe";
+import { type DatabaseQueryClient, getDefaultDatabaseQueryClient } from "@/server/db/query-client";
+import {
+  type AccountClosureProviders,
+  readAccountClosurePolicy,
+  runClosureCleanupBatch,
+} from "@/server/privacy/account-closure";
+import { createProductionAccountClosureProviders } from "@/server/privacy/account-closure-providers";
 
-import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
-import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
-import { readAccountClosurePolicy, runClosureCleanupBatch } from "@/server/privacy/account-closure";
-
-async function runAccountClosureWorker() {
+export async function runAccountClosureWorker(
+  dependencies: {
+    db?: DatabaseQueryClient;
+    env?: Record<string, string | undefined>;
+    log?: (message: string) => void;
+    now?: Date;
+    providers?: AccountClosureProviders;
+  } = {},
+) {
+  const env = dependencies.env ?? process.env;
   const result = await runClosureCleanupBatch({
-    db: getDefaultDatabaseQueryClient(),
-    limit: readPositiveLimit(process.env.ACCOUNT_CLOSURE_WORKER_BATCH_SIZE),
-    now: new Date(),
-    policy: readAccountClosurePolicy(),
-    providers: {
-      deleteClerkUser: async (userId) => {
-        const clerk = await clerkClient();
-        try {
-          await clerk.users.deleteUser(userId);
-        } catch (error) {
-          if (!isNotFound(error)) throw error;
-        }
-      },
-      expireCheckoutSession: async (sessionId) => {
-        const stripeKey = process.env.STRIPE_RESTRICTED_KEY ?? process.env.STRIPE_SECRET_KEY;
-        if (!stripeKey) {
-          throw new Error("stripe_configuration_unavailable");
-        }
-        const stripe = new Stripe(stripeKey, { apiVersion: STRIPE_API_VERSION });
-        const session = await stripe.checkout.sessions.retrieve(sessionId);
-        if (session.status === "open") {
-          await stripe.checkout.sessions.expire(sessionId);
-        }
-      },
-    },
+    db: dependencies.db ?? getDefaultDatabaseQueryClient(),
+    limit: readPositiveLimit(env.ACCOUNT_CLOSURE_WORKER_BATCH_SIZE),
+    now: dependencies.now ?? new Date(),
+    policy: readAccountClosurePolicy(env),
+    providers: dependencies.providers ?? createProductionAccountClosureProviders({ env }),
   });
 
-  console.info(JSON.stringify({ attempted: result.attempted, checked: "account-closure-worker" }));
+  (dependencies.log ?? console.info)(
+    JSON.stringify({ attempted: result.attempted, checked: "account-closure-worker" }),
+  );
+  return result;
 }
 
-await runAccountClosureWorker();
+if (import.meta.main) await runAccountClosureWorker();
 
 function readPositiveLimit(raw: string | undefined) {
   if (!raw?.trim()) return 100;
@@ -46,13 +39,4 @@ function readPositiveLimit(raw: string | undefined) {
     throw new Error("ACCOUNT_CLOSURE_WORKER_BATCH_SIZE must be a positive integer.");
   }
   return value;
-}
-
-function isNotFound(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "status" in error &&
-    (error as { status?: unknown }).status === 404
-  );
 }

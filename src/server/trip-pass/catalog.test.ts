@@ -126,7 +126,7 @@ describe("Trip Pass catalog", () => {
     expect(environment.analytics.status).toBe("unavailable");
   });
 
-  test("reports checkout unavailable when enabled without a Stripe Price", () => {
+  test("reports checkout unavailable when enabled without Lemon Squeezy configuration", () => {
     const environment = readTripPassEnvironment({
       TRIP_PASS_CHECKOUT_MODE: "on",
     });
@@ -137,7 +137,7 @@ describe("Trip Pass catalog", () => {
       priceId: undefined,
       canaryAccountIds: [],
       status: "unavailable",
-      unavailableReason: "missing_stripe_trip_pass_price_id",
+      unavailableReason: "lemon_squeezy_configuration_unavailable",
     });
   });
 
@@ -147,7 +147,10 @@ describe("Trip Pass catalog", () => {
       TRIP_PASS_CHECKOUT_CANARY_ACCOUNT_IDS: "user_canary_2, user_canary_1, user_canary_1",
       TRIP_PASS_EXTENSION_ENABLED: "false",
       DEEPSEEK_COST_POLICY_ENABLED: "on",
-      STRIPE_TRIP_PASS_PRICE_ID: "price_trip_pass_123",
+      LEMON_SQUEEZY_API_KEY: "lemon_test_key",
+      LEMON_SQUEEZY_PRODUCT_ID: "product_trip_pass_123",
+      LEMON_SQUEEZY_STORE_ID: "store_trip_pass_123",
+      LEMON_SQUEEZY_VARIANT_ID: "variant_trip_pass_123",
       TRIP_PASS_ANON_HMAC_KEY: "hmac_test_key",
       TRIP_PASS_ANON_HMAC_KEY_VERSION: "2",
       REDIS_URL: "redis://localhost:6379",
@@ -164,7 +167,7 @@ describe("Trip Pass catalog", () => {
     expect(environment.checkout).toEqual({
       enabled: true,
       mode: "canary",
-      priceId: "price_trip_pass_123",
+      priceId: "variant_trip_pass_123",
       canaryAccountIds: ["user_canary_1", "user_canary_2"],
       status: "available",
       unavailableReason: null,
@@ -242,7 +245,7 @@ describe("Trip Pass catalog", () => {
 
   test("refuses public-prefixed names for server-only configuration paths", () => {
     const environment = readTripPassEnvironment({
-      NEXT_PUBLIC_STRIPE_TRIP_PASS_PRICE_ID: "price_123",
+      NEXT_PUBLIC_LEMON_SQUEEZY_VARIANT_ID: "variant_123",
       TRIP_PASS_CHECKOUT_MODE: "on",
     });
 
@@ -252,7 +255,7 @@ describe("Trip Pass catalog", () => {
       priceId: undefined,
       canaryAccountIds: [],
       status: "unavailable",
-      unavailableReason: "missing_stripe_trip_pass_price_id",
+      unavailableReason: "lemon_squeezy_configuration_unavailable",
     });
   });
 
@@ -265,10 +268,32 @@ describe("Trip Pass catalog", () => {
     expect(environment.checkout).toEqual({
       enabled: false,
       mode: "off",
-      priceId: "price_trip_pass_123",
+      priceId: undefined,
       canaryAccountIds: [],
       status: "disabled",
       unavailableReason: null,
+    });
+    expect(environment.historicalStripeCheckout.priceId).toBe("price_trip_pass_123");
+  });
+
+  test("keeps historical Stripe pricing out of active checkout availability", () => {
+    const environment = readTripPassEnvironment({
+      STRIPE_TRIP_PASS_PRICE_ID: "price_historical_trip_pass",
+      TRIP_PASS_CHECKOUT_MODE: "on",
+    });
+
+    expect(environment.checkout).toEqual({
+      enabled: false,
+      mode: "on",
+      priceId: undefined,
+      canaryAccountIds: [],
+      status: "unavailable",
+      unavailableReason: "lemon_squeezy_configuration_unavailable",
+    });
+    expect(environment.historicalStripeCheckout).toMatchObject({
+      enabled: true,
+      priceId: "price_historical_trip_pass",
+      status: "available",
     });
   });
 });

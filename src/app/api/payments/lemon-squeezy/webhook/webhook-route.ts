@@ -2,7 +2,8 @@ import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { getDefaultDatabaseQueryClient } from "@/server/db/query-client";
 import {
   LemonSqueezyWebhookBodyTooLargeError,
-  lemonSqueezyWebhookSecretFromEnv,
+  type lemonSqueezyWebhookSecretFromEnv,
+  lemonSqueezyWebhookSecretsFromEnv,
   readBoundedLemonSqueezyWebhookBody,
   verifyLemonSqueezyWebhookSignature,
 } from "@/server/payments/lemon-squeezy";
@@ -15,7 +16,7 @@ import { applyLemonSqueezyPaymentFact } from "@/server/trip-pass/lemon-squeezy-w
 
 export type LemonSqueezyWebhookRouteDependencies = {
   db: DatabaseQueryClient;
-  secretFromEnv: typeof lemonSqueezyWebhookSecretFromEnv;
+  secretFromEnv: typeof lemonSqueezyWebhookSecretFromEnv | typeof lemonSqueezyWebhookSecretsFromEnv;
   verifySignature: typeof verifyLemonSqueezyWebhookSignature;
   readBody: typeof readBoundedLemonSqueezyWebhookBody;
   receiveEvent: typeof receiveLemonSqueezyPaymentEvent;
@@ -25,7 +26,7 @@ export type LemonSqueezyWebhookRouteDependencies = {
 function defaultDependencies(): LemonSqueezyWebhookRouteDependencies {
   return {
     db: getDefaultDatabaseQueryClient(),
-    secretFromEnv: lemonSqueezyWebhookSecretFromEnv,
+    secretFromEnv: lemonSqueezyWebhookSecretsFromEnv,
     verifySignature: verifyLemonSqueezyWebhookSignature,
     readBody: readBoundedLemonSqueezyWebhookBody,
     receiveEvent: receiveLemonSqueezyPaymentEvent,
@@ -65,11 +66,19 @@ export async function lemonSqueezyWebhookResponseWithDependencies(
 
   try {
     const payload = await dependencies.readBody(request);
-    dependencies.verifySignature({
-      payload,
-      signature,
-      webhookSecret: dependencies.secretFromEnv(),
-    });
+    const configuredSecrets = dependencies.secretFromEnv();
+    const secrets = Array.isArray(configuredSecrets) ? configuredSecrets : [configuredSecrets];
+    let verified = false;
+    for (const secret of secrets) {
+      try {
+        dependencies.verifySignature({ payload, signature, webhookSecret: secret });
+        verified = true;
+        break;
+      } catch {
+        // Try the next bounded rotation secret.
+      }
+    }
+    if (!verified) throw new Error("invalid_webhook_signature");
     let parsed: unknown;
     try {
       parsed = JSON.parse(payload);

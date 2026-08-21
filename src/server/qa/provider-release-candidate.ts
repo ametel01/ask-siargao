@@ -1,14 +1,12 @@
 import { createHash } from "node:crypto";
-import type Stripe from "stripe";
 
 import type { MigrationFile } from "@/server/db/migration-files";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
-import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 
-export const providerReleaseCandidateSchemaVersion = "provider-release-candidate/v3";
+export const providerReleaseCandidateSchemaVersion = "provider-release-candidate/v4";
 export const providerReleaseCandidateEnvironment = "provider-release-candidate";
 
-export type ProviderReleaseCandidateLane = "clerk" | "stripe";
+export type ProviderReleaseCandidateLane = "clerk" | "lemon-squeezy";
 
 export const providerReleaseCandidateLanePhases = {
   clerk: [
@@ -17,10 +15,11 @@ export const providerReleaseCandidateLanePhases = {
     "provider_deletion_convergence",
     "final_boundary",
   ],
-  stripe: [
+  "lemon-squeezy": [
     "acceptance",
     "account_closure_worker",
-    "paid_after_closure_refund_worker",
+    "lemon_squeezy_refund_worker",
+    "commerce_reconciliation",
     "final_boundary",
   ],
 } as const satisfies Record<ProviderReleaseCandidateLane, readonly string[]>;
@@ -49,49 +48,37 @@ export async function runProviderReleaseCandidateLane<
   return dependencies.lifecycle.complete();
 }
 
-export const providerReleaseCandidateStripeEventTypes = [
-  "checkout.session.completed",
-  "checkout.session.async_payment_succeeded",
-  "checkout.session.async_payment_failed",
-  "checkout.session.expired",
-  "charge.refunded",
-  "refund.created",
-  "refund.updated",
-  "refund.failed",
-  "charge.dispute.created",
-  "charge.dispute.closed",
-] as const satisfies readonly Stripe.Event.Type[];
-
 export const providerReleaseCandidateScenarios = {
   clerk: [
     "email_code_sign_in",
-    "google_sign_in",
     "verified_email",
     "session_persistence_and_policy",
-    "sign_out",
-    "single_session",
     "route_and_api_denial",
-    "ownership_denial",
+    "sign_out",
+    "webhook_convergence",
     "profile_convergence",
     "account_management",
+    "google_sign_in",
+    "single_session",
+    "ownership_denial",
     "step_up_account_closure",
-    "webhook_convergence",
     "provider_user_deletion",
   ],
-  stripe: [
-    "test_mode_card_payment",
+  "lemon-squeezy": [
+    "test_mode_checkout_creation",
+    "checkout_correlation",
     "thirty_minute_expiry_boundary",
-    "return_before_event",
-    "verified_activation",
-    "duplicate_delivery",
-    "reversed_delivery",
-    "ambiguous_retry",
-    "authenticated_cancellation",
-    "cumulative_refunds",
-    "dispute",
-    "closure_race",
-    "paid_after_closure",
+    "return_before_webhook_convergence",
+    "signed_webhook_ingestion",
+    "duplicate_payment_fact",
     "paid_answer_settlement",
+    "partial_refund",
+    "full_refund",
+    "out_of_order_payment_fact",
+    "fraudulent_state",
+    "account_closure_race",
+    "duplicate_payment_refund_recovery",
+    "commerce_reconciliation",
   ],
 } as const satisfies Record<ProviderReleaseCandidateLane, readonly string[]>;
 
@@ -108,6 +95,12 @@ export type ProviderReleaseCandidateEnv = Partial<
     | "GITHUB_ENVIRONMENT"
     | "GITHUB_EVENT_NAME"
     | "GITHUB_REPOSITORY"
+    | "LEMON_SQUEEZY_ALLOW_TEST_MODE"
+    | "LEMON_SQUEEZY_API_KEY"
+    | "LEMON_SQUEEZY_PRODUCT_ID"
+    | "LEMON_SQUEEZY_STORE_ID"
+    | "LEMON_SQUEEZY_VARIANT_ID"
+    | "LEMON_SQUEEZY_WEBHOOK_SECRET"
     | "PROVIDER_RC_APP_ORIGIN"
     | "PROVIDER_RC_BOUNDARY_USER"
     | "PROVIDER_RC_CLERK_GOOGLE_EMAIL"
@@ -119,13 +112,10 @@ export type ProviderReleaseCandidateEnv = Partial<
     | "PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT"
     | "PROVIDER_RC_PRODUCTION_ORIGIN"
     | "PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET"
-    | "PROVIDER_RC_STRIPE_ACTIVE_USER"
-    | "PROVIDER_RC_STRIPE_CLOSURE_USER"
-    | "PROVIDER_RC_STRIPE_REVERSED_USER"
-    | "STRIPE_RESTRICTED_KEY"
-    | "STRIPE_SECRET_KEY"
-    | "STRIPE_TRIP_PASS_PRICE_ID"
-    | "STRIPE_WEBHOOK_SECRET",
+    | "PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER"
+    | "PROVIDER_RC_LEMON_SQUEEZY_CLOSURE_USER"
+    | "PROVIDER_RC_LEMON_SQUEEZY_DUPLICATE_USER"
+    | "PROVIDER_RC_LEMON_SQUEEZY_FRAUD_USER",
     string | undefined
   >
 >;
@@ -141,6 +131,7 @@ export type ProviderReleaseCandidateEvidence = {
   lane: ProviderReleaseCandidateLane;
   migrations: Array<{ checksum: string; filename: string }>;
   protectedEnvironment: typeof providerReleaseCandidateEnvironment;
+  providerConfigurationFingerprint: string | null;
   scenarios: readonly string[];
   schemaVersion: typeof providerReleaseCandidateSchemaVersion;
   source: {
@@ -189,6 +180,8 @@ const fingerprint = /^[0-9a-f]{64}$/;
 const nonProductionDatabaseMarker =
   /(test|testing|staging|stage|qa|sandbox|nonprod|provider[-_]?rc)/i;
 const productionDatabaseMarker = /(prod(uction)?|live|main)/i;
+const nonProductionOriginMarker = /(^|[.-])(test(ing)?|staging|stage|qa|provider[-_]?rc)([.-]|$)/i;
+const productionOriginMarker = /(^|[.-])(prod(uction)?|live|main)([.-]|$)/i;
 const releaseEvidenceDirectory = ".tmp/provider-release-candidate";
 
 export async function createProviderReleaseCandidateLifecycle<
@@ -269,8 +262,21 @@ export async function createProviderReleaseCandidateLifecycle<
           throw new Error(`Unknown protected ${lane} scenario: ${scenario}.`);
         }
       }
-      const executedScenarios = new Set(await readScenarios(identity));
-      const additions = scenarios.filter((scenario) => !executedScenarios.has(scenario));
+      const executedScenarios = await readScenarios(identity);
+      assertScenarioPrefix(lane, executedScenarios);
+      const executedScenarioSet = new Set(executedScenarios);
+      const additions: string[] = [];
+      for (const scenario of scenarios) {
+        if (executedScenarioSet.has(scenario)) continue;
+        if (scenario !== providerReleaseCandidateScenarios[lane][executedScenarios.length]) {
+          throw new Error(
+            "Protected evidence scenarios must retain their required semantic order.",
+          );
+        }
+        executedScenarios.push(scenario);
+        executedScenarioSet.add(scenario);
+        additions.push(scenario);
+      }
       if (additions.length > 0) {
         await dependencies.files.append(scenarioReceiptPath(identity), `${additions.join("\n")}\n`);
       }
@@ -336,6 +342,10 @@ export async function createProviderReleaseCandidateLifecycle<
         ...identity,
         deployedMigrationLedgerFingerprint: initial.deployedMigrationLedgerFingerprint,
         migrations,
+        providerConfigurationFingerprint: providerReleaseCandidateConfigurationFingerprint(
+          lane,
+          dependencies.env,
+        ),
         scenarios,
       });
       const evidencePath = finalEvidencePath(identity);
@@ -402,15 +412,13 @@ export function validateProviderReleaseCandidateContext(input: {
   if (appOrigin && productionOrigin && appOrigin === productionOrigin) {
     errors.push("production_origin_forbidden");
   }
+  if (appOrigin && !isDedicatedProtectedStagingOrigin(appOrigin)) {
+    errors.push("dedicated_protected_staging_origin_required");
+  }
   if (!env.PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET) {
     errors.push("vercel_automation_bypass_required");
   }
   validateProtectedDatabaseConfiguration(env, errors);
-
-  const stripeKey = env.STRIPE_RESTRICTED_KEY ?? env.STRIPE_SECRET_KEY;
-  if (!stripeKey || (!stripeKey.startsWith("rk_test_") && !stripeKey.startsWith("sk_test_"))) {
-    errors.push("stripe_test_mode_key_required");
-  }
 
   if (!env.CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_")) {
     errors.push("clerk_test_publishable_key_required");
@@ -428,40 +436,36 @@ export function validateProviderReleaseCandidateContext(input: {
     }
     if (!env.PROVIDER_RC_CLERK_GOOGLE_EMAIL) errors.push("clerk_google_oauth_identity_required");
   } else {
-    if (!env.STRIPE_TRIP_PASS_PRICE_ID?.startsWith("price_")) {
-      errors.push("stripe_test_price_required");
+    if (env.LEMON_SQUEEZY_ALLOW_TEST_MODE !== "true") {
+      errors.push("lemon_squeezy_test_mode_required");
     }
-    if (!env.STRIPE_WEBHOOK_SECRET?.startsWith("whsec_")) {
-      errors.push("stripe_test_webhook_secret_required");
+    if (!env.LEMON_SQUEEZY_API_KEY?.trim()) {
+      errors.push("lemon_squeezy_test_api_key_required");
+    }
+    for (const [name, error] of [
+      ["LEMON_SQUEEZY_STORE_ID", "lemon_squeezy_test_store_required"],
+      ["LEMON_SQUEEZY_PRODUCT_ID", "lemon_squeezy_test_product_required"],
+      ["LEMON_SQUEEZY_VARIANT_ID", "lemon_squeezy_test_variant_required"],
+    ] as const) {
+      if (!isPositiveIntegerIdentifier(env[name])) errors.push(error);
+    }
+    const webhookSecret = env.LEMON_SQUEEZY_WEBHOOK_SECRET?.trim() ?? "";
+    if (webhookSecret.length < 6 || webhookSecret.length > 40) {
+      errors.push("lemon_squeezy_test_webhook_secret_required");
     }
     for (const name of [
-      "PROVIDER_RC_STRIPE_ACTIVE_USER",
-      "PROVIDER_RC_STRIPE_REVERSED_USER",
-      "PROVIDER_RC_STRIPE_CLOSURE_USER",
+      "PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER",
+      "PROVIDER_RC_LEMON_SQUEEZY_DUPLICATE_USER",
+      "PROVIDER_RC_LEMON_SQUEEZY_FRAUD_USER",
+      "PROVIDER_RC_LEMON_SQUEEZY_CLOSURE_USER",
     ] as const) {
-      if (!env[name]?.includes("+clerk_test@")) errors.push("dedicated_stripe_test_users_required");
+      if (!env[name]?.includes("+clerk_test@")) {
+        errors.push("dedicated_lemon_squeezy_test_users_required");
+      }
     }
   }
 
   return { errors, valid: errors.length === 0 };
-}
-
-export function buildProviderReleaseCandidateStripeEvent(input: {
-  eventId: string;
-  object: object;
-  type: (typeof providerReleaseCandidateStripeEventTypes)[number];
-}): Stripe.Event {
-  return {
-    api_version: STRIPE_API_VERSION,
-    created: Math.floor(Date.now() / 1_000),
-    data: { object: input.object } as Stripe.Event.Data,
-    id: input.eventId,
-    livemode: false,
-    object: "event",
-    pending_webhooks: 1,
-    request: null,
-    type: input.type,
-  } as Stripe.Event;
 }
 
 export function assertProviderReleaseCandidateContext(
@@ -491,31 +495,28 @@ function buildProviderReleaseCandidateEvidence(input: {
   deployedMigrationLedgerFingerprint: string;
   lane: ProviderReleaseCandidateLane;
   migrations: readonly Pick<MigrationFile, "checksum" | "name">[];
+  providerConfigurationFingerprint: string | null;
   scenarios: readonly string[];
 }): ProviderReleaseCandidateEvidence {
   const migrations = input.migrations.map((migration) => ({
     checksum: migration.checksum,
     filename: migration.name,
   }));
-  const fingerprint = createHash("sha256")
+  const fingerprintBuilder = createHash("sha256")
     .update(input.checkedOutCommitSha)
     .update("\0")
     .update(input.lane)
     .update("\0")
     .update(JSON.stringify(migrations))
     .update("\0")
-    .update(input.deployedMigrationLedgerFingerprint)
-    .digest("hex");
-
-  const expectedScenarios = providerReleaseCandidateScenarios[input.lane];
-  const scenarios = [...new Set(input.scenarios)];
-  const scenarioSet = new Set(scenarios);
-  if (
-    scenarios.length !== expectedScenarios.length ||
-    expectedScenarios.some((scenario) => !scenarioSet.has(scenario))
-  ) {
-    throw new Error("Protected evidence requires every scenario to have an executed receipt.");
+    .update(input.deployedMigrationLedgerFingerprint);
+  if (input.providerConfigurationFingerprint) {
+    fingerprintBuilder.update("\0").update(input.providerConfigurationFingerprint);
   }
+  const fingerprint = fingerprintBuilder.digest("hex");
+
+  assertCompleteScenarios(input.lane, input.scenarios);
+  const scenarios = [...input.scenarios];
 
   return {
     codeAndMigrationFingerprint: fingerprint,
@@ -523,6 +524,7 @@ function buildProviderReleaseCandidateEvidence(input: {
     lane: input.lane,
     migrations,
     protectedEnvironment: providerReleaseCandidateEnvironment,
+    providerConfigurationFingerprint: input.providerConfigurationFingerprint,
     scenarios,
     schemaVersion: providerReleaseCandidateSchemaVersion,
     source: {
@@ -583,6 +585,20 @@ export function providerReleaseCandidateCheckoutExpiryMatches(input: {
   );
 }
 
+export function providerReleaseCandidateConfigurationFingerprint(
+  lane: ProviderReleaseCandidateLane,
+  env: ProviderReleaseCandidateEnv,
+) {
+  if (lane === "clerk") return null;
+  return createHash("sha256")
+    .update(env.LEMON_SQUEEZY_STORE_ID ?? "")
+    .update("\0")
+    .update(env.LEMON_SQUEEZY_PRODUCT_ID ?? "")
+    .update("\0")
+    .update(env.LEMON_SQUEEZY_VARIANT_ID ?? "")
+    .digest("hex");
+}
+
 function databaseReceiptPath(identity: ProviderReleaseCandidateIdentity) {
   return `${releaseEvidenceDirectory}/${identity.lane}-${identity.checkedOutCommitSha}.database.json`;
 }
@@ -619,12 +635,23 @@ async function readRequiredReceipt(
 
 function assertCompleteScenarios(lane: ProviderReleaseCandidateLane, scenarios: readonly string[]) {
   const expectedScenarios = providerReleaseCandidateScenarios[lane];
-  const uniqueScenarios = new Set(scenarios);
   if (
-    uniqueScenarios.size !== expectedScenarios.length ||
-    expectedScenarios.some((scenario) => !uniqueScenarios.has(scenario))
+    scenarios.length !== expectedScenarios.length ||
+    expectedScenarios.some((scenario, index) => scenarios[index] !== scenario)
   ) {
-    throw new Error("Protected evidence requires every scenario to have an executed receipt.");
+    throw new Error(
+      "Protected evidence requires every scenario receipt in its required semantic order.",
+    );
+  }
+}
+
+function assertScenarioPrefix(lane: ProviderReleaseCandidateLane, scenarios: readonly string[]) {
+  const expectedScenarios = providerReleaseCandidateScenarios[lane];
+  if (
+    scenarios.length > expectedScenarios.length ||
+    scenarios.some((scenario, index) => scenario !== expectedScenarios[index])
+  ) {
+    throw new Error("Protected evidence scenarios must retain their required semantic order.");
   }
 }
 
@@ -710,4 +737,13 @@ function readHttpsOrigin(value: string | undefined) {
   } catch {
     return null;
   }
+}
+
+function isDedicatedProtectedStagingOrigin(origin: string) {
+  const hostname = new URL(origin).hostname;
+  return nonProductionOriginMarker.test(hostname) && !productionOriginMarker.test(hostname);
+}
+
+function isPositiveIntegerIdentifier(value: string | undefined) {
+  return Boolean(value && /^[1-9][0-9]*$/.test(value));
 }

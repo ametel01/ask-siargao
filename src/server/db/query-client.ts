@@ -5,15 +5,23 @@ import { createPostgresConnectionOptions } from "@/server/db/connection-options"
 export type QueryResult<T> = { rows: T[] };
 
 export type DatabaseQueryClient = {
+  dialect?: "pglite" | "postgres";
   inTransaction?: boolean;
   query<T>(query: string, params?: unknown[]): Promise<QueryResult<T>>;
+  queryWithSignal?<T>(
+    query: string,
+    params: unknown[],
+    signal: AbortSignal,
+  ): Promise<QueryResult<T>>;
   transaction?<T>(callback: (transactionClient: DatabaseQueryClient) => Promise<T>): Promise<T>;
 };
+
+type CancelableQuery = Promise<unknown> & { cancel?: () => void };
 
 type PostgresTemplateExecutor = (
   strings: TemplateStringsArray,
   ...params: never[]
-) => Promise<unknown>;
+) => CancelableQuery;
 
 let defaultQueryClient: DatabaseQueryClient | null = null;
 
@@ -31,10 +39,25 @@ export function createPostgresQueryClient(
   options: { inTransaction?: boolean } = {},
 ) {
   const client: DatabaseQueryClient = {
+    dialect: "postgres",
     inTransaction: options.inTransaction,
     async query<T>(query: string, params: unknown[] = []) {
       const preparedQuery = toTemplateQuery(query, params);
       const rows = await sql(preparedQuery.strings, ...(preparedQuery.params as never[]));
+      return { rows: rows as unknown as T[] };
+    },
+    async queryWithSignal<T>(query: string, params: unknown[], signal: AbortSignal) {
+      signal.throwIfAborted();
+      const preparedQuery = toTemplateQuery(query, params);
+      const pending = sql(preparedQuery.strings, ...(preparedQuery.params as never[]));
+      const cancel = () => pending.cancel?.();
+      signal.addEventListener("abort", cancel, { once: true });
+      let rows: unknown;
+      try {
+        rows = await pending;
+      } finally {
+        signal.removeEventListener("abort", cancel);
+      }
       return { rows: rows as unknown as T[] };
     },
   };
@@ -53,6 +76,18 @@ export function createPostgresQueryClient(
 export function getDefaultDatabaseQueryClient() {
   defaultQueryClient ??= createDatabaseQueryClient();
   return defaultQueryClient;
+}
+
+export function queryDatabaseWithSignal<T>(
+  db: DatabaseQueryClient,
+  query: string,
+  params: unknown[],
+  signal?: AbortSignal,
+) {
+  if (!signal) return db.query<T>(query, params);
+  if (db.queryWithSignal) return db.queryWithSignal<T>(query, params, signal);
+  signal.throwIfAborted();
+  return db.query<T>(query, params);
 }
 
 function toTemplateQuery(query: string, params: readonly unknown[]) {

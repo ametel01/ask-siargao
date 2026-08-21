@@ -16,6 +16,7 @@ The app reads these environment variables.
 | `CLERK_VERCEL_PROJECT_ID` | Server only | Protected Clerk deployments | Exact stable Vercel project ID. Production and protected staging require this to match the platform-provided `VERCEL_PROJECT_ID`; generated `VERCEL_URL` values are not trusted because they change on redeploy. Production also requires Vercel's exact-host `VERCEL_PROJECT_PRODUCTION_URL` signal, but that signal may be the shortest project domain (for example, the apex domain) while `CLERK_PRODUCTION_ORIGIN` deliberately uses another assigned canonical domain (for example, `www`). |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public/client-safe | Clerk frontend SDK | Required only when `CLERK_AUTH_MODE=enabled`. |
 | `CLERK_SECRET_KEY` | Server only | Clerk `auth()`, route protection, and backend API calls | Required only when `CLERK_AUTH_MODE=enabled`. Must not use the `NEXT_PUBLIC_` prefix. |
+| `CLERK_API_URL` | Server only | Account Closure Backend API origin | Optional only as the exact value `https://api.clerk.com`. Any other scheme, credentials, path, query, lookalike, or host fails closed before `CLERK_SECRET_KEY` can be sent. Tests inject non-production transports directly instead of changing this production origin. |
 | `CLERK_WEBHOOK_SIGNING_SECRET` | Server only | Clerk webhook verification | Required only when `CLERK_AUTH_MODE=enabled`; `/api/clerk/webhooks` remains public at the proxy layer and verifies this signature in the handler. |
 | `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY` | Server only | Closure Tombstone matching | Required in production so Clerk IDs are matched to hashed closure tombstones without storing readable IDs. Local development uses a deterministic fallback. |
 | `ACCOUNT_CLOSURE_TOMBSTONE_HMAC_KEY_VERSION` | Server only | Closure Tombstone key rotation | Positive integer stored with closure hashes. Defaults to `1` locally; increment only under a privacy-reviewed rotation plan. |
@@ -48,9 +49,10 @@ The app reads these environment variables.
 | `PROVIDER_RC_CLERK_GOOGLE_EMAIL` | Protected CI secret | Clerk lane | Dedicated non-production Google identity whose OAuth callback was completed interactively once. The protected lane proves the current Google redirect, requires exactly one verified Google external account for this email through Clerk's Backend API, and signs in that same Clerk subject with the official testing helper. No Google password is stored in CI. |
 | `PROVIDER_RC_CLERK_CLOSURE_USER` | Protected CI secret | Clerk lane | Disposable dedicated `+clerk_test` account used only for terminal Account Closure and deletion convergence. A human must recreate it before a later run. |
 | `PROVIDER_RC_FOREIGN_SAVED_ITEM_ID` | Protected CI secret | Clerk lane | Redacted fixture identifier owned by another dedicated test account; used to prove ownership denial without exposing its owner. |
-| `PROVIDER_RC_STRIPE_ACTIVE_USER` | Protected CI secret | Stripe lane | Disposable `+clerk_test` user for Checkout activation, paid-answer settlement, and cumulative-refund convergence. |
-| `PROVIDER_RC_STRIPE_REVERSED_USER` | Protected CI secret | Stripe lane | Disposable `+clerk_test` user for reversed dispute delivery and retry. |
-| `PROVIDER_RC_STRIPE_CLOSURE_USER` | Protected CI secret | Stripe lane | Disposable `+clerk_test` user for the in-flight Checkout/Account Closure race and Paid After Closure refund. |
+| `PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER` | Protected CI secret | Lemon Squeezy lane | Disposable `+clerk_test` user for Checkout correlation, activation, paid-answer settlement, and partial/full refund convergence. |
+| `PROVIDER_RC_LEMON_SQUEEZY_DUPLICATE_USER` | Protected CI secret | Lemon Squeezy lane | Disposable `+clerk_test` user for a second real provider payment and durable duplicate-payment refund recovery. |
+| `PROVIDER_RC_LEMON_SQUEEZY_FRAUD_USER` | Protected CI secret | Lemon Squeezy lane | Disposable `+clerk_test` user for fraudulent and adversarial out-of-order payment facts. |
+| `PROVIDER_RC_LEMON_SQUEEZY_CLOSURE_USER` | Protected CI secret | Lemon Squeezy lane | Disposable `+clerk_test` user for the in-flight Checkout/Account Closure race and Paid After Closure refund. |
 | `DATABASE_URL` | Server only | Production database client | Required by app database clients and Postgres-backed CLI/job scripts. In deployed app runtimes, use a credential mapped to the `ask_siargao_runtime` role from the database authorization reference. Test migration and seed commands use PGlite. |
 | `PROVIDER_RC_DATABASE_ENVIRONMENT` | Protected environment variable | Protected provider QA only | Must equal `protected-test`; normal CI and production must not set it. |
 | `PROVIDER_RC_DATABASE_EXPECTED_HOST` | Protected environment variable | Protected provider QA only | Exact dedicated staging/test database hostname parsed from the protected connection URL. Opaque managed-service hostnames are allowed only when the resource-name marker and sentinel also pass. |
@@ -66,11 +68,12 @@ The app reads these environment variables.
 | `DATABASE_STATEMENT_TIMEOUT_MS` | Server only | Postgres clients | Optional. Integer milliseconds greater than or equal to `0`; `0` disables and omits the connection-level startup parameter for PgBouncer compatibility. Defaults to `30000` for app clients in production, `120000` for CLI/job clients in production, and `0` outside production. |
 | `LEMON_SQUEEZY_API_KEY` | Server only | Lemon Squeezy Trip Pass checkout, lookup, and refund calls | Mode-isolated annual key; never expose or log it. |
 | `LEMON_SQUEEZY_WEBHOOK_SECRET` | Server only | `/api/payments/lemon-squeezy/webhook` | Independent mode-isolated signing secret; rotation uses bounded overlap. |
+| `LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS` | Server only | `/api/payments/lemon-squeezy/webhook` | Optional previous signing secret accepted only during the bounded rotation window. Remove it after expiry. |
+| `LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS_EXPIRES_AT` | Server only | `/api/payments/lemon-squeezy/webhook` | Required ISO timestamp for the previous-secret overlap; secrets after this instant are rejected. |
 | `LEMON_SQUEEZY_STORE_ID` | Server only | Lemon Squeezy Trip Pass checkout | Exact configured Store ID; test and live resources must not mix. |
 | `LEMON_SQUEEZY_PRODUCT_ID` | Server only | Lemon Squeezy Trip Pass catalogue validation | Exact immutable Product ID for the local Product version. |
 | `LEMON_SQUEEZY_VARIANT_ID` | Server only | Lemon Squeezy Trip Pass checkout | Exact immutable tax-inclusive USD 9.99 Variant ID; quantity one, hidden discounts, no custom pricing, and the returned commercial preview are enforced by the adapter. |
 | `LEMON_SQUEEZY_ALLOW_TEST_MODE` | Server only | Protected test-mode validation only | Must remain `false` in production; allows signed test facts only in an explicitly isolated lane. |
-| `LEGACY_STRIPE_TRIP_PASS_COMPAT` | Server only | Local/test Stripe compatibility | Optional explicit `true` to retain the pre-Lemon Squeezy Stripe checkout and cancellation path when Lemon Squeezy is not configured. Without it, that compatibility path is allowed only outside `NODE_ENV=production`; never enable it for the Lemon Squeezy production launch. |
 | `STRIPE_RESTRICTED_KEY` | Server only | Legacy Stripe evidence and retired audit provider | Not a Trip Pass launch dependency. |
 | `STRIPE_SECRET_KEY` | Server only | Legacy Stripe evidence and retired audit provider | Not a Trip Pass launch dependency. |
 | `STRIPE_WEBHOOK_SECRET` | Server only | Legacy Stripe webhook evidence | `/api/payments/lemon-squeezy/webhook` is the active Trip Pass route. |
@@ -123,8 +126,10 @@ The app reads these environment variables.
 
 Server-only secrets must not use the `NEXT_PUBLIC_` prefix. `getServerSecret` rejects public-prefixed names so sensitive provider keys do not move into client-facing bundles.
 
-Stripe clients and webhook normalization pin Stripe API version `2026-07-29.dahlia` and local
-normalized event schema version `2` in code. These are not runtime environment switches. Version 2
+Stripe clients, including retained historical reconciliation readers, use a 45-second timeout with
+SDK network retries disabled. Stripe clients and webhook normalization pin Stripe API version
+`2026-07-29.dahlia` and local normalized event schema version `2` in code. These are not runtime
+environment switches. Version 2
 preserves Stripe's signed event creation timestamp for deterministic closure ordering. A Stripe
 webhook delivered with another API version is durably recorded as blocked after signature
 verification rather than guessed from an unsupported shape.

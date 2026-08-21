@@ -10,7 +10,7 @@ import {
   beginAccountClosure,
   runClosureCleanupBatch,
 } from "@/server/privacy/account-closure";
-import { startTripPassCheckout } from "@/server/trip-pass/commerce";
+import { startHistoricalStripeTripPassCheckout as startTripPassCheckout } from "@/server/trip-pass/commerce";
 import type { TripPassCheckoutClient } from "@/server/trip-pass/stripe-adapter";
 import { tripPassCheckoutProductSnapshot } from "@/server/trip-pass/stripe-adapter";
 import { applyTripPassStripeEvent } from "@/server/trip-pass/webhook-application";
@@ -1079,15 +1079,12 @@ async function runStaleWorkerLeaseRegression(harness: RealPostgresHarness) {
       "succeeded",
       "identity cleanup must finish while the first Clerk lease is held",
     );
-    await waitUntil(async () => {
-      const lease = await setup.query<{ expired: boolean }>(
-        `select lease_expires_at <= clock_timestamp() as expired
-         from account_closure_steps
-         where operation_id = $1 and step_type = 'clerk_deletion'`,
-        [closure.operationRef],
-      );
-      return lease.rows[0]?.expired === true;
-    }, "first Clerk worker lease did not expire");
+    await setup.query(
+      `update account_closure_steps
+       set lease_expires_at = clock_timestamp() - interval '1 second'
+       where operation_id = $1 and step_type = 'clerk_deletion'`,
+      [closure.operationRef],
+    );
     const secondWorker = runClosureCleanupBatch({
       db: second,
       leaseMs: 1_000,

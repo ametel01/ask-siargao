@@ -14,17 +14,18 @@ test("live adapters execute both provider lanes through the semantic phase inter
       "bun run test:e2e:clerk:final-boundary",
       "evidence",
     ],
-    stripe: [
+    "lemon-squeezy": [
       "preflight",
-      "bun run test:smoke:trip-pass-stripe",
+      "bun run test:smoke:trip-pass-lemon-squeezy",
       "bun run privacy:closure-worker",
-      "bun run payments:closure-refund-worker",
-      "bun run test:e2e:stripe:final-boundary",
+      "bun run operations:worker -- --enqueue --task=lemon_squeezy_refund",
+      "bun run operations:worker -- --enqueue --task=commerce_reconciliation",
+      "bun run test:e2e:lemon-squeezy:final-boundary",
       "evidence",
     ],
   } as const;
 
-  for (const lane of ["clerk", "stripe"] as const) {
+  for (const lane of ["clerk", "lemon-squeezy"] as const) {
     const events: string[] = [];
     const adapter = createLiveProviderReleaseCandidateLaneAdapter(lane, async (command) => {
       events.push(command.join(" "));
@@ -60,73 +61,31 @@ test("Clerk acceptance cannot forge deletion convergence before the cleanup work
   expect(closureScenario).not.toContain("assertClerkUserConverged");
 });
 
-test("Stripe automation uses supported server-side test payments instead of hosted UI", async () => {
+test("Lemon Squeezy acceptance uses the isolated provider checkout and signed webhook boundary", async () => {
   const acceptance = await readFile(
-    "tests/provider/stripe-release-candidate.stripe.e2e.ts",
+    "tests/provider/lemon-squeezy-release-candidate.lemon-squeezy.e2e.ts",
     "utf8",
   );
-  const helperStart = acceptance.indexOf("async function createTestModePaymentForCheckout");
-  const helperEnd = acceptance.indexOf("async function retrieveCheckout", helperStart);
-
-  expect(helperStart).toBeGreaterThan(-1);
-  expect(helperEnd).toBeGreaterThan(helperStart);
-  const serverPayment = acceptance.slice(helperStart, helperEnd);
-  expect(serverPayment).toContain("stripe.paymentIntents.create");
-  expect(serverPayment).toContain("payment_method: paymentMethod");
-  expect(serverPayment).toContain("confirm: true");
-  expect(serverPayment).toContain(
-    'automatic_payment_methods: { allow_redirects: "never", enabled: true }',
-  );
-  expect(serverPayment).toContain('paymentIntent.status === "succeeded"');
-  expect(serverPayment).toContain("stripe.checkout.sessions.expire(sessionId)");
-  expect(serverPayment).toContain("const amount = checkout.amount_total");
-  expect(serverPayment).toContain("const currency = checkout.currency");
-  expect(serverPayment).toContain("amount,");
-  expect(serverPayment).toContain("currency,");
-  expect(serverPayment).toContain('payment_status: "paid"');
-  expect(serverPayment).toContain('status: "complete"');
-  expect(serverPayment).toContain("simulate only the frontend's successful Checkout output");
-  expect(serverPayment).not.toContain("payment_method_types");
-
-  const checkoutStart = acceptance.indexOf("async function startCheckout");
-  expect(checkoutStart).toBeGreaterThan(-1);
-  const startCheckout = acceptance.slice(checkoutStart, helperStart);
-  expect(startCheckout).toContain('sessionId?.startsWith("cs_test_")');
-  expect(startCheckout).toContain("return { checkoutUrl: body.checkoutUrl, sessionId }");
-
-  expect(acceptance).not.toContain("completeHostedCheckout");
-  expect(acceptance).not.toContain('input[name="cardNumber"]');
-  expect(acceptance).not.toContain('data-testid="hosted-payment-submit-button"');
-  expect(acceptance).not.toContain("4242424242424242");
+  expect(acceptance).toContain("completeLemonSqueezyTestCheckout");
+  expect(acceptance).toContain("page.goto(checkout.checkoutUrl)");
+  expect(acceptance).toContain("retrieveOrder");
+  expect(acceptance).toContain("deliverSignedLemonSqueezyEvent");
+  expect(acceptance).toContain('"/api/payments/lemon-squeezy/webhook"');
+  expect(acceptance).toContain("refundOrder");
+  expect(acceptance).toContain("recordRecoveryOrder");
+  expect(acceptance).toContain("resource_ref");
+  expect(acceptance).not.toContain("interval '1 hour'");
+  expect(acceptance).not.toContain("STRIPE_");
+  expect(acceptance).not.toContain("/api/stripe");
 });
 
-test("Stripe ambiguity proof is not hidden by the SDK's forced connection retry", async () => {
+test("out-of-order Lemon Squeezy facts prove the durable inbox retry state", async () => {
   const acceptance = await readFile(
-    "tests/provider/stripe-release-candidate.stripe.e2e.ts",
-    "utf8",
-  );
-  const helperStart = acceptance.indexOf("async function proveAmbiguousRefundRetry");
-  const helperEnd = acceptance.indexOf("async function expectTripPassRefundedAmount", helperStart);
-
-  expect(helperStart).toBeGreaterThan(-1);
-  expect(helperEnd).toBeGreaterThan(helperStart);
-  const ambiguityProof = acceptance.slice(helperStart, helperEnd);
-  expect(ambiguityProof).toContain('code: "EAI_AGAIN"');
-  expect(ambiguityProof).not.toContain('code: "ECONNRESET"');
-  expect(ambiguityProof).not.toContain('code: "EPIPE"');
-  expect(ambiguityProof).toContain("maxNetworkRetries: 0");
-  expect(ambiguityProof.indexOf("await upstreamClient.makeRequest(...args)")).toBeLessThan(
-    ambiguityProof.indexOf('code: "EAI_AGAIN"'),
-  );
-});
-
-test("reversed Stripe delivery proves the durable inbox retry state", async () => {
-  const acceptance = await readFile(
-    "tests/provider/stripe-release-candidate.stripe.e2e.ts",
+    "tests/provider/lemon-squeezy-release-candidate.lemon-squeezy.e2e.ts",
     "utf8",
   );
   const scenarioStart = acceptance.indexOf(
-    'test("reversed delivery retries authoritative dispute lookup before app suspension"',
+    'test("out-of-order and fraudulent facts converge through the signed inbox"',
   );
   const scenarioEnd = acceptance.indexOf(
     'test("closure race records Paid After Closure',
@@ -135,10 +94,10 @@ test("reversed Stripe delivery proves the durable inbox retry state", async () =
 
   expect(scenarioStart).toBeGreaterThan(-1);
   expect(scenarioEnd).toBeGreaterThan(scenarioStart);
-  const reversedDelivery = acceptance.slice(scenarioStart, scenarioEnd);
-  expect(reversedDelivery).toContain('inboxStatus: "pending"');
-  expect(reversedDelivery).toContain('reason: "trip_pass_payment_intent_not_found"');
-  expect(reversedDelivery).not.toContain('applicationStatus: "rejected"');
+  const outOfOrder = acceptance.slice(scenarioStart, scenarioEnd);
+  expect(outOfOrder).toContain('inboxStatus: "applied"');
+  expect(outOfOrder).toContain('applicationResult: { status: "duplicate" }');
+  expect(outOfOrder).toContain('status: "fraudulent"');
 });
 
 test("provider lane command rejects an invalid lane before protected execution", async () => {
@@ -153,6 +112,6 @@ test("provider lane command rejects an invalid lane before protected execution",
   ]);
 
   expect(exitCode).not.toBe(0);
-  expect(stderr).toContain("Use --lane clerk or --lane stripe.");
+  expect(stderr).toContain("Use --lane clerk or --lane lemon-squeezy.");
   expect(stdout).not.toContain("checkedOutCommitSha");
 });

@@ -23,10 +23,37 @@ import {
   receiveStripeWebhookEvent,
   STRIPE_API_VERSION,
 } from "@/server/payments/stripe-event-inbox";
-import {
-  buildProviderReleaseCandidateStripeEvent,
-  providerReleaseCandidateStripeEventTypes,
-} from "@/server/qa/provider-release-candidate";
+
+const historicalStripeEventTypes = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+  "charge.refunded",
+  "refund.created",
+  "refund.updated",
+  "refund.failed",
+  "charge.dispute.created",
+  "charge.dispute.closed",
+] as const satisfies readonly Stripe.Event.Type[];
+
+function buildHistoricalStripeTestEvent(input: {
+  eventId: string;
+  object: object;
+  type: (typeof historicalStripeEventTypes)[number];
+}): Stripe.Event {
+  return {
+    api_version: STRIPE_API_VERSION,
+    created: Math.floor(Date.now() / 1_000),
+    data: { object: input.object } as Stripe.Event.Data,
+    id: input.eventId,
+    livemode: false,
+    object: "event",
+    pending_webhooks: 1,
+    request: null,
+    type: input.type,
+  } as Stripe.Event;
+}
 
 const now = new Date("2026-06-23T08:00:00.000Z");
 const webhookSecret = "whsec_test_fixture_secret";
@@ -83,12 +110,12 @@ describe("Stripe webhook route", () => {
     });
   });
 
-  test("accepts and applies every protected release-candidate event envelope", async () => {
+  test("accepts and applies every retained historical Stripe event envelope", async () => {
     await withRouteTestDb(async (db) => {
-      for (const [index, type] of providerReleaseCandidateStripeEventTypes.entries()) {
-        const event = buildProviderReleaseCandidateStripeEvent({
-          eventId: `evt_provider_rc_route_${index}`,
-          object: protectedEventObject(type, index),
+      for (const [index, type] of historicalStripeEventTypes.entries()) {
+        const event = buildHistoricalStripeTestEvent({
+          eventId: `evt_historical_route_${index}`,
+          object: historicalEventObject(type, index),
           type,
         });
         const response = await stripeWebhookResponse(await signedRequest(JSON.stringify(event)), {
@@ -114,7 +141,7 @@ describe("Stripe webhook route", () => {
       const rows = await db.query<{ count: string }>(
         "select count(*)::text as count from trip_pass_stripe_events where status = 'applied'",
       );
-      expect(rows.rows[0]?.count).toBe(String(providerReleaseCandidateStripeEventTypes.length));
+      expect(rows.rows[0]?.count).toBe(String(historicalStripeEventTypes.length));
     });
   });
 
@@ -801,45 +828,42 @@ function ignoredEventPayload(input: { eventId?: string } = {}) {
   });
 }
 
-function protectedEventObject(
-  type: (typeof providerReleaseCandidateStripeEventTypes)[number],
-  index: number,
-) {
+function historicalEventObject(type: (typeof historicalStripeEventTypes)[number], index: number) {
   if (type.startsWith("checkout.session.")) {
     return {
-      id: `cs_provider_rc_${index}`,
+      id: `cs_historical_${index}`,
       object: "checkout.session",
-      client_reference_id: `order_provider_rc_${index}`,
+      client_reference_id: `order_historical_${index}`,
       metadata: {
         productCode: "siargao_trip_pass_14d_v2",
         productVersion: "2",
-        tripPassOrderId: `order_provider_rc_${index}`,
+        tripPassOrderId: `order_historical_${index}`,
       },
       mode: "payment",
-      payment_intent: `pi_provider_rc_${index}`,
+      payment_intent: `pi_historical_${index}`,
       payment_status: type === "checkout.session.completed" ? "paid" : "unpaid",
     };
   }
   if (type === "charge.refunded") {
     return {
-      id: `ch_provider_rc_${index}`,
+      id: `ch_historical_${index}`,
       object: "charge",
-      payment_intent: `pi_provider_rc_${index}`,
+      payment_intent: `pi_historical_${index}`,
     };
   }
   if (type.startsWith("refund.")) {
     return {
-      id: `re_provider_rc_${index}`,
+      id: `re_historical_${index}`,
       object: "refund",
-      charge: `ch_provider_rc_${index}`,
-      payment_intent: `pi_provider_rc_${index}`,
+      charge: `ch_historical_${index}`,
+      payment_intent: `pi_historical_${index}`,
     };
   }
   return {
-    id: `du_provider_rc_${index}`,
+    id: `du_historical_${index}`,
     object: "dispute",
-    charge: `ch_provider_rc_${index}`,
-    payment_intent: `pi_provider_rc_${index}`,
+    charge: `ch_historical_${index}`,
+    payment_intent: `pi_historical_${index}`,
   };
 }
 

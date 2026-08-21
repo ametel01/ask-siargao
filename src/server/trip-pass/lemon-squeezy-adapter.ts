@@ -59,12 +59,15 @@ export class LemonSqueezyCheckoutCreationError extends Error {
 export type LemonSqueezyCheckoutClient = {
   createCheckout: (
     input: LemonSqueezyCheckoutRequest,
-    options: { idempotencyKey: string },
+    options: { idempotencyKey: string; signal?: AbortSignal },
   ) => Promise<LemonSqueezyCheckoutSummary>;
-  retrieveOrder: (providerOrderId: string) => Promise<LemonSqueezyOrder>;
+  retrieveOrder: (
+    providerOrderId: string,
+    options?: { signal?: AbortSignal },
+  ) => Promise<LemonSqueezyOrder>;
   refundOrder: (
     providerOrderId: string,
-    input: { amountMinor?: number; idempotencyKey: string },
+    input: { amountMinor?: number; idempotencyKey: string; signal?: AbortSignal },
   ) => Promise<NormalizedPaymentFact>;
 };
 
@@ -79,11 +82,18 @@ export function createLemonSqueezyCheckoutClient(
   return {
     async createCheckout(input, options) {
       try {
+        const variant = await http.request({
+          method: "GET",
+          path: `/v1/variants/${encodeURIComponent(input.order.variantId)}`,
+          signal: options.signal,
+        });
+        validateLemonSqueezyVariantConfiguration({ variant, order: input.order });
         const response = await http.request({
           method: "POST",
           path: "/v1/checkouts",
           idempotencyKey: options.idempotencyKey,
           body: buildLemonSqueezyCheckoutRequest(input),
+          signal: options.signal,
         });
         return summarizeCheckout(response);
       } catch (error) {
@@ -94,10 +104,11 @@ export function createLemonSqueezyCheckoutClient(
         });
       }
     },
-    async retrieveOrder(providerOrderId) {
+    async retrieveOrder(providerOrderId, options) {
       const response = await http.request({
         method: "GET",
         path: `/v1/orders/${encodeURIComponent(providerOrderId)}`,
+        signal: options?.signal,
       });
       return parseOrder(response);
     },
@@ -106,6 +117,7 @@ export function createLemonSqueezyCheckoutClient(
         method: "POST",
         path: `/v1/orders/${encodeURIComponent(providerOrderId)}/refund`,
         idempotencyKey: input.idempotencyKey,
+        signal: input.signal,
         body: {
           data: {
             type: "orders",
@@ -119,6 +131,28 @@ export function createLemonSqueezyCheckoutClient(
       return parseLemonSqueezyOrderFact({ eventName: "order_refunded", payload: response });
     },
   };
+}
+
+export function validateLemonSqueezyVariantConfiguration(input: {
+  variant: unknown;
+  order: LemonSqueezyCheckoutOrderSnapshot;
+}) {
+  const data = record(record(input.variant).data);
+  const attributes = record(data.attributes);
+  const variantId = identifierValue(data.id);
+  if (variantId !== input.order.variantId) {
+    throw new Error("Lemon Squeezy Variant configuration does not match checkout configuration.");
+  }
+  const productId = identifierValue(attributes.product_id);
+  if (input.order.productId && productId !== input.order.productId) {
+    throw new Error("Lemon Squeezy Variant Product does not match checkout configuration.");
+  }
+  if (booleanValue(attributes.has_license_keys) !== false) {
+    throw new Error("Lemon Squeezy Variant must have license keys disabled.");
+  }
+  if (booleanValue(attributes.test_mode) !== (input.order.testMode ?? false)) {
+    throw new Error("Lemon Squeezy Variant test/live mode does not match checkout configuration.");
+  }
 }
 
 export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequest) {
@@ -136,7 +170,7 @@ export function buildLemonSqueezyCheckoutRequest(input: LemonSqueezyCheckoutRequ
         },
         product_options: {
           enabled_variants: [lemonSqueezyNumericVariantId(input.order.variantId)],
-          redirect_url: `${appUrl}/settings?trip_pass_checkout=return&order=${encodeURIComponent(input.order.id)}`,
+          redirect_url: `${appUrl}/settings?trip_pass_checkout=return&order=${encodeURIComponent(input.order.id)}&provider_order=[order_id]&provider_identifier=[order_identifier]`,
           receipt_link_url: `${appUrl}/legal/trip-pass`,
         },
         checkout_options: {
@@ -200,6 +234,7 @@ export function validateLemonSqueezyCheckout(input: {
   if (input.checkout.discountEnabled !== false) {
     throw new Error("Lemon Squeezy checkout discounts must be hidden.");
   }
+  const previewSubtotal = input.checkout.previewSubtotal;
   const previewTax = input.checkout.previewTax;
   const previewTotal = input.checkout.previewTotal;
   if (
@@ -207,9 +242,10 @@ export function validateLemonSqueezyCheckout(input: {
     input.checkout.previewDiscountTotal == null ||
     previewTax == null ||
     previewTotal == null ||
-    input.checkout.previewSubtotal !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor ||
     input.checkout.previewDiscountTotal !== 0 ||
-    previewTax !== 0 ||
+    (previewSubtotal !== null &&
+      previewSubtotal !== undefined &&
+      previewSubtotal + previewTax !== previewTotal) ||
     previewTotal !== tripPassLemonSqueezyProductSnapshot.amountTotalMinor
   ) {
     throw new Error("Lemon Squeezy checkout commercial preview is incomplete or invalid.");

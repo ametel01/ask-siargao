@@ -590,6 +590,67 @@ describe("terminal Account Closure", () => {
     await failing.db.close();
   });
 
+  test("renews a provider step lease until delayed settlement completes", async () => {
+    const { db, client, query } = await openClosureDatabase();
+    await seedUser(db, "user_lease_renewal");
+    const closure = await beginAccountClosure(
+      { now, userId: "user_lease_renewal" },
+      { createId: (prefix) => `${prefix}_lease_renewal`, db: client, policy },
+    );
+    const firstStarted = deferred<void>();
+    const releaseFirst = deferred<void>();
+    let providerCalls = 0;
+    const firstWorker = runClosureCleanupBatch({
+      db: client,
+      leaseMs: 60,
+      limit: 1,
+      now,
+      policy,
+      providers: {
+        deleteClerkUser: async () => {
+          providerCalls += 1;
+          firstStarted.resolve();
+          await releaseFirst.promise;
+        },
+        expireCheckoutSession: async () => undefined,
+      },
+    });
+    await firstStarted.promise;
+    await Bun.sleep(100);
+
+    await runClosureCleanupBatch({
+      db: client,
+      leaseMs: 60,
+      limit: 1,
+      now,
+      policy,
+      providers: {
+        deleteClerkUser: async () => {
+          providerCalls += 1;
+        },
+        expireCheckoutSession: async () => undefined,
+      },
+    });
+    expect(
+      await query(
+        `select status, attempts from account_closure_steps
+         where operation_id = $1 and step_type = 'clerk_deletion'`,
+        [closure.operationRef],
+      ),
+    ).toEqual([{ status: "running", attempts: 1 }]);
+    releaseFirst.resolve();
+    await expect(firstWorker).resolves.toEqual({ attempted: 1, retrying: 0, succeeded: 1 });
+    expect(providerCalls).toBe(1);
+    expect(
+      await query(
+        `select status, attempts from account_closure_steps
+         where operation_id = $1 and step_type = 'clerk_deletion'`,
+        [closure.operationRef],
+      ),
+    ).toEqual([{ status: "succeeded", attempts: 1 }]);
+    await db.close();
+  });
+
   test("fences stale worker retry and success transitions with the current unexpired lease", async () => {
     const { db, client, query } = await openClosureDatabase();
     await seedUser(db, "user_lease_fence");
@@ -617,7 +678,11 @@ describe("terminal Account Closure", () => {
       },
     });
     await firstStarted.promise;
-    await Bun.sleep(20);
+    await client.query(
+      `update account_closure_steps set lease_expires_at = clock_timestamp() - interval '1 second'
+       where operation_id = $1 and step_type = 'clerk_deletion'`,
+      [closure.operationRef],
+    );
     const secondWorker = runClosureCleanupBatch({
       db: client,
       leaseMs: 1_000,

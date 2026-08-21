@@ -30,6 +30,11 @@ export type RealPostgresHarness = {
 type HarnessQueryClient = {
   end(): Promise<void>;
   query<T>(query: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
+  queryWithSignal<T>(
+    query: string,
+    params: readonly unknown[],
+    signal: AbortSignal,
+  ): Promise<{ rows: T[] }>;
   transaction<T>(callback: (client: DatabaseQueryClient) => Promise<T>): Promise<T>;
 };
 
@@ -134,6 +139,10 @@ function createRealPostgresHarness(input: {
       return {
         async query<T>(query: string, params: readonly unknown[] = []) {
           return queryClient.query<T>(query, [...params]);
+        },
+        async queryWithSignal<T>(query: string, params: readonly unknown[], signal: AbortSignal) {
+          if (!queryClient.queryWithSignal) throw new Error("query cancellation unavailable");
+          return queryClient.queryWithSignal<T>(query, [...params], signal);
         },
         async transaction<T>(callback: (client: DatabaseQueryClient) => Promise<T>) {
           return transaction(callback);

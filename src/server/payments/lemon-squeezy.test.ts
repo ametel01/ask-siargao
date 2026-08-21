@@ -2,12 +2,40 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 
 import {
+  createLemonSqueezyHttpClient,
   parseLemonSqueezyOrderFact,
   paymentFactFingerprint,
   verifyLemonSqueezyWebhookSignature,
 } from "@/server/payments/lemon-squeezy";
 
 describe("Lemon Squeezy payment authority boundary", () => {
+  test("propagates an operational abort signal into the provider request", async () => {
+    let providerSignal: AbortSignal | null | undefined;
+    const client = createLemonSqueezyHttpClient({
+      apiKey: "test-key",
+      fetch: (async (_url, init) => {
+        providerSignal = init?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          providerSignal?.addEventListener(
+            "abort",
+            () => reject(providerSignal?.reason ?? new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }) as typeof fetch,
+    });
+    const controller = new AbortController();
+    const pending = client.request({
+      method: "GET",
+      path: "/v1/orders/123",
+      signal: controller.signal,
+    });
+    controller.abort(new Error("operational_deadline"));
+
+    await expect(pending).rejects.toThrow("operational_deadline");
+    expect(providerSignal?.aborted).toBe(true);
+  });
+
   test("verifies the unmodified body with a timing-safe HMAC signature", () => {
     const payload = JSON.stringify({ data: { id: "order_1" } });
     const secret = "test-secret";
@@ -87,7 +115,11 @@ describe("Lemon Squeezy payment authority boundary", () => {
       orderId: "trip_pass_order_1",
       storeId: "1",
       variantId: "789",
+      testMode: false,
     });
+    expect(fact).not.toHaveProperty("quantity");
+    expect(fact).not.toHaveProperty("customPriceMinor");
+    expect(fact).not.toHaveProperty("licenseKey");
   });
 
   test("distinguishes lifecycle updates in the deterministic receipt fingerprint", () => {

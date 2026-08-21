@@ -42,15 +42,15 @@ describe("protected provider harness", () => {
       env: protectedEnvironment("clerk"),
       retries: 1,
     });
-    const stripe = createProviderReleaseCandidatePlaywrightConfig("stripe", {
+    const lemonSqueezy = createProviderReleaseCandidatePlaywrightConfig("lemon-squeezy", {
       device,
-      env: protectedEnvironment("stripe"),
+      env: protectedEnvironment("lemon-squeezy"),
       retries: 0,
     });
 
     for (const [lane, config] of [
       ["clerk", clerk],
-      ["stripe", stripe],
+      ["lemon-squeezy", lemonSqueezy],
     ] as const) {
       expect(config.testMatch).toBe(`**/*.${lane}.e2e.ts`);
       expect(config.timeout).toBe(120_000);
@@ -96,33 +96,33 @@ describe("protected provider harness", () => {
 
   test("revalidates and records only through the guarded lifecycle", async () => {
     const calls: string[] = [];
-    const lifecycle = lifecycleStub("stripe", calls);
-    const harness = createProtectedProviderHarness("stripe", {
-      env: protectedEnvironment("stripe"),
+    const lifecycle = lifecycleStub("lemon-squeezy", calls);
+    const harness = createProtectedProviderHarness("lemon-squeezy", {
+      env: protectedEnvironment("lemon-squeezy"),
       lifecycle,
     });
     const page = deploymentPage(sha);
 
     await harness.revalidate(page);
-    await harness.recordScenarios(["test_mode_card_payment", "verified_activation"]);
+    await harness.recordScenarios(["test_mode_checkout_creation", "signed_webhook_ingestion"]);
     await harness.seal(page);
 
     expect(calls).toEqual([
       `revalidate:${sha}`,
-      "record:test_mode_card_payment,verified_activation",
+      "record:test_mode_checkout_creation,signed_webhook_ingestion",
       `seal:${sha}`,
     ]);
   });
 
   test("rejects a changed deployment before lifecycle mutation", async () => {
     const calls: string[] = [];
-    const harness = createProtectedProviderHarness("stripe", {
-      env: protectedEnvironment("stripe"),
-      lifecycle: lifecycleStub("stripe", calls),
+    const harness = createProtectedProviderHarness("lemon-squeezy", {
+      env: protectedEnvironment("lemon-squeezy"),
+      lifecycle: lifecycleStub("lemon-squeezy", calls),
     });
 
     await expect(harness.revalidate(deploymentPage("b".repeat(40)))).rejects.toThrow(
-      "Protected app deployment changed before the Stripe scenario.",
+      "Protected app deployment changed before the Lemon Squeezy scenario.",
     );
     expect(calls).toEqual([]);
   });
@@ -168,9 +168,9 @@ describe("protected provider harness", () => {
 
   test("authorizes a default page through a scoped cookie-setting request", async () => {
     let authorizationRequest: object | undefined;
-    const harness = createProtectedProviderHarness("stripe", {
-      env: protectedEnvironment("stripe"),
-      lifecycle: lifecycleStub("stripe"),
+    const harness = createProtectedProviderHarness("lemon-squeezy", {
+      env: protectedEnvironment("lemon-squeezy"),
+      lifecycle: lifecycleStub("lemon-squeezy"),
     });
     const page = {
       request: {
@@ -195,7 +195,7 @@ describe("protected provider harness", () => {
   });
 });
 
-function lifecycleStub<Lane extends "clerk" | "stripe">(lane: Lane, calls: string[] = []) {
+function lifecycleStub<Lane extends "clerk" | "lemon-squeezy">(lane: Lane, calls: string[] = []) {
   return {
     async recordScenarios(scenarios: readonly ProviderReleaseCandidateScenario<Lane>[]) {
       calls.push(`record:${scenarios.join(",")}`);
@@ -233,7 +233,7 @@ function deploymentPage(deployedCommitSha: string) {
   } as unknown as Page;
 }
 
-function protectedEnvironment(lane: "clerk" | "stripe"): ProviderReleaseCandidateEnv {
+function protectedEnvironment(lane: "clerk" | "lemon-squeezy"): ProviderReleaseCandidateEnv {
   return {
     CLERK_PUBLISHABLE_KEY: "pk_test_redacted",
     CLERK_SECRET_KEY: "sk_test_redacted",
@@ -252,15 +252,21 @@ function protectedEnvironment(lane: "clerk" | "stripe"): ProviderReleaseCandidat
     PROVIDER_RC_DATABASE_SENTINEL_FINGERPRINT: "sentinel",
     PROVIDER_RC_EXPECTED_SHA: sha,
     PROVIDER_RC_PRODUCTION_ORIGIN: "https://asksiargao.com",
-    PROVIDER_RC_STRIPE_ACTIVE_USER:
-      lane === "stripe" ? "active+clerk_test@example.test" : undefined,
-    PROVIDER_RC_STRIPE_CLOSURE_USER:
-      lane === "stripe" ? "closure+clerk_test@example.test" : undefined,
-    PROVIDER_RC_STRIPE_REVERSED_USER:
-      lane === "stripe" ? "reversed+clerk_test@example.test" : undefined,
+    LEMON_SQUEEZY_ALLOW_TEST_MODE: lane === "lemon-squeezy" ? "true" : undefined,
+    LEMON_SQUEEZY_API_KEY: lane === "lemon-squeezy" ? "lemon_test_key" : undefined,
+    LEMON_SQUEEZY_PRODUCT_ID: lane === "lemon-squeezy" ? "202" : undefined,
+    LEMON_SQUEEZY_STORE_ID: lane === "lemon-squeezy" ? "101" : undefined,
+    LEMON_SQUEEZY_VARIANT_ID: lane === "lemon-squeezy" ? "303" : undefined,
+    LEMON_SQUEEZY_WEBHOOK_SECRET:
+      lane === "lemon-squeezy" ? "lemon_test_webhook_secret" : undefined,
+    PROVIDER_RC_LEMON_SQUEEZY_ACTIVE_USER:
+      lane === "lemon-squeezy" ? "active+clerk_test@example.test" : undefined,
+    PROVIDER_RC_LEMON_SQUEEZY_CLOSURE_USER:
+      lane === "lemon-squeezy" ? "closure+clerk_test@example.test" : undefined,
+    PROVIDER_RC_LEMON_SQUEEZY_DUPLICATE_USER:
+      lane === "lemon-squeezy" ? "duplicate+clerk_test@example.test" : undefined,
+    PROVIDER_RC_LEMON_SQUEEZY_FRAUD_USER:
+      lane === "lemon-squeezy" ? "fraud+clerk_test@example.test" : undefined,
     PROVIDER_RC_VERCEL_AUTOMATION_BYPASS_SECRET: "vercel-bypass-redacted",
-    STRIPE_RESTRICTED_KEY: "rk_test_redacted",
-    STRIPE_TRIP_PASS_PRICE_ID: lane === "stripe" ? "price_test" : undefined,
-    STRIPE_WEBHOOK_SECRET: lane === "stripe" ? "whsec_redacted" : undefined,
   };
 }

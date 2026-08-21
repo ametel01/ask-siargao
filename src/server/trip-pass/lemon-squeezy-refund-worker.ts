@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseQueryClient } from "@/server/db/query-client";
+import type { NormalizedPaymentFact } from "@/server/payments/lemon-squeezy";
 import type { LemonSqueezyCheckoutClient } from "@/server/trip-pass/lemon-squeezy-adapter";
 
 type RefundOperationClaim = {
@@ -8,6 +9,7 @@ type RefundOperationClaim = {
   order_id: string;
   provider_order_id: string;
   amount_minor: number | null;
+  captured_total_minor: number | null;
   idempotency_key: string;
   attempts: number;
   lease_token: string;
@@ -27,6 +29,8 @@ export async function runLemonSqueezyRefundBatch(input: {
   leaseMs?: number;
   operationId?: string;
   createLeaseToken?: () => string;
+  applyFact?: (fact: NormalizedPaymentFact) => Promise<void>;
+  signal?: AbortSignal;
 }): Promise<LemonSqueezyRefundBatchResult> {
   const result: LemonSqueezyRefundBatchResult = {
     claimed: 0,
@@ -46,10 +50,12 @@ export async function runLemonSqueezyRefundBatch(input: {
     );
     if (!claim) break;
     result.claimed += 1;
+    const startedAt = performance.now();
     try {
       const fact = await input.client.refundOrder(claim.provider_order_id, {
         amountMinor: claim.amount_minor ?? undefined,
         idempotencyKey: claim.idempotency_key,
+        signal: input.signal,
       });
       if (!isVerifiedRefund(claim, fact)) {
         if (await markRefundRetryable(input.db, claim, "refund_response_unverified")) {
@@ -59,9 +65,35 @@ export async function runLemonSqueezyRefundBatch(input: {
         }
         continue;
       }
+      if (input.applyFact) {
+        await input.applyFact({ ...fact, orderId: fact.orderId ?? claim.order_id });
+      }
       if (await markRefundConfirmed(input.db, claim)) result.confirmed += 1;
       else result.stale += 1;
     } catch (error) {
+      if (isAmbiguousProviderError(error)) {
+        const elapsed = performance.now() - startedAt;
+        if (leaseMs - elapsed > 46_000) {
+          try {
+            const authoritative = await input.client.retrieveOrder(claim.provider_order_id, {
+              signal: input.signal,
+            });
+            if (isVerifiedRefund(claim, authoritative)) {
+              if (input.applyFact) {
+                await input.applyFact({
+                  ...authoritative,
+                  orderId: authoritative.orderId ?? claim.order_id,
+                });
+              }
+              if (await markRefundConfirmed(input.db, claim)) result.confirmed += 1;
+              else result.stale += 1;
+              continue;
+            }
+          } catch {
+            // Preserve the retry path when the authoritative lookup is unavailable.
+          }
+        }
+      }
       if (await markRefundRetryable(input.db, claim, errorCode(error))) result.retrying += 1;
       else result.stale += 1;
     }
@@ -75,8 +107,9 @@ function isVerifiedRefund(
 ) {
   if (fact.providerOrderId !== claim.provider_order_id) return false;
   if (fact.status !== "refunded" && fact.status !== "partial_refund") return false;
-  if (claim.amount_minor === null) return fact.status === "refunded";
-  return (fact.refundedAmountMinor ?? 0) >= claim.amount_minor;
+  if (fact.status === "refunded") return true;
+  if (claim.amount_minor === null || claim.captured_total_minor === null) return false;
+  return (fact.refundedAmountMinor ?? 0) >= claim.captured_total_minor;
 }
 
 async function claimRefundOperation(
@@ -89,24 +122,26 @@ async function claimRefundOperation(
   return db.transaction(async (transaction) => {
     const result = await transaction.query<RefundOperationClaim>(
       `with candidate as (
-         select id from trip_pass_refund_operations
-         where ($3::text is null or id = $3)
+         select operation.id, operation.provider_captured_amount_minor as captured_total_minor
+         from trip_pass_refund_operations operation
+         where ($3::text is null or operation.id = $3)
            and (
-             (status = 'pending' and (next_attempt_at is null or next_attempt_at <= clock_timestamp()))
-             or (status = 'running' and lease_expires_at <= clock_timestamp())
+             (operation.status = 'pending' and (operation.next_attempt_at is null or operation.next_attempt_at <= clock_timestamp()))
+             or (operation.status = 'running' and operation.lease_expires_at <= clock_timestamp())
            )
-         order by case when status = 'running' then lease_expires_at
-           else coalesce(next_attempt_at, created_at) end, id
-         for update skip locked
+         order by case when operation.status = 'running' then operation.lease_expires_at
+           else coalesce(operation.next_attempt_at, operation.created_at) end, operation.id
+         for update of operation skip locked
          limit 1
        )
        update trip_pass_refund_operations operation
        set status = 'running', attempts = operation.attempts + 1, lease_token = $1,
          lease_expires_at = clock_timestamp() + ($2::integer * interval '1 millisecond'),
          updated_at = clock_timestamp()
-       from candidate where operation.id = candidate.id
+       from candidate
+       where operation.id = candidate.id
        returning operation.id, operation.order_id, operation.provider_order_id,
-         operation.amount_minor, operation.idempotency_key, operation.attempts,
+         operation.amount_minor, candidate.captured_total_minor, operation.idempotency_key, operation.attempts,
          operation.lease_token`,
       [leaseToken, leaseMs, operationId ?? null],
     );
@@ -151,4 +186,14 @@ function errorCode(error: unknown) {
   return error instanceof Error
     ? `lemon_squeezy_refund_${error.name}`
     : "lemon_squeezy_refund_unknown";
+}
+
+function isAmbiguousProviderError(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (typeof error === "object" &&
+      error !== null &&
+      "retryable" in error &&
+      (error as { retryable?: unknown }).retryable === true)
+  );
 }

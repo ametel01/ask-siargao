@@ -47,10 +47,12 @@ import {
   llmToolCalls,
   operationalAlertDeliveries,
   operationalFindings,
+  operationalReconciliationCursors,
   operationalReconciliationObservations,
   operationalReconciliationRuns,
   operationalScheduleStates,
   operationalWorkerTasks,
+  operatorRefundActions,
   operatorRepairActions,
   paidAnswerReservations,
   paymentEvents,
@@ -146,6 +148,7 @@ describe("Step 3 database migration", () => {
     expect(migrationNames).toContain("0022_operational_schedule_sentinel_authorization.sql");
     expect(migrationNames).toContain("0023_agent_turn_recovery_status.sql");
     expect(migrationNames).toContain("0024_google_places_source_profile.sql");
+    expect(migrationNames).toContain("0039_runtime_authorization_for_lemon_commerce.sql");
   });
 
   test("repairs the Google Places source profile on an existing unseeded database", async () => {
@@ -387,6 +390,16 @@ describe("Step 3 database migration", () => {
       "0027_lemon_squeezy_refund_worker.sql",
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
+      "0030_commerce_reconciliation_schedule.sql",
+      "0031_checkout_return_lookup_claim.sql",
+      "0032_preserve_checkout_attempt_history.sql",
+      "0033_reconciliation_cursors.sql",
+      "0034_refund_capture_and_return_lookup.sql",
+      "0035_operator_refund_action.sql",
+      "0036_checkout_commercial_verification.sql",
+      "0037_refund_operation_fencing.sql",
+      "0038_durable_checkout_return_worker.sql",
+      "0039_runtime_authorization_for_lemon_commerce.sql",
     ]);
     expect(upgrade.skipped).toEqual(throughHistoricalPaidAnswer.map((migration) => migration.name));
     const upgraded = await db.query<{
@@ -479,6 +492,16 @@ describe("Step 3 database migration", () => {
       "0027_lemon_squeezy_refund_worker.sql",
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
+      "0030_commerce_reconciliation_schedule.sql",
+      "0031_checkout_return_lookup_claim.sql",
+      "0032_preserve_checkout_attempt_history.sql",
+      "0033_reconciliation_cursors.sql",
+      "0034_refund_capture_and_return_lookup.sql",
+      "0035_operator_refund_action.sql",
+      "0036_checkout_commercial_verification.sql",
+      "0037_refund_operation_fencing.sql",
+      "0038_durable_checkout_return_worker.sql",
+      "0039_runtime_authorization_for_lemon_commerce.sql",
     ]);
     const tables = await db.query<{ table_name: string }>(
       `select table_name from information_schema.tables
@@ -489,6 +512,7 @@ describe("Step 3 database migration", () => {
     expect(tables.rows.map((row) => row.table_name)).toEqual([
       "operational_alert_deliveries",
       "operational_findings",
+      "operational_reconciliation_cursors",
       "operational_reconciliation_observations",
       "operational_reconciliation_runs",
       "operational_schedule_states",
@@ -557,6 +581,16 @@ describe("Step 3 database migration", () => {
       "0027_lemon_squeezy_refund_worker.sql",
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
+      "0030_commerce_reconciliation_schedule.sql",
+      "0031_checkout_return_lookup_claim.sql",
+      "0032_preserve_checkout_attempt_history.sql",
+      "0033_reconciliation_cursors.sql",
+      "0034_refund_capture_and_return_lookup.sql",
+      "0035_operator_refund_action.sql",
+      "0036_checkout_commercial_verification.sql",
+      "0037_refund_operation_fencing.sql",
+      "0038_durable_checkout_return_worker.sql",
+      "0039_runtime_authorization_for_lemon_commerce.sql",
     ]);
     const backfilled = await db.query<{
       incident_key: string;
@@ -686,6 +720,16 @@ describe("Step 3 database migration", () => {
       "0027_lemon_squeezy_refund_worker.sql",
       "0028_partial_refund_recovery.sql",
       "0029_backfill_provider_neutral_stripe_receipts.sql",
+      "0030_commerce_reconciliation_schedule.sql",
+      "0031_checkout_return_lookup_claim.sql",
+      "0032_preserve_checkout_attempt_history.sql",
+      "0033_reconciliation_cursors.sql",
+      "0034_refund_capture_and_return_lookup.sql",
+      "0035_operator_refund_action.sql",
+      "0036_checkout_commercial_verification.sql",
+      "0037_refund_operation_fencing.sql",
+      "0038_durable_checkout_return_worker.sql",
+      "0039_runtime_authorization_for_lemon_commerce.sql",
     ]);
     const idempotent = await runLedgerBackedMigrations(
       createPgliteMigrationDatabase(db),
@@ -743,6 +787,7 @@ describe("Step 3 database migration", () => {
         "local_entity_type",
         "observed_at",
       ],
+      operational_reconciliation_cursors: ["cursor_offset", "scope_key", "updated_at"],
       operational_worker_tasks: [
         "attempts",
         "completed_at",
@@ -1015,7 +1060,9 @@ describe("Step 3 database migration", () => {
       paidAnswerReservations,
       operationalReconciliationRuns,
       operationalReconciliationObservations,
+      operationalReconciliationCursors,
       operationalFindings,
+      operatorRefundActions,
       operatorRepairActions,
       operationalAlertDeliveries,
       operationalWorkerTasks,
@@ -1802,6 +1849,13 @@ describe("Step 3 database migration", () => {
       ["refund_remaining_amount_minor", "integer", "YES", null],
       ["refund_review_deadline_at", "timestamp with time zone", "YES", null],
       ["refund_review_alerted_at", "timestamp with time zone", "YES", null],
+      ["checkout_return_lookup_attempts", "integer", "NO", "0"],
+      ["checkout_return_lookup_claimed_at", "timestamp with time zone", "YES", null],
+      ["checkout_return_lookup_status", "text", "NO", "'pending'::text"],
+      ["checkout_return_lookup_completed_at", "timestamp with time zone", "YES", null],
+      ["checkout_commercial_terms_verified_at", "timestamp with time zone", "YES", null],
+      ["checkout_return_provider_order_id", "text", "YES", null],
+      ["checkout_return_provider_order_identifier", "text", "YES", null],
     ]);
     expect(
       columnsByTable.trip_pass_grants?.map((column) => [

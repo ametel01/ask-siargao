@@ -5,7 +5,7 @@ import {
   paymentFactFingerprint,
 } from "@/server/payments/lemon-squeezy";
 
-const supportedLemonSqueezyEvents = new Set(["order_created", "order_refunded"]);
+const supportedLemonSqueezyEvents = new Set(["order_created", "order_refunded", "order_lookup"]);
 
 export type PaymentEventReceiptResult =
   | {
@@ -39,9 +39,21 @@ export async function receiveLemonSqueezyPaymentEvent(
     applyFact?: PaymentFactApplication;
   },
 ): Promise<PaymentEventReceiptResult> {
-  const now = options.now ?? new Date();
   const eventName = options.eventName ?? eventNameFromPayload(payload);
   const fact = parseLemonSqueezyOrderFact({ eventName, payload });
+  return receiveLemonSqueezyPaymentFact(fact, options);
+}
+
+export async function receiveLemonSqueezyPaymentFact(
+  fact: NormalizedPaymentFact,
+  options: {
+    db: DatabaseQueryClient;
+    now?: Date;
+    applyFact?: PaymentFactApplication;
+  },
+): Promise<PaymentEventReceiptResult> {
+  const now = options.now ?? new Date();
+  const eventName = fact.eventName;
   const fingerprint = paymentFactFingerprint(fact);
   const receiptId = `payment_receipt_${fingerprint.slice(0, 32)}`;
   const supported = supportedLemonSqueezyEvents.has(eventName);
@@ -354,7 +366,6 @@ function emptyFact(_row: PaymentEventReceiptRow | undefined): NormalizedPaymentF
     providerUpdatedAt: new Date(0).toISOString(),
     orderId: null,
     providerOrderId: null,
-    checkoutId: null,
     paymentId: null,
     storeId: null,
     variantId: null,

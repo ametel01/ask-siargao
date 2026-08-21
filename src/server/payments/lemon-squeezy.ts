@@ -1,5 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
+import { combineAbortSignals, providerRequestTimeoutMs } from "@/server/providers/provider-abort";
+
 export const LEMON_SQUEEZY_API_ORIGIN = "https://api.lemonsqueezy.com";
 export const LEMON_SQUEEZY_WEBHOOK_MAX_BODY_BYTES = 256 * 1024;
 
@@ -18,7 +20,6 @@ export type NormalizedPaymentFact = {
   providerUpdatedAt: string;
   orderId: string | null;
   providerOrderId: string | null;
-  checkoutId: string | null;
   paymentId: string | null;
   storeId: string | null;
   productId?: string | null;
@@ -28,6 +29,7 @@ export type NormalizedPaymentFact = {
   refundedAmountMinor: number | null;
   currency: string | null;
   testMode: boolean | null;
+  discountTotalMinor?: number | null;
 };
 
 export type LemonSqueezyCheckout = {
@@ -49,6 +51,7 @@ export type LemonSqueezyRequest = {
   path: string;
   body?: unknown;
   idempotencyKey?: string;
+  signal?: AbortSignal;
 };
 
 export type LemonSqueezyHttpClient = {
@@ -76,11 +79,12 @@ export class LemonSqueezyWebhookBodyTooLargeError extends Error {
 }
 
 export function createLemonSqueezyHttpClient(
-  input: { apiKey?: string; fetch?: typeof fetch; origin?: string } = {},
+  input: { apiKey?: string; fetch?: typeof fetch; origin?: string; timeoutMs?: number } = {},
 ): LemonSqueezyHttpClient {
   const apiKey = input.apiKey ?? lemonSqueezyApiKeyFromEnv();
   const fetchLike = input.fetch ?? fetch;
   const origin = input.origin ?? LEMON_SQUEEZY_API_ORIGIN;
+  const timeoutMs = input.timeoutMs ?? providerRequestTimeoutMs;
 
   return {
     async request(request) {
@@ -93,6 +97,7 @@ export function createLemonSqueezyHttpClient(
           ...(request.idempotencyKey ? { "Idempotency-Key": request.idempotencyKey } : {}),
         },
         ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
+        signal: combineAbortSignals([request.signal, AbortSignal.timeout(timeoutMs)]),
       });
       const text = await response.text();
       let body: unknown = null;
@@ -177,6 +182,7 @@ export function paymentFactFingerprint(fact: NormalizedPaymentFact) {
     fact.status,
     String(fact.amountTotalMinor ?? ""),
     String(fact.refundedAmountMinor ?? ""),
+    String(fact.discountTotalMinor ?? ""),
   ].join("\n");
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
@@ -194,6 +200,20 @@ export function lemonSqueezyWebhookSecretFromEnv(
   if (!secret)
     throw new Error("LEMON_SQUEEZY_WEBHOOK_SECRET is required for webhook verification.");
   return secret;
+}
+
+export function lemonSqueezyWebhookSecretsFromEnv(
+  env: Record<string, string | undefined> = process.env,
+  now = new Date(),
+) {
+  const current = lemonSqueezyWebhookSecretFromEnv(env);
+  const previous = env.LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS?.trim();
+  const expiresAt = env.LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS_EXPIRES_AT
+    ? Date.parse(env.LEMON_SQUEEZY_WEBHOOK_SECRET_PREVIOUS_EXPIRES_AT)
+    : Number.NaN;
+  return previous && Number.isFinite(expiresAt) && expiresAt > now.getTime()
+    ? [current, previous]
+    : [current];
 }
 
 export function parseLemonSqueezyOrderFact(input: {
@@ -218,6 +238,9 @@ export function parseLemonSqueezyOrderFact(input: {
   const refundedAmountMinor = integerValue(
     attributes.refunded_amount ?? attributes.refunded_amount_usd,
   );
+  const discountTotalMinor = integerValue(
+    attributes.discount_total ?? attributes.discount_total_usd,
+  );
   const status = normalizeOrderStatus(attributes.status ?? attributes.order_status, {
     refunded: attributes.refunded,
     refundedAmountMinor,
@@ -240,7 +263,6 @@ export function parseLemonSqueezyOrderFact(input: {
     providerUpdatedAt: updatedAt,
     orderId: input.orderId ?? customOrderId(root) ?? null,
     providerOrderId,
-    checkoutId: stringValue(attributes.checkout_id),
     paymentId: stringValue(attributes.identifier) ?? stringValue(attributes.payment_id),
     storeId: stringValue(attributes.store_id),
     productId,
@@ -249,7 +271,11 @@ export function parseLemonSqueezyOrderFact(input: {
     amountTotalMinor,
     refundedAmountMinor,
     currency: stringValue(attributes.currency),
-    testMode: booleanValue(attributes.test_mode),
+    testMode:
+      booleanValue(attributes.test_mode) ??
+      booleanValue(firstOrderItem.test_mode) ??
+      booleanValue(orderItemAttributes.test_mode),
+    discountTotalMinor,
   };
 }
 

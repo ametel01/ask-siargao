@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import {
   applicationTables,
@@ -52,7 +53,9 @@ describe("database authorization boundaries", () => {
     expect(applicationTables).toContain("trip_pass_stripe_events");
     expect(applicationTables).toContain("operational_reconciliation_runs");
     expect(applicationTables).toContain("operational_findings");
+    expect(applicationTables).toContain("operational_reconciliation_cursors");
     expect(applicationTables).toContain("operator_repair_actions");
+    expect(applicationTables).toContain("operator_refund_actions");
     expect(applicationTables).toContain("operational_alert_deliveries");
     expect(applicationTables).toContain("operational_worker_tasks");
     expect(applicationTables).toContain("operational_reconciliation_observations");
@@ -104,6 +107,35 @@ describe("database authorization boundaries", () => {
 
     const grantedTables: string[] = [...applicationTables];
     expect(grantedTables.sort()).toEqual([...new Set(migratedTables)].sort());
+  });
+
+  test("ships runtime DML grants for tables created after production role provisioning", async () => {
+    const postProvisioningMigrations = (await listMigrationPaths()).filter(
+      (migrationPath) =>
+        path.basename(migrationPath) > "0022_operational_schedule_sentinel_authorization.sql",
+    );
+    const postProvisioningSql = (
+      await Promise.all(
+        postProvisioningMigrations.map((migrationPath) => readFile(migrationPath, "utf8")),
+      )
+    ).join("\n");
+    const createdTables = Array.from(
+      postProvisioningSql.matchAll(
+        /create\s+table(?:\s+if\s+not\s+exists)?\s+([a-z_][a-z0-9_]*)/gi,
+      ),
+      (match) => match[1],
+    );
+    const runtimeGrantedTables = new Set(
+      postProvisioningSql
+        .split(";")
+        .filter((statement) => /\bto\s+ask_siargao_runtime\b/i.test(statement))
+        .flatMap((statement) => {
+          const tableList = statement.match(/\bon\s+table\s+([\s\S]*?)\s+to\b/i)?.[1] ?? "";
+          return Array.from(tableList.matchAll(/\b([a-z_][a-z0-9_]*)\b/gi), (match) => match[1]);
+        }),
+    );
+
+    expect(createdTables.filter((table) => !runtimeGrantedTables.has(table))).toEqual([]);
   });
 
   test("rejects unsafe SQL identifiers instead of interpolating them", () => {

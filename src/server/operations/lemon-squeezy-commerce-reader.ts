@@ -10,11 +10,12 @@ export function createLemonSqueezyCommerceReader(
       if (!input.providerOrderId) {
         return { amountMinor: null, currency: null, paymentState: "pending" };
       }
-      const order = await client.retrieveOrder(input.providerOrderId);
+      const order = await client.retrieveOrder(input.providerOrderId, { signal: input.signal });
       return {
         amountMinor: order.amountTotalMinor,
         currency: order.currency,
         paymentState: toPaymentState(order.status),
+        providerFact: order,
       };
     },
   };

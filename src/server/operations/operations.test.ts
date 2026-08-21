@@ -48,6 +48,7 @@ import {
   enqueueOperationalTask,
   opaqueTaskKey,
   runOperationalWorker,
+  runOperationalWorkerConcurrently,
 } from "@/server/operations/worker-runner";
 
 describe("Operator authorization", () => {
@@ -999,52 +1000,102 @@ describe("Sentry operational paging", () => {
 });
 
 describe("durable provider-neutral workers", () => {
-  test("producer enqueues one stable reconciliation cycle and worker drains it", async () => {
+  test("producer enqueues risk and daily reconciliation cycles and worker drains them", async () => {
     await withTestDb(async (db) => {
+      await seedOrder(db, "order_risk_due");
+      await seedOrder(db, "order_daily_due");
+      await seedOrder(db, "order_refunded_daily_due");
+      await db.query("update trip_pass_orders set status = 'failed' where id = 'order_daily_due'");
+      await db.query(
+        "update trip_pass_orders set status = 'refunded' where id = 'order_refunded_daily_due'",
+      );
       const input = {
         cycleKey: "cycle-20260808T12",
         taskTypes: ["commerce_reconciliation"] as const,
       };
       expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
-        commerce_reconciliation: 1,
+        commerce_reconciliation: 3,
       });
       expect(await enqueueDueOperationalTasks(input, db)).toMatchObject({
         commerce_reconciliation: 0,
       });
-      const resourceRef = "all:cycle-20260808T12";
+      const resourceRefs = [
+        "daily:cycle-20260808T12:order_daily_due",
+        "daily:cycle-20260808T12:order_refunded_daily_due",
+        "risk:cycle-20260808T12:order_risk_due",
+      ];
       const queued = await db.query<{ id: string; resource_ref: string; task_type: string }>(
-        "select id, resource_ref, task_type from operational_worker_tasks",
+        "select id, resource_ref, task_type from operational_worker_tasks order by resource_ref",
       );
-      expect(queued.rows).toEqual([
-        {
+      expect(queued.rows).toEqual(
+        resourceRefs.map((resourceRef) => ({
           id: stableOperationalTaskId("commerce_reconciliation", resourceRef),
           resource_ref: resourceRef,
           task_type: "commerce_reconciliation",
-        },
-      ]);
+        })),
+      );
       await expect(
         runOperationalWorker(
-          { batchSize: 1, leaseSeconds: 60 },
+          { batchSize: 2, leaseSeconds: 60 },
           {
             db,
             handlers: { commerce_reconciliation: async () => undefined },
           },
         ),
-      ).resolves.toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      ).resolves.toEqual({ claimed: 2, failed: 0, stale: 0, succeeded: 2 });
+    });
+  });
+
+  test("durably pages reconciliation Orders beyond one producer batch", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_reconcile_page', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_version, stripe_price_id,
+           amount_total_minor, currency, checkout_idempotency_key, created_at, updated_at
+         ) select 'order_page_' || value, 'account_reconcile_page', 'pending',
+           'siargao_trip_pass_14d_v2', 2, 'price_test', 999, 'usd',
+           'checkout_page_' || value, clock_timestamp() - interval '1 hour',
+           clock_timestamp() - interval '1 minute'
+         from generate_series(1, 105) value`,
+      );
+      const input = {
+        cycleKey: "cycle-page-all-orders",
+        limitPerType: 40,
+        taskTypes: ["commerce_reconciliation"] as const,
+      };
+      const pages = [
+        await enqueueDueOperationalTasks(input, db),
+        await enqueueDueOperationalTasks(input, db),
+        await enqueueDueOperationalTasks(input, db),
+        await enqueueDueOperationalTasks(input, db),
+      ];
+      expect(pages.map((page) => page.commerce_reconciliation)).toEqual([40, 40, 25, 0]);
+      const queued = await db.query<{ count: string }>(
+        "select count(*)::text as count from operational_worker_tasks where task_type = 'commerce_reconciliation'",
+      );
+      expect(queued.rows[0]?.count).toBe("105");
     });
   });
 
   test("producer keys remain terminal-idempotent after every task kind succeeds", async () => {
     await withTestDb(async (db) => {
+      await seedOrder(db, "order_terminal_risk");
+      await seedOrder(db, "order_terminal_daily");
+      await db.query(
+        "update trip_pass_orders set status = 'failed' where id = 'order_terminal_daily'",
+      );
       const cycleKey = "cycle-terminal-idempotency";
-      const inputs = operationalTaskTypes.map((taskType) => {
-        const resourceRef =
-          taskType === "commerce_reconciliation" ? `all:${cycleKey}` : `opaque:${taskType}`;
-        return {
+      const inputs = operationalTaskTypes.flatMap((taskType) => {
+        const resourceRefs =
+          taskType === "commerce_reconciliation"
+            ? [`risk:${cycleKey}:order_terminal_risk`, `daily:${cycleKey}:order_terminal_daily`]
+            : [`opaque:${taskType}`];
+        return resourceRefs.map((resourceRef) => ({
           id: stableOperationalTaskId(taskType, resourceRef),
           resourceRef,
           taskType,
-        };
+        }));
       });
       const concurrentCreates = await Promise.all(
         inputs.flatMap((input) => [
@@ -1052,21 +1103,19 @@ describe("durable provider-neutral workers", () => {
           enqueueOperationalTask(input, db),
         ]),
       );
-      expect(concurrentCreates.filter(Boolean)).toHaveLength(operationalTaskTypes.length);
+      const expectedTaskCount = operationalTaskTypes.length + 1;
+      expect(concurrentCreates.filter(Boolean)).toHaveLength(expectedTaskCount);
 
       const handlers = Object.fromEntries(
         operationalTaskTypes.map((taskType) => [taskType, async () => undefined]),
       );
       await expect(
-        runOperationalWorker(
-          { batchSize: operationalTaskTypes.length, leaseSeconds: 60 },
-          { db, handlers },
-        ),
+        runOperationalWorker({ batchSize: expectedTaskCount, leaseSeconds: 60 }, { db, handlers }),
       ).resolves.toEqual({
-        claimed: operationalTaskTypes.length,
+        claimed: expectedTaskCount,
         failed: 0,
         stale: 0,
-        succeeded: operationalTaskTypes.length,
+        succeeded: expectedTaskCount,
       });
 
       const replayed = await Promise.all(inputs.map((input) => enqueueOperationalTask(input, db)));
@@ -1080,12 +1129,12 @@ describe("durable provider-neutral workers", () => {
         `select attempts, completed_at, resource_ref, status
          from operational_worker_tasks order by task_type`,
       );
-      expect(terminal.rows).toHaveLength(operationalTaskTypes.length);
+      expect(terminal.rows).toHaveLength(expectedTaskCount);
       for (const row of terminal.rows) {
         expect(row.status).toBe("succeeded");
         expect(row.attempts).toBe(1);
         expect(row.completed_at).not.toBeNull();
-        expect(row.resource_ref).toMatch(/^(?:all:cycle-|opaque:)[a-z_:-]+$/);
+        expect(row.resource_ref).toMatch(/^(?:(?:risk|daily):[a-z_:-]+|opaque:[a-z_:-]+)$/);
       }
 
       const nextCycle = await Promise.all([
@@ -1098,7 +1147,7 @@ describe("durable provider-neutral workers", () => {
           db,
         ),
       ]);
-      expect(nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0)).toBe(1);
+      expect(nextCycle.reduce((sum, result) => sum + result.commerce_reconciliation, 0)).toBe(2);
     });
   });
 
@@ -1131,6 +1180,153 @@ describe("durable provider-neutral workers", () => {
       );
       expect(closure.rows[0]?.status).toBe("pending");
     });
+  });
+
+  test("keeps a slow uncancellable handler leased after the internal deadline", async () => {
+    await withTestDb(async (db) => {
+      await enqueueOperationalTask(
+        { id: "worker_task_deadline", resourceRef: "slow_provider", taskType: "retention_purge" },
+        db,
+      );
+      let handlerSignal: AbortSignal | undefined;
+      const provider = deferred<void>();
+      const startedAt = performance.now();
+      const first = runOperationalWorkerConcurrently(
+        {
+          batchSize: 1,
+          completionAbortReserveMs: 150,
+          deadlineAt: startedAt + 300,
+          leaseSeconds: 60,
+          minimumStartBudgetMs: 0,
+          taskTypes: ["retention_purge"],
+        },
+        {
+          db,
+          handlers: {
+            retention_purge: async ({ signal }) => {
+              handlerSignal = signal;
+              await provider.promise;
+            },
+          },
+        },
+      );
+      const result = await first;
+
+      expect(performance.now() - startedAt).toBeLessThan(700);
+      expect(handlerSignal?.aborted).toBe(true);
+      expect(result).toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 0 });
+      const leased = await db.query<{ last_error_code: string | null; status: string }>(
+        `select last_error_code, status from operational_worker_tasks
+         where id = 'worker_task_deadline'`,
+      );
+      expect(leased.rows).toEqual([{ last_error_code: null, status: "running" }]);
+
+      await expect(
+        runOperationalWorkerConcurrently(
+          { batchSize: 1, leaseSeconds: 60, taskTypes: ["retention_purge"] },
+          { db, handlers: { retention_purge: async () => undefined } },
+        ),
+      ).resolves.toEqual({ claimed: 0, failed: 0, stale: 0, succeeded: 0 });
+
+      provider.resolve();
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const terminal = await db.query<{ status: string }>(
+          "select status from operational_worker_tasks where id = 'worker_task_deadline'",
+        );
+        if (terminal.rows[0]?.status === "succeeded") break;
+        await Bun.sleep(10);
+      }
+      const terminal = await db.query<{ status: string }>(
+        "select status from operational_worker_tasks where id = 'worker_task_deadline'",
+      );
+      expect(terminal.rows[0]?.status).toBe("succeeded");
+    });
+  });
+
+  test("reserves time to persist a provider fact that arrives near the provider cutoff", async () => {
+    await withTestDb(async (db) => {
+      await enqueueOperationalTask(
+        {
+          id: "worker_task_application_reserve",
+          resourceRef: "near_cutoff_provider_fact",
+          taskType: "commerce_reconciliation",
+        },
+        db,
+      );
+      let persisted = false;
+      let signalAtProviderCompletion: boolean | undefined;
+      let signalDuringApplication: boolean | undefined;
+      const startedAt = performance.now();
+      const result = await runOperationalWorkerConcurrently(
+        {
+          batchSize: 1,
+          completionAbortReserveMs: 120,
+          deadlineAt: startedAt + 300,
+          leaseSeconds: 60,
+          minimumStartBudgetMs: 0,
+          taskTypes: ["commerce_reconciliation"],
+        },
+        {
+          db,
+          handlers: {
+            commerce_reconciliation: async ({ signal }) => {
+              await Bun.sleep(130);
+              signalAtProviderCompletion = signal?.aborted;
+              await Bun.sleep(70);
+              signalDuringApplication = signal?.aborted;
+              await db.query(
+                `insert into operational_reconciliation_observations (
+                   local_entity_type, local_entity_ref, last_applied_sequence, observed_at
+                 ) values ('trip_pass_order', 'near_cutoff_provider_fact', 1, now())`,
+              );
+              persisted = true;
+            },
+          },
+        },
+      );
+
+      expect(signalAtProviderCompletion).toBe(false);
+      expect(signalDuringApplication).toBe(true);
+      expect(persisted).toBe(true);
+      expect(result).toEqual({ claimed: 1, failed: 0, stale: 0, succeeded: 1 });
+      expect(performance.now() - startedAt).toBeLessThan(300);
+    });
+  });
+
+  test("returns at the internal deadline when a batch claim does not complete", async () => {
+    const stalledDb: DatabaseQueryClient = {
+      async query<T>() {
+        return new Promise<{ rows: T[] }>(() => undefined);
+      },
+      async queryWithSignal<T>(
+        _query: string,
+        _params: unknown[],
+        signal: AbortSignal,
+      ): Promise<{ rows: T[] }> {
+        return new Promise<{ rows: T[] }>((_resolve, reject) => {
+          const abort = () => reject(signal.reason ?? new Error("aborted"));
+          signal.addEventListener("abort", abort, { once: true });
+        });
+      },
+      async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+        return callback(stalledDb);
+      },
+    };
+    const startedAt = performance.now();
+    const result = await runOperationalWorkerConcurrently(
+      {
+        batchSize: 1,
+        completionAbortReserveMs: 25,
+        deadlineAt: startedAt + 75,
+        leaseSeconds: 60,
+        minimumStartBudgetMs: 0,
+        taskTypes: ["retention_purge"],
+      },
+      { db: stalledDb, handlers: { retention_purge: async () => undefined } },
+    );
+
+    expect(performance.now() - startedAt).toBeLessThan(300);
+    expect(result).toEqual({ claimed: 0, failed: 0, stale: 0, succeeded: 0 });
   });
 
   test("retries crashes durably and fences a stale successful worker", async () => {

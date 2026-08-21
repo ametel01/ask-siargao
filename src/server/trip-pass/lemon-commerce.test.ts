@@ -7,7 +7,12 @@ import {
   resetTestDatabase,
   runInitialMigration,
 } from "@/server/db/test-database";
-import { receiveLemonSqueezyPaymentEvent } from "@/server/payments/payment-event-receipts";
+import { riskReconciliationOrderCapacity } from "@/server/operations/operational-capacity";
+import { executeOperatorRefund, previewOperatorRefund } from "@/server/operations/operator-refunds";
+import {
+  receiveLemonSqueezyPaymentEvent,
+  receiveLemonSqueezyPaymentFact,
+} from "@/server/payments/payment-event-receipts";
 import {
   type LemonTripPassCheckoutOptions,
   startLemonSqueezyTripPassCheckout,
@@ -24,6 +29,217 @@ const env = {
 } as const;
 
 describe("Lemon Squeezy Trip Pass commerce", () => {
+  test("refuses a new Order when the five-minute risk reconciliation capacity is full", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_capacity_blocked', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+           created_at, updated_at
+         ) select 'capacity_order_' || value, null, 'paid', 'siargao_trip_pass_14d_v2',
+           'siargao_trip_pass', 2, 999, 'usd', 'capacity_checkout_' || value,
+           'lemon_squeezy', $1, $1
+         from generate_series(1, $2::integer) value`,
+        [now, riskReconciliationOrderCapacity],
+      );
+      let providerCalls = 0;
+
+      await expect(
+        startLemonSqueezyTripPassCheckout(
+          {
+            userId: "account_capacity_blocked",
+            email: "capacity@example.com",
+            appUrl: "https://www.asksiargao.com",
+          },
+          {
+            client: fakeClient({
+              createCheckout: async () => {
+                providerCalls += 1;
+                throw new Error("provider_must_not_be_called");
+              },
+            }),
+            createId: () => "capacity_order_new",
+            db,
+            env,
+            now,
+          },
+        ),
+      ).resolves.toEqual({
+        status: "blocked",
+        reason: "trip_pass_reconciliation_capacity_reached",
+      });
+      expect(providerCalls).toBe(0);
+      const inserted = await db.query<{ count: string }>(
+        "select count(*)::text as count from trip_pass_orders where id = 'capacity_order_new'",
+      );
+      expect(inserted.rows[0]?.count).toBe("0");
+    });
+  });
+
+  test("fails checkout closed when the production capacity lock is unavailable", async () => {
+    await withTestDb(async (db) => {
+      await db.query(
+        "insert into users (id, email) values ('account_capacity_lock_failure', null)",
+      );
+      if (!db.transaction) throw new Error("test transaction unavailable");
+      const lockFailureDb: DatabaseQueryClient = {
+        ...db,
+        dialect: "postgres",
+        async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+          return db.transaction?.(async (transaction) =>
+            callback({
+              ...transaction,
+              dialect: "postgres",
+              async query<Result>(query: string, params: unknown[] = []) {
+                if (query.includes("ask-siargao-reconciliation-capacity")) {
+                  throw new Error("permission denied for function pg_advisory_xact_lock");
+                }
+                if (query.includes("pg_advisory_xact_lock")) return { rows: [] as Result[] };
+                return transaction.query<Result>(query, params);
+              },
+            }),
+          ) as Promise<T>;
+        },
+      };
+      let providerCalls = 0;
+
+      await expect(
+        startLemonSqueezyTripPassCheckout(
+          {
+            userId: "account_capacity_lock_failure",
+            appUrl: "https://www.asksiargao.com",
+          },
+          {
+            client: fakeClient({
+              createCheckout: async () => {
+                providerCalls += 1;
+                throw new Error("provider_must_not_be_called");
+              },
+            }),
+            createId: () => "capacity_lock_failure_order",
+            db: lockFailureDb,
+            env,
+            now,
+          },
+        ),
+      ).rejects.toThrow("permission denied for function pg_advisory_xact_lock");
+      expect(providerCalls).toBe(0);
+    });
+  });
+
+  test("expires abandoned unpaid Orders before admitting a deliberate retry", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_after_abandonment', null)");
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+           checkout_session_expires_at, checkout_session_status, created_at, updated_at
+         ) select 'abandoned_order_' || value, null, 'checkout_created',
+           'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+           'abandoned_checkout_' || value, 'lemon_squeezy', $1::timestamptz - interval '6 minutes',
+           'open', $1::timestamptz - interval '36 minutes',
+           $1::timestamptz - interval '36 minutes'
+         from generate_series(1, $2::integer) value`,
+        [now, riskReconciliationOrderCapacity],
+      );
+      const client = fakeClient({
+        createCheckout: async ({ order }) => ({
+          id: "checkout_after_abandonment",
+          url: "https://checkout.lemonsqueezy.test/after-abandonment",
+          orderId: order.id,
+          storeId: order.storeId,
+          productId: order.productId ?? "product_test",
+          variantId: order.variantId,
+          customPrice: null,
+          enabledVariants: [order.variantId],
+          quantity: 1,
+          discountEnabled: false,
+          previewSubtotal: 999,
+          previewDiscountTotal: 0,
+          previewTax: 0,
+          previewTotal: 999,
+          testMode: false,
+          expiresAt: order.checkoutSessionExpiresAt,
+        }),
+      });
+
+      await expect(
+        startLemonSqueezyTripPassCheckout(
+          {
+            userId: "account_after_abandonment",
+            appUrl: "https://www.asksiargao.com",
+          },
+          {
+            client,
+            createId: () => "order_after_abandonment",
+            db,
+            env,
+            now,
+          },
+        ),
+      ).resolves.toMatchObject({ status: "started", orderId: "order_after_abandonment" });
+      const state = await db.query<{ expired: string; risk: string }>(
+        `select count(*) filter (where status = 'expired')::text as expired,
+           count(*) filter (where status in ('pending', 'checkout_created', 'paid', 'disputed'))::text as risk
+         from trip_pass_orders`,
+      );
+      expect(state.rows[0]).toEqual({
+        expired: String(riskReconciliationOrderCapacity),
+        risk: "1",
+      });
+    });
+  });
+
+  test("fences expired checkout settlement by grace and durable provider evidence", async () => {
+    await withTestDb(async (db) => {
+      await db.query(
+        `insert into users (id, email) values
+         ('account_expiry_grace', null), ('account_expiry_evidence', null)`,
+      );
+      await db.query(
+        `insert into trip_pass_orders (
+           id, user_id, status, product_code, product_family, product_version,
+           amount_total_minor, currency, checkout_idempotency_key, payment_provider,
+           checkout_session_expires_at, checkout_session_status,
+           checkout_return_lookup_attempts, checkout_return_lookup_status,
+           created_at, updated_at
+         ) values
+         ('order_expiry_grace', 'account_expiry_grace', 'checkout_created',
+          'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+          'checkout_expiry_grace', 'lemon_squeezy', $1::timestamptz - interval '1 minute',
+          'open', 0, 'pending', $1::timestamptz - interval '31 minutes', $1),
+         ('order_expiry_evidence', 'account_expiry_evidence', 'checkout_created',
+          'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2, 999, 'usd',
+          'checkout_expiry_evidence', 'lemon_squeezy', $1::timestamptz - interval '10 minutes',
+          'open', 1, 'pending', $1::timestamptz - interval '40 minutes', $1)`,
+        [now],
+      );
+      let providerCalls = 0;
+      const client = fakeClient({
+        createCheckout: async () => {
+          providerCalls += 1;
+          throw new Error("provider_must_not_be_called");
+        },
+      });
+
+      for (const userId of ["account_expiry_grace", "account_expiry_evidence"]) {
+        await expect(
+          startLemonSqueezyTripPassCheckout(
+            { userId, appUrl: "https://www.asksiargao.com" },
+            { client, createId: () => `new_${userId}`, db, env, now },
+          ),
+        ).resolves.toEqual({ status: "blocked", reason: "trip_pass_checkout_settling" });
+      }
+      expect(providerCalls).toBe(0);
+      const state = await db.query<{ status: string }>(
+        "select status from trip_pass_orders where id in ('order_expiry_grace', 'order_expiry_evidence') order by id",
+      );
+      expect(state.rows).toEqual([{ status: "checkout_created" }, { status: "checkout_created" }]);
+    });
+  });
+
   test("persists a pending Order and Checkout Attempt before exposing the URL", async () => {
     const queries: string[] = [];
     await withTestDb(
@@ -93,9 +309,10 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
           provider_store_id: string;
           provider_variant_id: string;
           provider_checkout_id: string;
+          checkout_commercial_terms_verified_at: Date | string | null;
           email: string | null;
         }>(
-          "select payment_provider, provider_store_id, provider_variant_id, provider_checkout_id, email from trip_pass_orders where id = $1",
+          "select payment_provider, provider_store_id, provider_variant_id, provider_checkout_id, checkout_commercial_terms_verified_at, email from trip_pass_orders where id = $1",
           ["trip_pass_order_lemon_1"],
         );
         expect(order.rows[0]).toEqual({
@@ -103,6 +320,7 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
           provider_store_id: "store_test",
           provider_variant_id: "variant_test",
           provider_checkout_id: "checkout_test_1",
+          checkout_commercial_terms_verified_at: now,
           email: "traveler@example.com",
         });
         const attempt = await db.query<{ status: string; checkout_url: string }>(
@@ -138,6 +356,10 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
             variant_id: "variant_test",
             updated_at: "2026-08-19T00:00:00Z",
             test_mode: false,
+            first_order_item: { quantity: 1 },
+            discount_total: 0,
+            custom_price: null,
+            license_key: null,
           },
         },
       };
@@ -205,6 +427,10 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
             variant_id: "variant_test",
             updated_at: updatedAt,
             test_mode: false,
+            first_order_item: { quantity: 1 },
+            discount_total: 0,
+            custom_price: null,
+            license_key: null,
             object_id: objectId,
           },
         },
@@ -243,6 +469,249 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
     });
   });
 
+  test("rejects commercially invalid additional provider Orders before durable side effects", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_invalid_extra', null)");
+      await insertLemonOrder(db, "order_invalid_extra", "account_invalid_extra");
+      await db.query(
+        "update trip_pass_orders set provider_product_id = 'product_test' where id = 'order_invalid_extra'",
+      );
+      const applyFact = ({
+        fact,
+        db: factDb,
+        now: factNow,
+      }: Parameters<
+        NonNullable<Parameters<typeof receiveLemonSqueezyPaymentFact>[1]["applyFact"]>
+      >[0]) => applyLemonSqueezyPaymentFact(fact, { db: factDb, now: factNow });
+      const validFact = {
+        provider: "lemon_squeezy" as const,
+        eventName: "order_lookup",
+        objectId: "provider_order_valid",
+        providerUpdatedAt: "2026-08-19T00:00:00.000Z",
+        orderId: "order_invalid_extra",
+        providerOrderId: "provider_order_valid",
+        paymentId: null,
+        storeId: "store_test",
+        productId: "product_test",
+        variantId: "variant_test",
+        status: "paid" as const,
+        amountTotalMinor: 999,
+        refundedAmountMinor: 0,
+        currency: "usd",
+        testMode: false,
+        discountTotalMinor: 0,
+      };
+      await receiveLemonSqueezyPaymentFact(validFact, { db, applyFact, now });
+
+      const invalidFacts = [
+        { amountTotalMinor: 998 },
+        { currency: "eur" },
+        { productId: "product_wrong" },
+        { variantId: "variant_wrong" },
+        { storeId: "store_wrong" },
+      ];
+      for (const [index, mismatch] of invalidFacts.entries()) {
+        const result = await receiveLemonSqueezyPaymentFact(
+          {
+            ...validFact,
+            ...mismatch,
+            objectId: `provider_order_invalid_${index}`,
+            providerOrderId: `provider_order_invalid_${index}`,
+            providerUpdatedAt: `2026-08-19T00:0${index + 1}:00.000Z`,
+          },
+          { db, applyFact, now },
+        );
+        expect(result.status).toBe("blocked");
+      }
+
+      const sideEffects = await db.query<{ facts: string; refunds: string }>(
+        `select
+           (select count(*)::text from trip_pass_payment_facts
+            where order_id = 'order_invalid_extra') as facts,
+           (select count(*)::text from trip_pass_refund_operations
+            where order_id = 'order_invalid_extra') as refunds`,
+      );
+      expect(sideEffects.rows[0]).toEqual({ facts: "1", refunds: "0" });
+    });
+  });
+
+  test("grants one delayed competing Order and refunds the other", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_competing_orders', null)");
+      await insertLemonOrder(db, "order_competing_old", "account_competing_orders");
+      await insertLemonOrder(db, "order_competing_new", "account_competing_orders");
+      const applyFact = ({
+        fact,
+        db: factDb,
+        now: factNow,
+      }: Parameters<
+        NonNullable<Parameters<typeof receiveLemonSqueezyPaymentFact>[1]["applyFact"]>
+      >[0]) => applyLemonSqueezyPaymentFact(fact, { db: factDb, now: factNow });
+      const factFor = (orderId: string, suffix: string, providerUpdatedAt: string) => ({
+        provider: "lemon_squeezy" as const,
+        eventName: "order_lookup",
+        objectId: `provider_order_${suffix}`,
+        providerUpdatedAt,
+        orderId,
+        providerOrderId: `provider_order_${suffix}`,
+        paymentId: null,
+        storeId: "store_test",
+        variantId: "variant_test",
+        status: "paid" as const,
+        amountTotalMinor: 999,
+        refundedAmountMinor: 0,
+        currency: "usd",
+        testMode: false,
+        discountTotalMinor: 0,
+      });
+
+      const newPayment = await receiveLemonSqueezyPaymentFact(
+        factFor("order_competing_new", "new", "2026-08-19T00:02:00.000Z"),
+        { db, applyFact, now },
+      );
+      const delayedOldPayment = await receiveLemonSqueezyPaymentFact(
+        factFor("order_competing_old", "old", "2026-08-19T00:03:00.000Z"),
+        { db, applyFact, now },
+      );
+
+      expect(newPayment).toMatchObject({
+        status: "applied",
+        applicationResult: { action: "activated" },
+      });
+      expect(delayedOldPayment).toMatchObject({
+        status: "applied",
+        applicationResult: { action: "refunded" },
+      });
+      const outcome = await db.query<{ grants: string; refunds: string }>(
+        `select
+           (select count(*)::text from trip_pass_grants
+            where order_id in ('order_competing_old', 'order_competing_new')) as grants,
+           (select count(*)::text from trip_pass_refund_operations
+            where order_id in ('order_competing_old', 'order_competing_new')
+              and reason = 'duplicate_payment') as refunds`,
+      );
+      expect(outcome.rows[0]).toEqual({ grants: "1", refunds: "1" });
+    });
+  });
+
+  test("refunds an expired Order paid before its replacement and grants only the replacement", async () => {
+    await withTestDb(async (db) => {
+      await db.query("insert into users (id, email) values ('account_expired_old_first', null)");
+      await insertLemonOrder(db, "order_expired_old", "account_expired_old_first");
+      await insertLemonOrder(db, "order_expired_replacement", "account_expired_old_first");
+      await db.query("update trip_pass_orders set status = 'expired' where id = $1", [
+        "order_expired_old",
+      ]);
+      const paymentFact = (orderId: string, suffix: string, updatedAt: string) => ({
+        provider: "lemon_squeezy" as const,
+        eventName: "order_lookup",
+        objectId: `provider_expired_${suffix}`,
+        providerUpdatedAt: updatedAt,
+        orderId,
+        providerOrderId: `provider_expired_${suffix}`,
+        paymentId: null,
+        storeId: "store_test",
+        variantId: "variant_test",
+        status: "paid" as const,
+        amountTotalMinor: 999,
+        refundedAmountMinor: 0,
+        currency: "usd",
+        testMode: false,
+        discountTotalMinor: 0,
+      });
+
+      const applyFact = ({
+        fact,
+        db: factDb,
+        now: factNow,
+      }: Parameters<
+        NonNullable<Parameters<typeof receiveLemonSqueezyPaymentFact>[1]["applyFact"]>
+      >[0]) => applyLemonSqueezyPaymentFact(fact, { db: factDb, now: factNow });
+      const expired = await receiveLemonSqueezyPaymentFact(
+        paymentFact("order_expired_old", "old", "2026-08-19T00:01:00.000Z"),
+        { applyFact, db, now },
+      );
+      const replacement = await receiveLemonSqueezyPaymentFact(
+        paymentFact("order_expired_replacement", "replacement", "2026-08-19T00:02:00.000Z"),
+        { applyFact, db, now },
+      );
+
+      expect(expired).toMatchObject({
+        status: "applied",
+        applicationResult: { action: "refunded" },
+      });
+      expect(replacement).toMatchObject({
+        status: "applied",
+        applicationResult: { action: "activated" },
+      });
+      const outcome = await db.query<{ grants: string; old_facts: string; old_refunds: string }>(
+        `select
+           (select count(*)::text from trip_pass_grants
+            where order_id in ('order_expired_old', 'order_expired_replacement')) as grants,
+           (select count(*)::text from trip_pass_payment_facts
+            where order_id = 'order_expired_old') as old_facts,
+           (select count(*)::text from trip_pass_refund_operations
+            where order_id = 'order_expired_old' and amount_minor = 999) as old_refunds`,
+      );
+      expect(outcome.rows[0]).toEqual({ grants: "1", old_facts: "1", old_refunds: "1" });
+    });
+  });
+
+  test("fails concurrent paid facts closed when the production Family lock is unavailable", async () => {
+    let applicationQueries = 0;
+    const lockFailureDb: DatabaseQueryClient = {
+      dialect: "postgres",
+      async query<T>(query: string): Promise<{ rows: T[] }> {
+        if (query.startsWith("select user_id, product_family")) {
+          return {
+            rows: [{ user_id: "account_lock_failure", product_family: "siargao_trip_pass" }] as T[],
+          };
+        }
+        if (query.includes("pg_advisory_xact_lock(hashtext($1), hashtext($2))")) {
+          throw new Error("permission denied for function pg_advisory_xact_lock");
+        }
+        applicationQueries += 1;
+        return { rows: [] };
+      },
+      async transaction<T>(callback: (transaction: DatabaseQueryClient) => Promise<T>) {
+        return callback({ ...lockFailureDb, inTransaction: true });
+      },
+    };
+    const fact = (suffix: string) => ({
+      provider: "lemon_squeezy" as const,
+      eventName: "order_lookup",
+      objectId: `provider_lock_failure_${suffix}`,
+      providerUpdatedAt: "2026-08-19T00:01:00.000Z",
+      orderId: `order_lock_failure_${suffix}`,
+      providerOrderId: `provider_lock_failure_${suffix}`,
+      paymentId: null,
+      storeId: "store_test",
+      variantId: "variant_test",
+      status: "paid" as const,
+      amountTotalMinor: 999,
+      refundedAmountMinor: 0,
+      currency: "usd",
+      testMode: false,
+      discountTotalMinor: 0,
+    });
+
+    const outcomes = await Promise.allSettled([
+      applyLemonSqueezyPaymentFact(fact("one"), { db: lockFailureDb, now }),
+      applyLemonSqueezyPaymentFact(fact("two"), { db: lockFailureDb, now }),
+    ]);
+
+    expect(outcomes.every((outcome) => outcome.status === "rejected")).toBe(true);
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") {
+        expect(outcome.reason).toHaveProperty(
+          "message",
+          "permission denied for function pg_advisory_xact_lock",
+        );
+      }
+    }
+    expect(applicationQueries).toBe(0);
+  });
+
   test("ignores provider facts older than the Order lifecycle watermark", async () => {
     await withTestDb(async (db) => {
       await db.query("insert into users (id, email) values ($1, $2)", [
@@ -273,6 +742,10 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
             variant_id: "variant_test",
             updated_at: updatedAt,
             test_mode: false,
+            first_order_item: { quantity: 1 },
+            discount_total: 0,
+            custom_price: null,
+            license_key: null,
             object_id: objectId,
           },
         },
@@ -339,6 +812,10 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
             variant_id: "variant_test",
             updated_at: "2026-08-19T00:00:00.000Z",
             test_mode: false,
+            first_order_item: { quantity: 1 },
+            discount_total: 0,
+            custom_price: null,
+            license_key: null,
           },
         },
       };
@@ -394,6 +871,94 @@ describe("Lemon Squeezy Trip Pass commerce", () => {
         now.getTime() + 24 * 60 * 60_000,
       );
       expect(reviews).toHaveLength(1);
+
+      const preview = await previewOperatorRefund(
+        { decision: "accept_partial_refund", orderId: "trip_pass_order_partial_refund" },
+        db,
+      );
+      await executeOperatorRefund(
+        {
+          auth: { accountId: "operator_partial_final", mfaFresh: true },
+          confirmation: "APPLY REFUND",
+          decision: "accept_partial_refund",
+          idempotencyKey: "partial-final-idempotency-key",
+          orderId: "trip_pass_order_partial_refund",
+          previewDigest: preview.digest,
+          reasonCode: "accept_partial_resolution",
+        },
+        { allowlist: new Set(["operator_partial_final"]), db },
+      );
+      const lookup = await receiveLemonSqueezyPaymentFact(
+        {
+          provider: "lemon_squeezy",
+          eventName: "order_lookup",
+          objectId: "provider_order_partial",
+          providerUpdatedAt: "2026-08-19T00:05:00.000Z",
+          orderId: "trip_pass_order_partial_refund",
+          providerOrderId: "provider_order_partial",
+          paymentId: null,
+          storeId: "store_test",
+          variantId: "variant_test",
+          status: "partial_refund",
+          amountTotalMinor: 999,
+          refundedAmountMinor: 300,
+          currency: "usd",
+          testMode: false,
+          discountTotalMinor: 0,
+        },
+        { db, applyFact, now },
+      );
+      expect(lookup).toMatchObject({
+        status: "applied",
+        applicationResult: { status: "duplicate" },
+      });
+      const final = await db.query<{ refund_state: string; status: string }>(
+        `select o.refund_state, operation.status from trip_pass_orders o
+         join trip_pass_refund_operations operation on operation.order_id = o.id
+         where o.id = 'trip_pass_order_partial_refund'`,
+      );
+      expect(final.rows[0]).toEqual({ refund_state: "partial_final", status: "cancelled" });
+
+      const increased = await receiveLemonSqueezyPaymentFact(
+        {
+          provider: "lemon_squeezy",
+          eventName: "order_lookup",
+          objectId: "provider_order_partial",
+          providerUpdatedAt: "2026-08-19T00:06:00.000Z",
+          orderId: "trip_pass_order_partial_refund",
+          providerOrderId: "provider_order_partial",
+          paymentId: null,
+          storeId: "store_test",
+          variantId: "variant_test",
+          status: "partial_refund",
+          amountTotalMinor: 999,
+          refundedAmountMinor: 400,
+          currency: "usd",
+          testMode: false,
+          discountTotalMinor: 0,
+        },
+        { db, applyFact, now },
+      );
+      expect(increased).toMatchObject({
+        status: "applied",
+        applicationResult: { status: "applied", action: "refund_review" },
+      });
+      const reopened = await db.query<{
+        amount_minor: number;
+        refund_state: string;
+        status: string;
+      }>(
+        `select o.refund_state, operation.status, operation.amount_minor
+         from trip_pass_orders o
+         join trip_pass_refund_operations operation on operation.order_id = o.id
+         where o.id = 'trip_pass_order_partial_refund'`,
+      );
+      expect(reopened.rows[0]).toEqual({
+        amount_minor: 599,
+        refund_state: "review",
+        status: "pending",
+      });
+      expect(reviews).toHaveLength(2);
     });
   });
 
@@ -488,15 +1053,17 @@ async function insertLemonOrder(db: DatabaseQueryClient, orderId: string, userId
     `insert into trip_pass_orders (
       id, user_id, status, product_code, product_family, product_version, stripe_price_id,
       amount_total_minor, currency, checkout_idempotency_key, payment_provider,
-      provider_store_id, provider_variant_id, provider_order_id, created_at, updated_at
+      provider_store_id, provider_variant_id, provider_order_id,
+      checkout_commercial_terms_verified_at, created_at, updated_at
     ) values ($1, $2, 'checkout_created', 'siargao_trip_pass_14d_v2', 'siargao_trip_pass', 2,
-      null, 999, 'usd', $3, 'lemon_squeezy', 'store_test', 'variant_test', null, $4, $4)`,
+      null, 999, 'usd', $3, 'lemon_squeezy', 'store_test', 'variant_test', null, $4, $4, $4)`,
     [orderId, userId, `trip_pass_checkout:${orderId}`, now],
   );
 }
 
 function createPgliteQueryClient(database: PGlite, queryLog: string[] = []): DatabaseQueryClient {
   const client: DatabaseQueryClient = {
+    dialect: "pglite",
     async query<T>(query: string, params: unknown[] = []) {
       queryLog.push(query);
       return database.query<T>(query, params);

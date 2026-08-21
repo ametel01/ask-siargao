@@ -207,12 +207,8 @@ export async function lockTripPassAccountFamily(
       productFamily,
     ]);
   } catch (error) {
-    if (
-      !(error instanceof Error) ||
-      !/pg_advisory|hashtext|function|syntax|unsupported/i.test(error.message)
-    ) {
-      throw error;
-    }
+    if (db.dialect === "pglite") return;
+    throw error;
   }
 }
 
