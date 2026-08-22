@@ -110,6 +110,8 @@ correctness dependency.
 Every named baseline item in the accepted Assignment library is a separate Coverage Requirement
 linked to one Objective. A captured record carries one exact `coverageRequirementId`; an Objective's
 broad Observation Kind set or aggregate record count cannot satisfy an unrelated requirement.
+Each requirement declares requiredness, minimum records, supporting-asset policy, repetition, and its
+admissible record and Observation Kinds.
 
 ### Planner inputs
 

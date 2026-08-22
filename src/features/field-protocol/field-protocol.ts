@@ -100,13 +100,25 @@ const governedSubjectIds = new Set<string>(
 );
 const coverageRequirementsByAssignment = new Map<
   string,
-  ReadonlyMap<string, { objectiveId: string }>
+  ReadonlyMap<
+    string,
+    {
+      objectiveId: string;
+      admissibleRecordKinds: readonly string[];
+      admissibleObservationKinds: readonly string[];
+    }
+  >
 >(
   baselineFieldProtocolPackageData.campaign.assignments.map((assignment) => [
     assignment.id,
-    new Map<string, { objectiveId: string }>(
-      assignment.coverageRequirements.map((requirement) => [requirement.id, requirement] as const),
-    ),
+    new Map<
+      string,
+      {
+        objectiveId: string;
+        admissibleRecordKinds: readonly string[];
+        admissibleObservationKinds: readonly string[];
+      }
+    >(assignment.coverageRequirements.map((requirement) => [requirement.id, requirement] as const)),
   ]),
 );
 
@@ -126,6 +138,9 @@ export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
       })),
     };
   }
+
+  const packageIssues = validateRecordPackageReference(parsed.data);
+  if (packageIssues.length > 0) return { success: false, issues: packageIssues };
 
   if (kind === "fieldObservation") {
     const issues = validateObservationSemantics(parsed.data as FieldObservation);
@@ -581,9 +596,65 @@ function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIss
           path,
         ),
       );
+    } else if (
+      record.schemaVersion !== "capture-exception.v1" &&
+      record.schemaVersion !== "schema-gap.v1" &&
+      typeof record.schemaVersion === "string" &&
+      !requirement.admissibleRecordKinds.includes(record.schemaVersion)
+    ) {
+      issues.push(
+        issue(
+          "coverage_record_kind_mismatch",
+          `Coverage Requirement ${requirementId} does not accept ${record.schemaVersion} evidence.`,
+          path,
+        ),
+      );
+    } else if (
+      record.schemaVersion === "field-observation.v1" &&
+      typeof record.observationKind === "string" &&
+      !requirement.admissibleObservationKinds.includes(record.observationKind)
+    ) {
+      issues.push(
+        issue(
+          "coverage_observation_kind_mismatch",
+          `Coverage Requirement ${requirementId} does not accept ${record.observationKind} observations.`,
+          path,
+        ),
+      );
     }
   }
   return issues;
+}
+
+function validateRecordPackageReference(value: unknown): ProtocolValidationIssue[] {
+  const record = asObject(value);
+  if (!record) return [];
+  const manifest = baselineFieldProtocolPackageData.manifest;
+  if (
+    typeof record.protocolPackageId === "string" &&
+    record.protocolPackageId !== manifest.packageId
+  ) {
+    return [
+      issue(
+        "protocol_package_mismatch",
+        `This validator is bound to ${manifest.packageId}@${manifest.packageVersion}.`,
+        "protocolPackageId",
+      ),
+    ];
+  }
+  if (
+    typeof record.protocolPackageVersion === "string" &&
+    record.protocolPackageVersion !== manifest.packageVersion
+  ) {
+    return [
+      issue(
+        "protocol_package_mismatch",
+        `This validator is bound to ${manifest.packageId}@${manifest.packageVersion}.`,
+        "protocolPackageVersion",
+      ),
+    ];
+  }
+  return [];
 }
 
 function previewRecordMigration(

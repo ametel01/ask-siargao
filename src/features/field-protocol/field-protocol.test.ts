@@ -131,6 +131,36 @@ describe("canonical field protocol records", () => {
     if (!unrelated.success) {
       expect(unrelated.issues.map((issue) => issue.code)).toContain("unknown_coverage_requirement");
     }
+
+    const wrongKind = validateFieldProtocolRecord("fieldObservation", {
+      ...example,
+      observationKind: "facility",
+      value: {
+        facilityType: "toilet",
+        state: "available",
+        accessConditions: "Public access during operating hours.",
+      },
+      directness: "direct_observation",
+      methodProfileId: "method_structured_visual_check@1.0.0",
+      coverageRequirementId: "coverage_payment",
+    });
+    expect(wrongKind.success).toBe(false);
+    if (!wrongKind.success) {
+      expect(wrongKind.issues.map((issue) => issue.code)).toContain(
+        "coverage_observation_kind_mismatch",
+      );
+    }
+
+    for (const packageMismatch of [
+      { ...example, protocolPackageId: "field-protocol-other" },
+      { ...example, protocolPackageVersion: "9.9.9" },
+    ]) {
+      const validation = validateFieldProtocolRecord("fieldObservation", packageMismatch);
+      expect(validation.success).toBe(false);
+      if (!validation.success) {
+        expect(validation.issues.map((issue) => issue.code)).toContain("protocol_package_mismatch");
+      }
+    }
   });
 
   test("keeps Source Statement translations separate and consent scopes independent", () => {
@@ -398,7 +428,12 @@ describe("baseline Field Protocol Package", () => {
       expect(
         assignment.coverageRequirements.every(
           (requirement) =>
-            objectiveIds.has(requirement.objectiveId) && requirement.minimumRecords > 0,
+            objectiveIds.has(requirement.objectiveId) &&
+            requirement.required &&
+            requirement.minimumRecords > 0 &&
+            requirement.supportingAsset.length > 0 &&
+            requirement.repetition.minimumDistinctWindows > 0 &&
+            requirement.admissibleRecordKinds.length > 0,
         ),
       ).toBe(true);
     }

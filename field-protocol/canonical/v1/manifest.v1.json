@@ -28,7 +28,7 @@
   "files": [
     {
       "path": "canonical/v1/campaign-island-baseline.v1.json",
-      "sha256": "207d1e1bebe6ed182837ac8de2c3b92858fb0191b9cf5b68d1659356e83ef659"
+      "sha256": "9e907600148f9ac917abd53fc160d151029595451bad9c982935b3279c069c0d"
     },
     {
       "path": "canonical/v1/distribution-schemas.v1.json",
@@ -69,6 +69,6 @@
   ],
   "signature": {
     "algorithm": "Ed25519",
-    "value": "DSCUtiUr7DSmnkr8NtzU7ksAsgXKKHjknYKSg6uRbk0SB77PCLOrybKdV2T3FlaLthRRwdy3aZG5EuKeDyIODw=="
+    "value": "McdXaDZQVM8V+fuhIADcwfbVvQAy4avhQL5gTDLsB+WPEoSoYsrKPPKutca7CR9FzEjQOeuaGUwRsmSxMOpLDw=="
   }
 }
