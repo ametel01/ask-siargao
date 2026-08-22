@@ -1,3 +1,4 @@
+import type { FieldDeskArchiveHeader } from "@/features/field-desk/desk-schemas";
 import {
   canonicalStringify,
   compareCanonicalStrings,
@@ -87,6 +88,7 @@ export async function commitConfirmedRestore(input: {
   confirmedPreviewSha256: string;
   incoming: readonly RestoreImmutableItem[];
   key: Uint8Array;
+  deskArchiveHeaders?: readonly FieldDeskArchiveHeader[];
   legacyCaptureHeaders?: readonly LegacyCaptureVaultHeader[];
   now: string;
   preview: RestorePreview;
@@ -122,6 +124,7 @@ export async function commitConfirmedRestore(input: {
   await (input.vault ?? new IndexedDbFieldVault()).commitRestore({
     additions,
     auditEnvelope,
+    deskArchiveHeaders: input.deskArchiveHeaders,
     legacyCaptureHeaders: input.legacyCaptureHeaders,
     quarantines,
   });

@@ -1,17 +1,331 @@
 "use client";
 
 import { useState } from "react";
+import type { FieldDeskArchiveHeader } from "@/features/field-desk/desk-schemas";
+import { FieldDeskRepository } from "@/features/field-desk/field-desk-repository";
+import { allRecords, effectiveReview } from "@/features/field-desk/field-desk-state";
+import { canonicalStringify } from "@/features/field-protocol/canonical-json";
+import {
+  fieldTextDecoder,
+  fieldTextEncoder,
+  randomFieldBytes,
+  sha256Hex,
+} from "@/features/field-security/encoding";
+import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
+import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
+import { IndexedDbFieldVault } from "@/features/field-security/vault";
+import type {
+  ArtifactPreamble,
+  AuthenticatedRegistrySnapshot,
+  RestorePreview,
+  TransferReceipt,
+} from "./artifact-schemas";
+import { createFieldBatchExport, deriveFieldBatchGraph } from "./field-batch";
+import { MemoryStagedArtifactSink, openCanonicalArtifact } from "./package-format";
+import { openRecipientContentKey } from "./recipient-envelope";
+import { createFieldRecoveryExport } from "./recovery-export";
+import { commitConfirmedRestore, createRestorePreview, type RestoreImmutableItem } from "./restore";
+import { verifyDestinationTransferReceipt } from "./transfer-receipt";
+
+type PendingRestore = {
+  incoming: readonly RestoreImmutableItem[];
+  preview: RestorePreview;
+  headers: readonly FieldDeskArchiveHeader[];
+};
 
 import { FieldMain } from "@/features/field-workspace/FieldMain";
 
 export function FieldExports(props: { harness?: boolean }) {
-  const [recoveryState, setRecoveryState] = useState("Not created");
-  const [batchState, setBatchState] = useState(
-    props.harness
-      ? "Eligible reviewed graph · every selected record is included and closed"
-      : "Blocked until every selected record is included and closed",
+  return props.harness ? <HarnessExports /> : <ProductionExports />;
+}
+
+function ProductionExports() {
+  const security = useFieldSecuritySession();
+  const [recoveryState, setRecoveryState] = useState("No Recovery Export created.");
+  const [batchState, setBatchState] = useState("No reviewed Field Batch created.");
+  const [restoreState, setRestoreState] = useState(
+    "Select an .asfrecovery file to preview restore.",
   );
-  const unavailableClass = " disabled:cursor-not-allowed disabled:opacity-50";
+  const [pendingRestore, setPendingRestore] = useState<PendingRestore>();
+  const [transferId, setTransferId] = useState<string>();
+  const [receiptState, setReceiptState] = useState("No destination receipt verified.");
+  const locked = security.status !== "unlocked";
+
+  async function registry(): Promise<AuthenticatedRegistrySnapshot> {
+    const response = await fetch("/api/operator/field/devices", { cache: "no-store" });
+    if (!response.ok) throw new Error("field_artifact_recipient_invalid");
+    const body = (await response.json()) as { devices: AuthenticatedRegistrySnapshot["devices"] };
+    const authenticatedAt = new Date();
+    return {
+      accountId: security.claims?.accountId ?? "unknown",
+      authenticatedAt: authenticatedAt.toISOString(),
+      devices: body.devices,
+      expiresAt: new Date(authenticatedAt.getTime() + 10 * 60_000).toISOString(),
+      source: "authenticated_live_registry",
+      version: "field-device-registry-snapshot.v1",
+    };
+  }
+
+  async function deskRecipient(snapshot: AuthenticatedRegistrySnapshot) {
+    const recipient = snapshot.devices.find((device) => device.role === "desk");
+    if (!recipient) throw new Error("field_artifact_recipient_invalid");
+    return recipient;
+  }
+
+  async function createRecovery() {
+    setRecoveryState("Creating encrypted Recovery Export from local custody…");
+    try {
+      const transfer = crypto.randomUUID();
+      const result = await security.withVaultKey(async (key) => {
+        const vault = new IndexedDbFieldVault();
+        const wrap = await vault.getMetadata("recovery-wrap");
+        if (!wrap) throw new Error("field_key_unavailable");
+        const recipient = await deskRecipient(await registry());
+        const sink = new MemoryStagedArtifactSink();
+        const receipt = await createFieldRecoveryExport({
+          artifactId: crypto.randomUUID(),
+          contentKey: randomFieldBytes(32),
+          createdAt: new Date(),
+          recipientDeviceId: recipient.id,
+          recoveryWrap: wrap.value,
+          registry: await registry(),
+          sink,
+          transferId: transfer,
+          vault,
+          vaultKey: key,
+        });
+        const bytes = await collectBytes(sink.reopen());
+        const parsed = readPreamble(bytes);
+        await vault.putOutstandingTransfer({
+          artifactKind: "field_recovery",
+          ciphertextSha256: receipt.ciphertextSha256,
+          createdAt: new Date().toISOString(),
+          nonce: parsed.contentKeyEnvelope.nonce,
+          recipientDeviceId: recipient.id,
+          state: "outstanding",
+          transferId: transfer,
+        });
+        downloadBytes(bytes, receipt.filename);
+        return receipt;
+      });
+      setTransferId(transfer);
+      setRecoveryState(
+        `Created ${result.filename} from encrypted custody. Transfer receipt is still required.`,
+      );
+    } catch (error) {
+      setRecoveryState(
+        `Recovery Export blocked (${error instanceof Error ? error.message : "authorization unavailable"}).`,
+      );
+    }
+  }
+
+  async function createBatch() {
+    setBatchState("Deriving reviewed referential closure from local Desk custody…");
+    try {
+      const result = await security.withVaultKey(async (key) => {
+        const works = await new FieldDeskRepository("0.1.0").list(key);
+        const selectedRecordIds = works.flatMap((work) =>
+          allRecords(work)
+            .filter((record) => effectiveReview(work, record.value.id)?.decision === "include")
+            .map((record) => record.value.id),
+        );
+        const graph = await deriveFieldBatchGraph({
+          batchId: crypto.randomUUID(),
+          intendedUse: "research_internal",
+          selectedRecordIds,
+          validateRecorderWork: async (work) =>
+            work.fieldDayClose
+              ? []
+              : [{ code: "record_not_closed", message: "Recorder work is not closed." }],
+          works,
+        });
+        const snapshot = await registry();
+        const recipient = await deskRecipient(snapshot);
+        const transfer = crypto.randomUUID();
+        const sink = new MemoryStagedArtifactSink();
+        const receipt = await createFieldBatchExport({
+          artifactId: crypto.randomUUID(),
+          contentKey: randomFieldBytes(32),
+          createdAt: new Date(),
+          graph,
+          recipientDeviceId: recipient.id,
+          registry: snapshot,
+          sink,
+          transferId: transfer,
+        });
+        const bytes = await collectBytes(sink.reopen());
+        const parsed = readPreamble(bytes);
+        await new IndexedDbFieldVault().putOutstandingTransfer({
+          artifactKind: "field_batch",
+          ciphertextSha256: receipt.ciphertextSha256,
+          createdAt: new Date().toISOString(),
+          nonce: parsed.contentKeyEnvelope.nonce,
+          recipientDeviceId: recipient.id,
+          state: "outstanding",
+          transferId: transfer,
+        });
+        downloadBytes(bytes, receipt.filename);
+        return { receipt, transfer };
+      });
+      setTransferId(result.transfer);
+      setBatchState(`Created ${result.receipt.filename}. Transfer receipt is still required.`);
+    } catch (error) {
+      setBatchState(
+        `Field Batch blocked (${error instanceof Error ? error.message : "reviewed closure unavailable"}).`,
+      );
+    }
+  }
+
+  async function previewRestore(file: File) {
+    setRestoreState("Authenticating and previewing the Recovery Export…");
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await security.withVaultKey(async (_key) => {
+        const snapshot = await registry();
+        const recipient = snapshot.devices.find((device) => device.role === "desk");
+        if (!recipient) throw new Error("field_artifact_recipient_invalid");
+        const vault = new IndexedDbFieldVault();
+        const privateKey = await vault.getDeviceKey("agreement-private");
+        const incoming: RestoreImmutableItem[] = [];
+        const headers: FieldDeskArchiveHeader[] = [];
+        let artifactId = "";
+        await openCanonicalArtifact({
+          expectedCiphertextSha256: await sha256Hex(bytes),
+          expectedKind: "field_recovery",
+          openContentKey: async (preamble) => {
+            artifactId = preamble.artifactId;
+            return openRecipientContentKey({
+              agreementPrivateKey: privateKey,
+              artifactKind: "field_recovery",
+              envelope: preamble.contentKeyEnvelope,
+              expectedRecipient: recipient,
+              transferId: preamble.transferId,
+            });
+          },
+          onRecord: async ({ path, value }) => {
+            if (
+              path === "opaque-envelopes.jsonl" &&
+              typeof value === "object" &&
+              value !== null &&
+              "id" in value
+            ) {
+              const entry = value as { id: string; [key: string]: unknown };
+              const { id, ...envelope } = entry;
+              incoming.push({
+                immutableId: id,
+                contentSha256: await sha256Hex(
+                  fieldTextEncoder.encode(canonicalStringify(envelope)),
+                ),
+                envelope: envelope as never,
+              });
+            }
+            if (
+              path === "desk-archives.jsonl" &&
+              typeof value === "object" &&
+              value !== null &&
+              "id" in value
+            ) {
+              const { id, ...header } = value as {
+                id: string;
+              } & Omit<FieldDeskArchiveHeader, "archiveId">;
+              headers.push({ archiveId: id, ...header });
+            }
+          },
+          source: bytesToStream(bytes),
+        });
+        const destination = new Map<string, string>();
+        for (const envelope of await vault.listEnvelopes())
+          destination.set(
+            envelope.opaqueRecordKey,
+            await sha256Hex(fieldTextEncoder.encode(canonicalStringify(envelope))),
+          );
+        const preview = await createRestorePreview({
+          artifactId,
+          createdAt: new Date().toISOString(),
+          destination,
+          incoming,
+          previewId: crypto.randomUUID(),
+        });
+        return { incoming, preview, headers };
+      });
+      setPendingRestore(result);
+      setRestoreState(
+        `Preview ready: ${result.preview.additions.length} additions, ${result.preview.exactReplays.length} exact replays, ${result.preview.quarantines.length} quarantines.`,
+      );
+    } catch (error) {
+      setRestoreState(
+        `Restore blocked (${error instanceof Error ? error.message : "artifact invalid"}).`,
+      );
+    }
+  }
+
+  async function commitRestore() {
+    if (!pendingRestore) return;
+    setRestoreState("Committing confirmed restore with quarantine and audit…");
+    try {
+      const result = await security.withVaultKey((key) =>
+        commitConfirmedRestore({
+          confirmedPreviewSha256: pendingRestore.preview.previewSha256,
+          deskArchiveHeaders: pendingRestore.headers,
+          incoming: pendingRestore.incoming,
+          key,
+          now: new Date().toISOString(),
+          preview: pendingRestore.preview,
+          vault: new IndexedDbFieldVault(),
+        }),
+      );
+      setPendingRestore(undefined);
+      setRestoreState(
+        `Restore committed: ${result.additions} additions, ${result.quarantines} quarantines.`,
+      );
+    } catch (error) {
+      setRestoreState(
+        `Restore commit blocked (${error instanceof Error ? error.message : "authorization unavailable"}).`,
+      );
+    }
+  }
+
+  async function verifyReceipt(file: File) {
+    setReceiptState("Verifying destination receipt against outstanding transfer…");
+    try {
+      const receipt = JSON.parse(await file.text()) as TransferReceipt;
+      await security.withVaultKey(async () => {
+        const snapshot = await registry();
+        const recipient = snapshot.devices.find(
+          (device) => device.id === receipt.recipientDeviceId,
+        );
+        if (!recipient) throw new Error("field_transfer_receipt_invalid");
+        const vault = new IndexedDbFieldVault();
+        const outstanding = await vault.getTransfer(receipt.transferId);
+        if (!outstanding) throw new Error("field_transfer_receipt_invalid");
+        await verifyDestinationTransferReceipt({ outstanding, receipt, recipient });
+        await vault.acceptTransfer({
+          receiptId: receipt.receiptId,
+          transferId: receipt.transferId,
+        });
+      });
+      setReceiptState(`Verified destination receipt ${receipt.receiptId}.`);
+    } catch (error) {
+      setReceiptState(
+        `Receipt rejected (${error instanceof Error ? error.message : "invalid receipt"}).`,
+      );
+    }
+  }
+
+  if (locked)
+    return (
+      <>
+        <OfflineFieldUnlock />
+        <FieldMain className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
+          <section className="mx-auto max-w-2xl rounded-xl bg-[#fffdf7] p-8">
+            <h1 className="text-2xl font-semibold">Protected exports locked</h1>
+            <p className="mt-2 text-[#5f5f87]">
+              Unlock an Authorized Desk device before reading or exporting encrypted custody.
+            </p>
+          </section>
+        </FieldMain>
+      </>
+    );
   return (
     <FieldMain className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6">
       <a
@@ -21,11 +335,116 @@ export function FieldExports(props: { harness?: boolean }) {
         Skip to export workflows
       </a>
       <div className="mx-auto max-w-[73.75rem] overflow-hidden rounded-xl bg-[#fffdf7] shadow-[0_10px_28px_rgba(14,12,56,0.08)]">
-        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[#ddd8ef] bg-[#05082a] px-5 py-4 text-[#fff9e9]">
-          <div>
-            <h1 className="text-2xl font-semibold">Protected exports</h1>
-            <p className="mt-1 text-sm text-[#d8d5f4]">Two formats, two eligibility contracts</p>
-          </div>
+        <header className="border-b border-[#ddd8ef] bg-[#05082a] px-5 py-4 text-[#fff9e9]">
+          <h1 className="text-2xl font-semibold">Protected exports</h1>
+          <p className="mt-1 text-sm text-[#d8d5f4]">
+            Real encrypted custody, bounded artifacts, and explicit transfer verification
+          </p>
+        </header>
+        <div className="grid gap-0 lg:grid-cols-2" id="export-workflows">
+          <section className="border-b border-[#ddd8ef] p-6 lg:border-b-0 lg:border-r sm:p-8">
+            <h2 className="text-xl font-semibold">Field Recovery Export</h2>
+            <p className="mt-2 text-[#5f5f87]">
+              Complete encrypted local custody, including unfinished work and Desk history.
+            </p>
+            <p className="mt-5 rounded-lg bg-[#fbf6e8] p-3 text-sm" role="status">
+              {recoveryState}
+            </p>
+            <button
+              className="mt-4 min-h-11 rounded-lg bg-[#0a6f67] px-5 font-bold text-white"
+              onClick={() => void createRecovery()}
+              type="button"
+            >
+              Create Recovery Export
+            </button>
+            <label className="mt-5 block text-sm font-bold" htmlFor="restore-recovery">
+              Restore Recovery Export
+              <input
+                accept=".asfrecovery,application/octet-stream"
+                className="mt-2 block w-full rounded-lg border p-3 font-normal"
+                id="restore-recovery"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void previewRestore(file);
+                }}
+                type="file"
+              />
+            </label>
+            <p className="mt-3 text-sm" role="status">
+              {restoreState}
+            </p>
+            {pendingRestore ? (
+              <button
+                className="mt-3 min-h-11 rounded-lg border border-[#0a6f67] px-5 font-bold text-[#0a6f67]"
+                onClick={() => void commitRestore()}
+                type="button"
+              >
+                Confirm and restore custody
+              </button>
+            ) : null}
+          </section>
+          <section className="p-6 sm:p-8">
+            <h2 className="text-xl font-semibold">Field Batch</h2>
+            <p className="mt-2 text-[#5f5f87]">
+              An explicitly included, reviewed, referentially closed graph.
+            </p>
+            <p className="mt-5 rounded-lg bg-[#f5f3ff] p-3 text-sm" role="status">
+              {batchState}
+            </p>
+            <button
+              className="mt-4 min-h-11 rounded-lg bg-[#5d3ed1] px-5 font-bold text-white"
+              onClick={() => void createBatch()}
+              type="button"
+            >
+              Create reviewed Field Batch
+            </button>
+            <p className="mt-6 text-sm font-bold">Destination receipt verification</p>
+            <label className="mt-2 block text-sm" htmlFor="transfer-receipt">
+              Receipt JSON
+              <input
+                accept="application/json,.json"
+                className="mt-2 block w-full rounded-lg border p-3"
+                id="transfer-receipt"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void verifyReceipt(file);
+                }}
+                type="file"
+              />
+            </label>
+            <p className="mt-3 text-sm" role="status">
+              {receiptState}
+              {transferId ? ` Transfer ${transferId} remains outstanding until accepted.` : ""}
+            </p>
+          </section>
+        </div>
+        <footer className="border-t border-[#ddd8ef] bg-[#fbf6e8] px-6 py-4 text-sm text-[#5f5f87]">
+          A copied file is not a Verified Field Transfer. Completion requires recipient decrypt,
+          integrity and reference validation, a destination signature, and source receipt
+          verification.
+        </footer>
+      </div>
+    </FieldMain>
+  );
+}
+
+function HarnessExports() {
+  const [recoveryState, setRecoveryState] = useState("Not created");
+  const [batchState, setBatchState] = useState(
+    "Eligible reviewed graph · every selected record is included and closed",
+  );
+  return (
+    <FieldMain className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6">
+      <a
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:p-3"
+        href="#export-workflows"
+      >
+        Skip to export workflows
+      </a>
+      <div className="mx-auto max-w-[73.75rem] overflow-hidden rounded-xl bg-[#fffdf7] shadow-[0_10px_28px_rgba(14,12,56,0.08)]">
+        <header className="border-b border-[#ddd8ef] bg-[#05082a] px-5 py-4 text-[#fff9e9]">
+          <h1 className="text-2xl font-semibold">Protected exports</h1>
+          <p className="mt-1 text-sm text-[#d8d5f4]">Two formats, two eligibility contracts</p>
         </header>
         <div className="grid gap-0 lg:grid-cols-2" id="export-workflows">
           <section className="border-b border-[#ddd8ef] p-6 lg:border-b-0 lg:border-r sm:p-8">
@@ -52,8 +471,7 @@ export function FieldExports(props: { harness?: boolean }) {
               {recoveryState}
             </p>
             <button
-              className={`mt-4 min-h-11 rounded-lg bg-[#0a6f67] px-5 font-bold text-white focus:outline-none focus:ring-3 focus:ring-[#5d3ed1]${unavailableClass}`}
-              disabled={!props.harness}
+              className="mt-4 min-h-11 rounded-lg bg-[#0a6f67] px-5 font-bold text-white focus:outline-none focus:ring-3 focus:ring-[#5d3ed1]"
               onClick={() =>
                 setRecoveryState("Created and locally re-opened · transfer receipt pending")
               }
@@ -62,8 +480,7 @@ export function FieldExports(props: { harness?: boolean }) {
               Create Recovery Export
             </button>
             <button
-              className={`ml-2 mt-4 min-h-11 rounded-lg border border-[#0a6f67] px-5 font-bold text-[#0a6f67] focus:outline-none focus:ring-3 focus:ring-[#5d3ed1]${unavailableClass}`}
-              disabled={!props.harness}
+              className="ml-2 mt-4 min-h-11 rounded-lg border border-[#0a6f67] px-5 font-bold text-[#0a6f67] focus:outline-none focus:ring-3 focus:ring-[#5d3ed1]"
               onClick={() =>
                 setRecoveryState("Restore preview ready · explicit confirmation required")
               }
@@ -96,8 +513,7 @@ export function FieldExports(props: { harness?: boolean }) {
               {batchState}
             </p>
             <button
-              className={`mt-4 min-h-11 rounded-lg bg-[#5d3ed1] px-5 font-bold text-white focus:outline-none focus:ring-3 focus:ring-[#0a6f67]${unavailableClass}`}
-              disabled={!props.harness}
+              className="mt-4 min-h-11 rounded-lg bg-[#5d3ed1] px-5 font-bold text-white focus:outline-none focus:ring-3 focus:ring-[#0a6f67]"
               onClick={() =>
                 setBatchState("Created from the eligible graph · destination receipt pending")
               }
@@ -106,8 +522,7 @@ export function FieldExports(props: { harness?: boolean }) {
               Create reviewed Field Batch
             </button>
             <button
-              className={`ml-2 mt-4 min-h-11 rounded-lg border border-[#5d3ed1] px-5 font-bold text-[#271776] focus:outline-none focus:ring-3 focus:ring-[#0a6f67]${unavailableClass}`}
-              disabled={!props.harness}
+              className="ml-2 mt-4 min-h-11 rounded-lg border border-[#5d3ed1] px-5 font-bold text-[#271776] focus:outline-none focus:ring-3 focus:ring-[#0a6f67]"
               onClick={() =>
                 setBatchState("Recipient verification started · source receipt still required")
               }
@@ -125,4 +540,40 @@ export function FieldExports(props: { harness?: boolean }) {
       </div>
     </FieldMain>
   );
+}
+
+async function collectBytes(source: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  for await (const chunk of source) {
+    chunks.push(chunk);
+    length += chunk.length;
+  }
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+async function* bytesToStream(bytes: Uint8Array): AsyncIterable<Uint8Array> {
+  yield bytes;
+}
+function downloadBytes(bytes: Uint8Array, filename: string): void {
+  const url = URL.createObjectURL(
+    new Blob([new Uint8Array(bytes).buffer as ArrayBuffer], { type: "application/octet-stream" }),
+  );
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+function readPreamble(bytes: Uint8Array): ArtifactPreamble {
+  if (bytes.length < 12) throw new Error("field_artifact_incomplete");
+  const length = new DataView(bytes.buffer, bytes.byteOffset + 8, 4).getUint32(0, false);
+  if (length < 1 || length > 64 * 1024 || bytes.length < 12 + length)
+    throw new Error("field_artifact_invalid");
+  return JSON.parse(fieldTextDecoder.decode(bytes.slice(12, 12 + length))) as ArtifactPreamble;
 }
