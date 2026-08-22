@@ -95,14 +95,22 @@ const observationKindRegistry = new Map<string, ObservationRegistryEntry>(
 const methodProfileRegistry = new Map<string, MethodProfileRegistryEntry>(
   baselineFieldProtocolPackageData.methodProfiles.profiles.map((entry) => [entry.id, entry]),
 );
-const governedSubjectIds = new Set<string>(
-  baselineFieldProtocolPackageData.subjects.subjects.map((subject) => subject.id),
+const governedSubjectsById = new Map<string, GovernedSubjectConstraint>(
+  baselineFieldProtocolPackageData.subjects.subjects.map(
+    (subject) => [subject.id, subject] as const,
+  ),
 );
+const governedSubjectIds = new Set<string>(governedSubjectsById.keys());
 const governedAreaIds = new Set<string>(
   baselineFieldProtocolPackageData.geography.areas.map((area) => area.id),
 );
-const governedRouteIds = new Set<string>(
-  baselineFieldProtocolPackageData.geography.routes.map((route) => route.id),
+const governedRoutesById = new Map<string, GovernedRouteConstraint>(
+  baselineFieldProtocolPackageData.geography.routes.map((route) => [route.id, route] as const),
+);
+const assignmentGeographyById = new Map<string, AssignmentGeographyConstraint>(
+  baselineFieldProtocolPackageData.campaign.assignments.map(
+    (assignment) => [assignment.id, assignment.geography] as const,
+  ),
 );
 const coverageRequirementsByAssignment = new Map<
   string,
@@ -166,14 +174,22 @@ export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
   }
   if (kind === "sourceStatement") {
     const statement = parsed.data as SourceStatement;
-    const issues = validateGovernedSubjectReference(statement.subjectId, "subjectId");
+    const issues = validateAssignmentSubjectReference(
+      statement.assignmentId,
+      statement.subjectId,
+      "subjectId",
+    );
     if (issues.length > 0) return { success: false, issues };
   }
   if (kind === "schemaGap") {
     const gap = parsed.data as SchemaGap;
     const issues =
       gap.subject.kind === "governed"
-        ? validateGovernedSubjectReference(gap.subject.subjectId, "subject.subjectId")
+        ? validateAssignmentSubjectReference(
+            gap.assignmentId,
+            gap.subject.subjectId,
+            "subject.subjectId",
+          )
         : [];
     if (issues.length > 0) return { success: false, issues };
   }
@@ -458,6 +474,25 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
         ),
       );
     }
+  } else if (registryEntry.kind === "route_duration") {
+    const routeDuration = parsedValue.data as {
+      originSubjectId: string;
+      destinationSubjectId: string;
+    };
+    issues.push(
+      ...validateAssignmentSubjectReference(
+        observation.assignmentId,
+        routeDuration.originSubjectId,
+        "value.originSubjectId",
+        "origin",
+      ),
+      ...validateAssignmentSubjectReference(
+        observation.assignmentId,
+        routeDuration.destinationSubjectId,
+        "value.destinationSubjectId",
+        "destination",
+      ),
+    );
   }
 
   const method = methodProfileRegistry.get(observation.methodProfileId);
@@ -473,7 +508,11 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
 
   if (observation.subject.kind === "governed") {
     issues.push(
-      ...validateGovernedSubjectReference(observation.subject.subjectId, "subject.subjectId"),
+      ...validateAssignmentSubjectReference(
+        observation.assignmentId,
+        observation.subject.subjectId,
+        "subject.subjectId",
+      ),
     );
   }
 
@@ -558,22 +597,30 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
 function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue[] {
   const issues: ProtocolValidationIssue[] = [];
   if (visit.target.kind === "governed_subject") {
-    issues.push(...validateGovernedSubjectReference(visit.target.subjectId, "target.subjectId"));
-  } else if (visit.target.kind === "governed_area") {
-    if (!governedAreaIds.has(visit.target.areaId)) {
-      issues.push(issue("unknown_area", "The Visit area is not in this package.", "target.areaId"));
-    }
-  } else if (visit.target.kind === "governed_route") {
-    if (!governedRouteIds.has(visit.target.routeId)) {
-      issues.push(
-        issue("unknown_route", "The Visit route is not in this package.", "target.routeId"),
-      );
-    }
-  } else if (!governedAreaIds.has(visit.target.provisionalSubject.governedAreaId)) {
     issues.push(
-      issue(
-        "unknown_area",
-        "The Provisional Subject's governed area is not in this package.",
+      ...validateAssignmentSubjectReference(
+        visit.assignmentId,
+        visit.target.subjectId,
+        "target.subjectId",
+      ),
+    );
+  } else if (visit.target.kind === "governed_area") {
+    issues.push(
+      ...validateAssignmentAreaReference(visit.assignmentId, visit.target.areaId, "target.areaId"),
+    );
+  } else if (visit.target.kind === "governed_route") {
+    issues.push(
+      ...validateAssignmentRouteReference(
+        visit.assignmentId,
+        visit.target.routeId,
+        "target.routeId",
+      ),
+    );
+  } else {
+    issues.push(
+      ...validateAssignmentAreaReference(
+        visit.assignmentId,
+        visit.target.provisionalSubject.governedAreaId,
         "target.provisionalSubject.governedAreaId",
       ),
     );
@@ -584,8 +631,18 @@ function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue
 
 function validateRouteRunSemantics(routeRun: RouteRun): ProtocolValidationIssue[] {
   const issues = [
-    ...validateGovernedSubjectReference(routeRun.originSubjectId, "originSubjectId"),
-    ...validateGovernedSubjectReference(routeRun.destinationSubjectId, "destinationSubjectId"),
+    ...validateAssignmentSubjectReference(
+      routeRun.assignmentId,
+      routeRun.originSubjectId,
+      "originSubjectId",
+      "origin",
+    ),
+    ...validateAssignmentSubjectReference(
+      routeRun.assignmentId,
+      routeRun.destinationSubjectId,
+      "destinationSubjectId",
+      "destination",
+    ),
   ];
   const method = methodProfileRegistry.get(routeRun.methodProfileId);
   if (!method) {
@@ -630,6 +687,111 @@ function validateGovernedSubjectReference(
   return governedSubjectIds.has(subjectId)
     ? []
     : [issue("unknown_subject", "The governed Subject is not in this package.", path)];
+}
+
+function validateAssignmentSubjectReference(
+  assignmentId: string,
+  subjectId: string,
+  path: string,
+  endpoint?: "origin" | "destination",
+): ProtocolValidationIssue[] {
+  const membershipIssues = validateGovernedSubjectReference(subjectId, path);
+  if (membershipIssues.length > 0) return membershipIssues;
+
+  const geography = assignmentGeographyById.get(assignmentId);
+  const subject = governedSubjectsById.get(subjectId);
+  if (!geography || !subject) return [];
+  let compatible: boolean;
+  if (geography.form === "governed_subject_subset") {
+    compatible = true;
+  } else if (geography.form === "origin_destination_route" && endpoint) {
+    compatible =
+      subjectId ===
+      (endpoint === "origin" ? geography.originSubjectId : geography.destinationSubjectId);
+  } else if (geography.form === "origin_destination_route") {
+    const route = governedRoutesById.get(geography.routeId);
+    compatible =
+      subjectId === geography.originSubjectId ||
+      subjectId === geography.destinationSubjectId ||
+      Boolean(route?.areaIds.includes(subject.governedAreaId));
+  } else if (geography.form === "access_point" && !endpoint) {
+    compatible = subjectId === geography.subjectId;
+  } else if (geography.form === "route_corridor") {
+    compatible = geography.areaIds.includes(subject.governedAreaId);
+  } else {
+    compatible = subject.governedAreaId === geography.areaId;
+  }
+
+  return compatible
+    ? []
+    : [
+        issue(
+          "assignment_geography_mismatch",
+          `Subject ${subjectId} is outside Assignment ${assignmentId}'s governed geography.`,
+          path,
+        ),
+      ];
+}
+
+function validateAssignmentAreaReference(
+  assignmentId: string,
+  areaId: string,
+  path: string,
+): ProtocolValidationIssue[] {
+  if (!governedAreaIds.has(areaId)) {
+    return [issue("unknown_area", "The governed area is not in this package.", path)];
+  }
+  const geography = assignmentGeographyById.get(assignmentId);
+  if (!geography) return [];
+  let compatible: boolean;
+  if (geography.form === "governed_subject_subset") {
+    compatible = true;
+  } else if (geography.form === "origin_destination_route") {
+    compatible = Boolean(governedRoutesById.get(geography.routeId)?.areaIds.includes(areaId));
+  } else if (geography.form === "route_corridor") {
+    compatible = geography.areaIds.includes(areaId);
+  } else {
+    compatible = geography.areaId === areaId;
+  }
+  return compatible
+    ? []
+    : [
+        issue(
+          "assignment_geography_mismatch",
+          `Area ${areaId} is outside Assignment ${assignmentId}'s governed geography.`,
+          path,
+        ),
+      ];
+}
+
+function validateAssignmentRouteReference(
+  assignmentId: string,
+  routeId: string,
+  path: string,
+): ProtocolValidationIssue[] {
+  const route = governedRoutesById.get(routeId);
+  if (!route) return [issue("unknown_route", "The governed route is not in this package.", path)];
+  const geography = assignmentGeographyById.get(assignmentId);
+  if (!geography) return [];
+  let compatible: boolean;
+  if (geography.form === "governed_subject_subset") {
+    compatible = true;
+  } else if (geography.form === "origin_destination_route") {
+    compatible = geography.routeId === routeId;
+  } else if (geography.form === "route_corridor") {
+    compatible = route.areaIds.every((areaId) => geography.areaIds.includes(areaId));
+  } else {
+    compatible = route.areaIds.every((areaId) => areaId === geography.areaId);
+  }
+  return compatible
+    ? []
+    : [
+        issue(
+          "assignment_geography_mismatch",
+          `Route ${routeId} is outside Assignment ${assignmentId}'s governed geography.`,
+          path,
+        ),
+      ];
 }
 
 function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue[] {
@@ -1408,6 +1570,26 @@ type MethodProfileRegistryEntry = {
   supportedKinds: readonly string[];
   supportedUnits: readonly string[];
 };
+
+type GovernedSubjectConstraint = {
+  governedAreaId: string;
+};
+
+type GovernedRouteConstraint = {
+  areaIds: readonly string[];
+};
+
+type AssignmentGeographyConstraint =
+  | { form: "governed_area"; areaId: string }
+  | {
+      form: "origin_destination_route";
+      routeId: string;
+      originSubjectId: string;
+      destinationSubjectId: string;
+    }
+  | { form: "route_corridor"; areaIds: readonly string[] }
+  | { form: "access_point"; areaId: string; subjectId: string }
+  | { form: "governed_subject_subset" };
 
 type CoverageRequirementConstraint = {
   objectiveId: string;

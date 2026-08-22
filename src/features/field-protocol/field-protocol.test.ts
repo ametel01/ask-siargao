@@ -215,6 +215,150 @@ describe("canonical field protocol records", () => {
     }
   });
 
+  test("rejects valid package geography outside the record's Assignment", () => {
+    const examples = baselineFieldProtocolPackage.examples.examples;
+    const invalidCases: Array<{
+      kind: FieldProtocolRecordKind;
+      candidate: unknown;
+      path: string;
+    }> = [
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
+          target: { kind: "governed_subject", subjectId: "subject_area_general_luna" },
+        },
+        path: "target.subjectId",
+      },
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
+          assignmentId: "assignment_del_carmen_boat",
+          objectiveIds: ["objective_boat_attempt_booking"],
+          target: { kind: "governed_subject", subjectId: "subject_area_del_carmen" },
+        },
+        path: "target.subjectId",
+      },
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
+          target: { kind: "governed_area", areaId: "area_general_luna" },
+        },
+        path: "target.areaId",
+      },
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
+          target: { kind: "governed_route", routeId: "route_santa_monica_alegria" },
+        },
+        path: "target.routeId",
+      },
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
+          target: {
+            kind: "provisional_subject",
+            provisionalSubject: {
+              id: "0192f060-4f41-7aa1-b322-4aa9fc9f1598",
+              displayedName: "Unresolved place",
+              category: "place",
+              governedAreaId: "area_general_luna",
+              distinguishingDetails: "An unresolved place outside the Assignment geography.",
+            },
+          },
+        },
+        path: "target.provisionalSubject.governedAreaId",
+      },
+      {
+        kind: "fieldObservation",
+        candidate: {
+          ...examples.fieldObservation,
+          subject: { kind: "governed", subjectId: "subject_area_general_luna" },
+        },
+        path: "subject.subjectId",
+      },
+      {
+        kind: "sourceStatement",
+        candidate: { ...examples.sourceStatement, subjectId: "subject_area_general_luna" },
+        path: "subjectId",
+      },
+      {
+        kind: "schemaGap",
+        candidate: {
+          ...examples.schemaGap,
+          subject: { kind: "governed", subjectId: "subject_area_general_luna" },
+        },
+        path: "subject.subjectId",
+      },
+      {
+        kind: "routeRun",
+        candidate: { ...examples.routeRun, originSubjectId: "subject_area_dapa" },
+        path: "originSubjectId",
+      },
+      {
+        kind: "routeRun",
+        candidate: { ...examples.routeRun, destinationSubjectId: "subject_area_pilar" },
+        path: "destinationSubjectId",
+      },
+    ];
+
+    for (const invalidCase of invalidCases) {
+      const validation = validateFieldProtocolRecord(invalidCase.kind, invalidCase.candidate);
+      expect(validation.success, `${invalidCase.kind}:${invalidCase.path}`).toBe(false);
+      if (!validation.success) {
+        expect(validation.issues).toContainEqual(
+          expect.objectContaining({
+            code: "assignment_geography_mismatch",
+            path: invalidCase.path,
+          }),
+        );
+      }
+    }
+  });
+
+  test("rejects nested Route Duration endpoints outside the package and Assignment", () => {
+    const example = baselineFieldProtocolPackage.examples.examples.fieldObservation;
+    const routeDurationObservation = {
+      ...example,
+      assignmentId: "assignment_airport_arrival",
+      objectiveId: "objective_airport_traverse_arrival",
+      coverageRequirementId: "coverage_route_time",
+      subject: { kind: "governed", subjectId: "subject_route_airport_del_carmen" },
+      observationKind: "route_duration",
+      valueSchemaVersion: "1.0.0",
+      value: {
+        originSubjectId: "subject_sayak_airport",
+        destinationSubjectId: "subject_area_del_carmen",
+        transportMode: "van",
+        durationSeconds: 2700,
+      },
+      methodProfileId: "method_timed_route@1.0.0",
+    };
+
+    for (const [path, subjectId, code] of [
+      ["value.originSubjectId", "subject_missing", "unknown_subject"],
+      ["value.destinationSubjectId", "subject_missing", "unknown_subject"],
+      ["value.originSubjectId", "subject_area_dapa", "assignment_geography_mismatch"],
+      ["value.destinationSubjectId", "subject_area_pilar", "assignment_geography_mismatch"],
+    ] as const) {
+      const endpoint = path.endsWith("originSubjectId")
+        ? { originSubjectId: subjectId }
+        : { destinationSubjectId: subjectId };
+      const validation = validateFieldProtocolRecord("fieldObservation", {
+        ...routeDurationObservation,
+        value: { ...routeDurationObservation.value, ...endpoint },
+      });
+      expect(validation.success, path).toBe(false);
+      if (!validation.success) {
+        expect(validation.issues).toContainEqual(expect.objectContaining({ code, path }));
+      }
+    }
+  });
+
   test("rejects Campaign and Objective references outside the signed Assignment graph", () => {
     const examples = baselineFieldProtocolPackage.examples.examples;
     const assignmentRecordKinds = [
