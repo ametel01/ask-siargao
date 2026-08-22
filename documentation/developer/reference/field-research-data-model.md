@@ -48,7 +48,7 @@ directly.
 | Field Campaign | contains Field Assignments | Scoped research programme with one methodology and evidence objective; no fixed schedule required. |
 | Field Assignment | belongs to one Campaign | Unscheduled work for one principal Subject, bounded area, or route. |
 | Research Objective | belongs to one Assignment | Required question, observation, measurement, attempt, statement, traversal, document, or repetition. |
-| Coverage Requirement | belongs to one Objective | Requiredness, minimum record count, supporting evidence, and repetition conditions. |
+| Coverage Requirement | belongs to one Objective | A named baseline module with requiredness, minimum record count, supporting evidence, and repetition conditions. |
 | Eligibility Window | applies to Assignment or Objective | Daypart, weekday class, tide, access, operating, or other conditions for a valid attempt. |
 | Partial Coverage Set | belongs to one Assignment | Explicit subset that remains independently valid when the entire Assignment cannot fit. |
 | Field Day Plan | selects Assignments | Researcher-confirmed, capacity-bounded grouping for one outing. |
@@ -106,6 +106,10 @@ An Assignment declares exactly one primary geographic form:
 The Travel Compatibility Graph provides versioned area, corridor, transport, transfer, and
 conservative-duration relationships. Live maps or routing are optional preflight evidence, not a
 correctness dependency.
+
+Every baseline module in the accepted Assignment library is a separate
+`requiredCoverageModules` entry linked to one Objective. An Objective's broad Observation Kind set or
+aggregate record count cannot satisfy a module that has no linked evidence.
 
 ### Planner inputs
 

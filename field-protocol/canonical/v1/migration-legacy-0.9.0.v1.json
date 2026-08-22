@@ -20,7 +20,7 @@
       "from": "structured_visual_check",
       "to": "method_structured_visual_check@1.0.0"
     },
-    { "from": "network_test", "to": "method_connectivity_test@1.0.0" }
+    { "from": "network_test", "to": "method_network_three_test@1.0.0" }
   ],
   "ambiguousKinds": [
     {

@@ -11,6 +11,20 @@
     { "id": "area_pilar", "classification": "condition_dependent_access" }
   ],
   "transportModes": ["walk", "bicycle", "motorbike", "tricycle", "car", "van", "boat"],
+  "routes": [
+    {
+      "id": "route_airport_del_carmen",
+      "originSubjectId": "subject_sayak_airport",
+      "destinationSubjectId": "subject_area_del_carmen",
+      "areaIds": ["area_del_carmen"]
+    },
+    {
+      "id": "route_santa_monica_alegria",
+      "originSubjectId": "subject_route_northbound",
+      "destinationSubjectId": "subject_route_santa_monica_alegria",
+      "areaIds": ["area_north"]
+    }
+  ],
   "edges": [
     {
       "from": "area_del_carmen",

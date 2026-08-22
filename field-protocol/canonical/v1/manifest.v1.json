@@ -28,7 +28,7 @@
   "files": [
     {
       "path": "canonical/v1/campaign-island-baseline.v1.json",
-      "sha256": "bd0cd814c989e86c93a1cbae7519b1ce3accdabf468e4eebe0752559b5645338"
+      "sha256": "6e9af04b46dff30805a3c0364c345c57426dd65014b1bdbc56efc8207c53db6e"
     },
     {
       "path": "canonical/v1/distribution-schemas.v1.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "canonical/v1/geography.v1.json",
-      "sha256": "c2575f96996f2a966b5227bef05a26e7055c66289f89e7a92155bfe857b051e0"
+      "sha256": "8dac76ca1cfb9963d8e4df6f1463e3555b6e24b98aa95e97a4c8f48bc4d8c0c1"
     },
     {
       "path": "canonical/v1/help.v1.json",
@@ -52,7 +52,7 @@
     },
     {
       "path": "canonical/v1/migration-legacy-0.9.0.v1.json",
-      "sha256": "69352a398035d5702e325a618805bcc09977e227812cdb1dfa904c43fd584676"
+      "sha256": "e51f9d2e1717baf76f535ca956f7b1caef5270d390ed1a7cf9530c7bf573faf9"
     },
     {
       "path": "canonical/v1/observation-kinds.v1.json",
@@ -69,6 +69,6 @@
   ],
   "signature": {
     "algorithm": "Ed25519",
-    "value": "dMlojKyht+VK4TB2Yj8dbisUOgm8NxdNMmxr6noEdGS+5/HPlCQ8CarZRUoghVfKxkv2BHZZ6CJTYT8XZRpHBQ=="
+    "value": "D1XOD3KHM/sKp8DN3K7JYfYlCrGiAt7/XxTnCAHnulUQcmHpB2u+KqHNHlTbDuaBURXWpMfRotFQUUnoY/79BQ=="
   }
 }

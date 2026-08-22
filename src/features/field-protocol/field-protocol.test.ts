@@ -231,6 +231,209 @@ describe("baseline Field Protocol Package", () => {
     ]) {
       expect(JSON.stringify(airport)).toContain(requiredKind);
     }
+
+    const expectedCoverageModules: Record<string, string[]> = {
+      assignment_home_base_readiness: [
+        "offline_readiness",
+        "water",
+        "power",
+        "waste",
+        "noise",
+        "connectivity",
+        "nearby_essentials",
+      ],
+      assignment_del_carmen_essentials: [
+        "identity",
+        "wayfinding",
+        "cash",
+        "payment",
+        "pharmacy_clinic_leads",
+        "fuel",
+        "food",
+        "toilets",
+        "shade",
+        "access",
+        "connectivity",
+      ],
+      assignment_airport_arrival: [
+        "pickup",
+        "signage",
+        "wait",
+        "luggage",
+        "fare_basis",
+        "route_time",
+        "access",
+        "signal",
+      ],
+      assignment_general_luna_journey: [
+        "arrival",
+        "parking_dropoff",
+        "wayfinding",
+        "price_payment",
+        "facilities",
+        "access_barriers",
+        "crowd",
+        "connectivity",
+      ],
+      assignment_connectivity_transect: [
+        "three_test_measurement_sets",
+        "device_network_method",
+        "power",
+        "socket_permission",
+        "noise",
+        "seating",
+      ],
+      assignment_dapa_hub: [
+        "port_journey",
+        "luggage",
+        "signs",
+        "transport_transaction",
+        "cash",
+        "market",
+        "health_leads",
+        "fuel",
+        "toilets",
+        "shade",
+        "access",
+      ],
+      assignment_south_central_corridor: [
+        "route_segments",
+        "surface",
+        "stops",
+        "access",
+        "price",
+        "facilities",
+        "signal",
+        "map_discrepancies",
+      ],
+      assignment_northbound_services: [
+        "route_time",
+        "road",
+        "food",
+        "fuel",
+        "cash",
+        "health_leads",
+        "beach_access",
+        "service",
+        "remote_work_checks",
+      ],
+      assignment_santa_monica_alegria: [
+        "full_route",
+        "return_constraints",
+        "transport_availability",
+        "facilities",
+        "cash",
+        "fuel",
+        "signal",
+      ],
+      assignment_pilar_access: [
+        "tide_context",
+        "route",
+        "entrance",
+        "paid_amount",
+        "facilities",
+        "surface",
+        "access_state",
+      ],
+      assignment_del_carmen_boat: [
+        "booking",
+        "check_in",
+        "wait",
+        "price",
+        "boarding",
+        "transfers",
+        "facilities",
+        "operating_policy_statement",
+      ],
+      assignment_no_scooter_accessibility: [
+        "booking_burden",
+        "pickup",
+        "fare",
+        "transfers",
+        "surfaces",
+        "steps",
+        "toilets",
+        "shelter",
+        "luggage_barriers",
+      ],
+      assignment_conflict_follow_up: [
+        "volatile_price",
+        "route",
+        "opening",
+        "connectivity",
+        "provisional_identity",
+        "contradiction",
+      ],
+    };
+    expect(
+      Object.fromEntries(
+        baselineFieldProtocolPackage.campaign.assignments.map((assignment) => [
+          assignment.id,
+          assignment.requiredCoverageModules.map((module) => module.id),
+        ]),
+      ) as Record<string, string[]>,
+    ).toEqual(expectedCoverageModules);
+    for (const assignment of baselineFieldProtocolPackage.campaign.assignments) {
+      const objectiveIds = new Set(assignment.objectives.map((objective) => objective.id));
+      expect(
+        assignment.requiredCoverageModules.every(
+          (module) => objectiveIds.has(module.objectiveId) && module.minimumRecords > 0,
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("governs every campaign geography and migration mapping target", () => {
+    const areaIds = new Set<string>(
+      baselineFieldProtocolPackage.geography.areas.map((area) => area.id),
+    );
+    const routeIds = new Set<string>(
+      baselineFieldProtocolPackage.geography.routes.map((route) => route.id),
+    );
+    const subjectIds = new Set<string>(
+      baselineFieldProtocolPackage.subjects.subjects.map((subject) => subject.id),
+    );
+    for (const assignment of baselineFieldProtocolPackage.campaign.assignments) {
+      const geography = assignment.geography as {
+        areaId?: string;
+        areaIds?: readonly string[];
+        routeId?: string;
+        originSubjectId?: string;
+        destinationSubjectId?: string;
+        subjectId?: string;
+      };
+      if (geography.areaId) expect(areaIds.has(geography.areaId)).toBe(true);
+      for (const areaId of geography.areaIds ?? []) expect(areaIds.has(areaId)).toBe(true);
+      if (geography.routeId) expect(routeIds.has(geography.routeId)).toBe(true);
+      for (const subjectId of [
+        geography.originSubjectId,
+        geography.destinationSubjectId,
+        geography.subjectId,
+      ].filter((value): value is string => Boolean(value))) {
+        expect(subjectIds.has(subjectId)).toBe(true);
+      }
+    }
+    for (const route of baselineFieldProtocolPackage.geography.routes) {
+      expect(subjectIds.has(route.originSubjectId)).toBe(true);
+      expect(subjectIds.has(route.destinationSubjectId)).toBe(true);
+      expect(route.areaIds.every((areaId) => areaIds.has(areaId))).toBe(true);
+    }
+
+    const kinds = new Set(
+      baselineFieldProtocolPackage.observationKinds.kinds.map((kind) => kind.kind),
+    );
+    const methods = new Set(
+      baselineFieldProtocolPackage.methodProfiles.profiles.map((profile) => profile.id),
+    );
+    for (const mapping of baselineFieldProtocolPackage.migration.kindMappings) {
+      expect(kinds.has(mapping.to)).toBe(true);
+    }
+    for (const mapping of baselineFieldProtocolPackage.migration.subjectMappings) {
+      expect(subjectIds.has(mapping.to)).toBe(true);
+    }
+    for (const mapping of baselineFieldProtocolPackage.migration.methodMappings) {
+      expect(methods.has(mapping.to)).toBe(true);
+    }
   });
 
   test("verifies signature, integrity, compatibility, and migration declaration before activation", async () => {
@@ -375,10 +578,29 @@ describe("Protocol Migration preview", () => {
     };
     const ambiguous = { ...source, observationKind: "free_text_observation" };
     const unsupported = { ...source, observationKind: "legacy_arbitrary_json" };
-    const preview = previewProtocolMigration({ records: [visit, source, ambiguous, unsupported] });
+    const connectivity = {
+      ...source,
+      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1523",
+      observationKind: "internet_speed",
+      method: "network_test",
+      value: {
+        network: "Example network",
+        deviceClass: "phone",
+        zone: "outdoors",
+        measurements: [
+          { metric: "download", value: 12, unit: "Mbps" },
+          { metric: "upload", value: 4, unit: "Mbps" },
+          { metric: "latency", value: 40, unit: "ms" },
+        ],
+      },
+    };
+    const preview = previewProtocolMigration({
+      records: [visit, source, connectivity, ambiguous, unsupported],
+    });
 
     expect(preview.results.map((result) => result.status)).toEqual([
       "needs_resolution",
+      "migrated",
       "migrated",
       "needs_resolution",
       "failed",
@@ -389,6 +611,10 @@ describe("Protocol Migration preview", () => {
       observationKind: "opening_signal",
       subject: { kind: "governed", subjectId: "subject_area_del_carmen" },
       methodProfileId: "method_structured_visual_check@1.0.0",
+    });
+    expect(preview.results[2]?.migrated).toMatchObject({
+      observationKind: "connectivity",
+      methodProfileId: "method_network_three_test@1.0.0",
     });
     expect(source.schemaVersion).toBe("field-record.v1");
     expect(source.observationKind).toBe("opening_hours");

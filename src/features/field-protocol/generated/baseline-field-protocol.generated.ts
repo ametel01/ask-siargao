@@ -120,6 +120,43 @@ export const baselineFieldProtocolPackageData = {
             },
           },
         ],
+        requiredCoverageModules: [
+          {
+            id: "offline_readiness",
+            objectiveId: "objective_home_attempt_offline_readiness",
+            minimumRecords: 1,
+          },
+          {
+            id: "water",
+            objectiveId: "objective_home_observe_practical_essentials",
+            minimumRecords: 1,
+          },
+          {
+            id: "power",
+            objectiveId: "objective_home_observe_utilities",
+            minimumRecords: 1,
+          },
+          {
+            id: "waste",
+            objectiveId: "objective_home_observe_practical_essentials",
+            minimumRecords: 1,
+          },
+          {
+            id: "noise",
+            objectiveId: "objective_home_measure_environment",
+            minimumRecords: 1,
+          },
+          {
+            id: "connectivity",
+            objectiveId: "objective_home_measure_environment",
+            minimumRecords: 1,
+          },
+          {
+            id: "nearby_essentials",
+            objectiveId: "objective_home_observe_practical_essentials",
+            minimumRecords: 1,
+          },
+        ],
         partialCoverageSets: [
           {
             id: "partial_home_connectivity",
@@ -174,6 +211,63 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+          },
+        ],
+        requiredCoverageModules: [
+          {
+            id: "identity",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "wayfinding",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "cash",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "payment",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "pharmacy_clinic_leads",
+            objectiveId: "objective_del_carmen_ask_service_leads",
+            minimumRecords: 1,
+          },
+          {
+            id: "fuel",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "food",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "toilets",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "shade",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "access",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "connectivity",
+            objectiveId: "objective_del_carmen_observe_services",
+            minimumRecords: 1,
           },
         ],
         partialCoverageSets: [
@@ -252,6 +346,48 @@ export const baselineFieldProtocolPackageData = {
             },
           },
         ],
+        requiredCoverageModules: [
+          {
+            id: "pickup",
+            objectiveId: "objective_airport_traverse_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "signage",
+            objectiveId: "objective_airport_document_signage",
+            minimumRecords: 1,
+          },
+          {
+            id: "wait",
+            objectiveId: "objective_airport_observe_arrival_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "luggage",
+            objectiveId: "objective_airport_traverse_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "fare_basis",
+            objectiveId: "objective_airport_observe_arrival_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "route_time",
+            objectiveId: "objective_airport_traverse_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "access",
+            objectiveId: "objective_airport_observe_arrival_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "signal",
+            objectiveId: "objective_airport_observe_arrival_conditions",
+            minimumRecords: 1,
+          },
+        ],
         partialCoverageSets: [
           {
             id: "partial_airport_signage",
@@ -308,6 +444,48 @@ export const baselineFieldProtocolPackageData = {
             },
           },
         ],
+        requiredCoverageModules: [
+          {
+            id: "arrival",
+            objectiveId: "objective_general_luna_attempt_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "parking_dropoff",
+            objectiveId: "objective_general_luna_attempt_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "wayfinding",
+            objectiveId: "objective_general_luna_attempt_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "price_payment",
+            objectiveId: "objective_general_luna_attempt_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "facilities",
+            objectiveId: "objective_general_luna_attempt_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "access_barriers",
+            objectiveId: "objective_general_luna_attempt_arrival",
+            minimumRecords: 1,
+          },
+          {
+            id: "crowd",
+            objectiveId: "objective_general_luna_repeat_crowd",
+            minimumRecords: 2,
+          },
+          {
+            id: "connectivity",
+            objectiveId: "objective_general_luna_repeat_crowd",
+            minimumRecords: 2,
+          },
+        ],
         partialCoverageSets: [
           {
             id: "partial_general_luna_access",
@@ -344,6 +522,38 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 2,
               },
             },
+          },
+        ],
+        requiredCoverageModules: [
+          {
+            id: "three_test_measurement_sets",
+            objectiveId: "objective_connectivity_measure_sets",
+            minimumRecords: 3,
+          },
+          {
+            id: "device_network_method",
+            objectiveId: "objective_connectivity_measure_sets",
+            minimumRecords: 1,
+          },
+          {
+            id: "power",
+            objectiveId: "objective_connectivity_measure_sets",
+            minimumRecords: 1,
+          },
+          {
+            id: "socket_permission",
+            objectiveId: "objective_connectivity_measure_sets",
+            minimumRecords: 1,
+          },
+          {
+            id: "noise",
+            objectiveId: "objective_connectivity_measure_sets",
+            minimumRecords: 1,
+          },
+          {
+            id: "seating",
+            objectiveId: "objective_connectivity_measure_sets",
+            minimumRecords: 1,
           },
         ],
         partialCoverageSets: [
@@ -408,6 +618,63 @@ export const baselineFieldProtocolPackageData = {
             },
           },
         ],
+        requiredCoverageModules: [
+          {
+            id: "port_journey",
+            objectiveId: "objective_dapa_traverse_port",
+            minimumRecords: 1,
+          },
+          {
+            id: "luggage",
+            objectiveId: "objective_dapa_traverse_port",
+            minimumRecords: 1,
+          },
+          {
+            id: "signs",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "transport_transaction",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "cash",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "market",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "health_leads",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "fuel",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "toilets",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "shade",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "access",
+            objectiveId: "objective_dapa_observe_services",
+            minimumRecords: 1,
+          },
+        ],
         partialCoverageSets: [
           {
             id: "partial_dapa_service_hub",
@@ -445,6 +712,48 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 2,
               },
             },
+          },
+        ],
+        requiredCoverageModules: [
+          {
+            id: "route_segments",
+            objectiveId: "objective_south_traverse_twice",
+            minimumRecords: 2,
+          },
+          {
+            id: "surface",
+            objectiveId: "objective_south_traverse_twice",
+            minimumRecords: 2,
+          },
+          {
+            id: "stops",
+            objectiveId: "objective_south_traverse_twice",
+            minimumRecords: 2,
+          },
+          {
+            id: "access",
+            objectiveId: "objective_south_traverse_twice",
+            minimumRecords: 2,
+          },
+          {
+            id: "price",
+            objectiveId: "objective_south_traverse_twice",
+            minimumRecords: 2,
+          },
+          {
+            id: "facilities",
+            objectiveId: "objective_south_traverse_twice",
+            minimumRecords: 2,
+          },
+          {
+            id: "signal",
+            objectiveId: "objective_south_traverse_twice",
+            minimumRecords: 2,
+          },
+          {
+            id: "map_discrepancies",
+            objectiveId: "objective_south_traverse_twice",
+            minimumRecords: 2,
           },
         ],
         partialCoverageSets: [
@@ -495,6 +804,53 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 2,
               },
             },
+          },
+        ],
+        requiredCoverageModules: [
+          {
+            id: "route_time",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 2,
+          },
+          {
+            id: "road",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 2,
+          },
+          {
+            id: "food",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "fuel",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "cash",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "health_leads",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "beach_access",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "service",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 1,
+          },
+          {
+            id: "remote_work_checks",
+            objectiveId: "objective_north_observe_services",
+            minimumRecords: 1,
           },
         ],
         partialCoverageSets: [
@@ -551,6 +907,43 @@ export const baselineFieldProtocolPackageData = {
             },
           },
         ],
+        requiredCoverageModules: [
+          {
+            id: "full_route",
+            objectiveId: "objective_north_route_traverse",
+            minimumRecords: 1,
+          },
+          {
+            id: "return_constraints",
+            objectiveId: "objective_north_route_traverse",
+            minimumRecords: 1,
+          },
+          {
+            id: "transport_availability",
+            objectiveId: "objective_north_route_repeat_gap",
+            minimumRecords: 1,
+          },
+          {
+            id: "facilities",
+            objectiveId: "objective_north_route_repeat_gap",
+            minimumRecords: 1,
+          },
+          {
+            id: "cash",
+            objectiveId: "objective_north_route_repeat_gap",
+            minimumRecords: 1,
+          },
+          {
+            id: "fuel",
+            objectiveId: "objective_north_route_repeat_gap",
+            minimumRecords: 1,
+          },
+          {
+            id: "signal",
+            objectiveId: "objective_north_route_repeat_gap",
+            minimumRecords: 1,
+          },
+        ],
         partialCoverageSets: [
           {
             id: "partial_north_route_repeat",
@@ -599,6 +992,43 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+          },
+        ],
+        requiredCoverageModules: [
+          {
+            id: "tide_context",
+            objectiveId: "objective_pilar_observe_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "route",
+            objectiveId: "objective_pilar_observe_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "entrance",
+            objectiveId: "objective_pilar_observe_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "paid_amount",
+            objectiveId: "objective_pilar_observe_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "facilities",
+            objectiveId: "objective_pilar_observe_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "surface",
+            objectiveId: "objective_pilar_observe_conditions",
+            minimumRecords: 1,
+          },
+          {
+            id: "access_state",
+            objectiveId: "objective_pilar_observe_conditions",
+            minimumRecords: 1,
           },
         ],
         partialCoverageSets: [
@@ -677,6 +1107,48 @@ export const baselineFieldProtocolPackageData = {
             },
           },
         ],
+        requiredCoverageModules: [
+          {
+            id: "booking",
+            objectiveId: "objective_boat_attempt_booking",
+            minimumRecords: 1,
+          },
+          {
+            id: "check_in",
+            objectiveId: "objective_boat_attempt_booking",
+            minimumRecords: 1,
+          },
+          {
+            id: "wait",
+            objectiveId: "objective_boat_attempt_booking",
+            minimumRecords: 1,
+          },
+          {
+            id: "price",
+            objectiveId: "objective_boat_attempt_booking",
+            minimumRecords: 1,
+          },
+          {
+            id: "boarding",
+            objectiveId: "objective_boat_traverse_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "transfers",
+            objectiveId: "objective_boat_traverse_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "facilities",
+            objectiveId: "objective_boat_attempt_booking",
+            minimumRecords: 1,
+          },
+          {
+            id: "operating_policy_statement",
+            objectiveId: "objective_boat_ask_policy",
+            minimumRecords: 1,
+          },
+        ],
         partialCoverageSets: [
           {
             id: "partial_boat_booking",
@@ -732,6 +1204,53 @@ export const baselineFieldProtocolPackageData = {
             },
           },
         ],
+        requiredCoverageModules: [
+          {
+            id: "booking_burden",
+            objectiveId: "objective_accessibility_attempt_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "pickup",
+            objectiveId: "objective_accessibility_traverse_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "fare",
+            objectiveId: "objective_accessibility_attempt_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "transfers",
+            objectiveId: "objective_accessibility_traverse_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "surfaces",
+            objectiveId: "objective_accessibility_attempt_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "steps",
+            objectiveId: "objective_accessibility_attempt_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "toilets",
+            objectiveId: "objective_accessibility_attempt_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "shelter",
+            objectiveId: "objective_accessibility_attempt_journey",
+            minimumRecords: 1,
+          },
+          {
+            id: "luggage_barriers",
+            objectiveId: "objective_accessibility_traverse_journey",
+            minimumRecords: 1,
+          },
+        ],
         partialCoverageSets: [
           {
             id: "partial_accessibility_booking",
@@ -775,6 +1294,38 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 2,
               },
             },
+          },
+        ],
+        requiredCoverageModules: [
+          {
+            id: "volatile_price",
+            objectiveId: "objective_follow_up_repeat_evidence",
+            minimumRecords: 2,
+          },
+          {
+            id: "route",
+            objectiveId: "objective_follow_up_repeat_evidence",
+            minimumRecords: 2,
+          },
+          {
+            id: "opening",
+            objectiveId: "objective_follow_up_repeat_evidence",
+            minimumRecords: 2,
+          },
+          {
+            id: "connectivity",
+            objectiveId: "objective_follow_up_repeat_evidence",
+            minimumRecords: 2,
+          },
+          {
+            id: "provisional_identity",
+            objectiveId: "objective_follow_up_repeat_evidence",
+            minimumRecords: 2,
+          },
+          {
+            id: "contradiction",
+            objectiveId: "objective_follow_up_repeat_evidence",
+            minimumRecords: 2,
           },
         ],
         partialCoverageSets: [
@@ -1511,6 +2062,20 @@ export const baselineFieldProtocolPackageData = {
       },
     ],
     transportModes: ["walk", "bicycle", "motorbike", "tricycle", "car", "van", "boat"],
+    routes: [
+      {
+        id: "route_airport_del_carmen",
+        originSubjectId: "subject_sayak_airport",
+        destinationSubjectId: "subject_area_del_carmen",
+        areaIds: ["area_del_carmen"],
+      },
+      {
+        id: "route_santa_monica_alegria",
+        originSubjectId: "subject_route_northbound",
+        destinationSubjectId: "subject_route_santa_monica_alegria",
+        areaIds: ["area_north"],
+      },
+    ],
     edges: [
       {
         from: "area_del_carmen",
@@ -1712,7 +2277,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         from: "network_test",
-        to: "method_connectivity_test@1.0.0",
+        to: "method_network_three_test@1.0.0",
       },
     ],
     ambiguousKinds: [
@@ -4392,7 +4957,7 @@ export const baselineFieldProtocolPackageData = {
     files: [
       {
         path: "canonical/v1/campaign-island-baseline.v1.json",
-        sha256: "bd0cd814c989e86c93a1cbae7519b1ce3accdabf468e4eebe0752559b5645338",
+        sha256: "6e9af04b46dff30805a3c0364c345c57426dd65014b1bdbc56efc8207c53db6e",
       },
       {
         path: "canonical/v1/distribution-schemas.v1.json",
@@ -4404,7 +4969,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/geography.v1.json",
-        sha256: "c2575f96996f2a966b5227bef05a26e7055c66289f89e7a92155bfe857b051e0",
+        sha256: "8dac76ca1cfb9963d8e4df6f1463e3555b6e24b98aa95e97a4c8f48bc4d8c0c1",
       },
       {
         path: "canonical/v1/help.v1.json",
@@ -4416,7 +4981,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/migration-legacy-0.9.0.v1.json",
-        sha256: "69352a398035d5702e325a618805bcc09977e227812cdb1dfa904c43fd584676",
+        sha256: "e51f9d2e1717baf76f535ca956f7b1caef5270d390ed1a7cf9530c7bf573faf9",
       },
       {
         path: "canonical/v1/observation-kinds.v1.json",
@@ -4434,7 +4999,7 @@ export const baselineFieldProtocolPackageData = {
     signature: {
       algorithm: "Ed25519",
       value:
-        "dMlojKyht+VK4TB2Yj8dbisUOgm8NxdNMmxr6noEdGS+5/HPlCQ8CarZRUoghVfKxkv2BHZZ6CJTYT8XZRpHBQ==",
+        "D1XOD3KHM/sKp8DN3K7JYfYlCrGiAt7/XxTnCAHnulUQcmHpB2u+KqHNHlTbDuaBURXWpMfRotFQUUnoY/79BQ==",
     },
   },
 } as const;
@@ -4444,7 +5009,7 @@ export const trustedFieldProtocolSignersData = {
     {
       keyId: "ask-siargao-field-protocol-2026-01",
       algorithm: "Ed25519",
-      publicKeySpkiBase64: "MCowBQYDK2VwAyEAA2+1L4tjdjRof6nkcRWPQXjBzoyy5r9UPPtKZGfs8ns=",
+      publicKeySpkiBase64: "MCowBQYDK2VwAyEAFqoLmc+a1NJNu0soy1MrsvnLF2hUdcdEm4DvstlbMxI=",
       status: "trusted",
     },
   ],
