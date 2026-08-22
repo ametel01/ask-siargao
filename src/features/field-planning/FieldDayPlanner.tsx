@@ -30,6 +30,9 @@ type PlannerFeedback = Readonly<{
   error: string;
 }>;
 
+const planAdjustmentButtonClassName =
+  "min-h-11 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-soft)] px-3 py-2 text-sm font-semibold text-[var(--text-strong)] shadow-sm transition-colors hover:bg-[var(--brand-lagoon-100)] hover:text-[var(--brand-reef-900)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-lagoon-700)] disabled:cursor-not-allowed disabled:opacity-60";
+
 export function FieldDayPlanner({
   protocol,
   coverageSnapshot,
@@ -331,7 +334,9 @@ function PlanAdjustmentControls({
       {proposal.selected.map((assignment, index) => (
         <div className="flex flex-wrap gap-2" key={assignment.assignmentId}>
           <button
+            className={planAdjustmentButtonClassName}
             type="button"
+            data-plan-adjustment-action="true"
             data-focus-key={`move-earlier-${assignment.assignmentId}`}
             disabled={busy || index === 0}
             aria-describedby={`consequence-${assignment.assignmentId}`}
@@ -345,7 +350,9 @@ function PlanAdjustmentControls({
             Move {assignment.title} earlier
           </button>
           <button
+            className={planAdjustmentButtonClassName}
             type="button"
+            data-plan-adjustment-action="true"
             data-focus-key={`move-later-${assignment.assignmentId}`}
             disabled={busy || index === proposal.selected.length - 1}
             aria-describedby={`consequence-${assignment.assignmentId}`}
@@ -359,7 +366,9 @@ function PlanAdjustmentControls({
             Move {assignment.title} later
           </button>
           <button
+            className={planAdjustmentButtonClassName}
             type="button"
+            data-plan-adjustment-action="true"
             disabled={busy}
             data-focus-key={`remove-${assignment.assignmentId}`}
             aria-describedby={`consequence-${assignment.assignmentId}`}
@@ -376,7 +385,9 @@ function PlanAdjustmentControls({
       ))}
       {proposal.exclusions.slice(0, 4).map((exclusion) => (
         <button
+          className={planAdjustmentButtonClassName}
           type="button"
+          data-plan-adjustment-action="true"
           disabled={busy}
           data-focus-key={`add-${exclusion.assignmentId}`}
           key={`add-${exclusion.assignmentId}`}
