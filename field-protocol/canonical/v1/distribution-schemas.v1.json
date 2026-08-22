@@ -131,6 +131,7 @@
         "targetCampaignId",
         "kindMappings",
         "subjectMappings",
+        "legacyObservationRoutes",
         "methodMappings",
         "ambiguousKinds",
         "unsupportedKinds"
@@ -174,6 +175,32 @@
             "properties": {
               "from": { "type": "string", "minLength": 1 },
               "to": { "type": "string", "pattern": "^subject_[a-z0-9_]+$" }
+            }
+          },
+          "uniqueItems": true
+        },
+        "legacyObservationRoutes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "subjectId",
+              "observationKind",
+              "assignmentId",
+              "objectiveId",
+              "coverageRequirementId"
+            ],
+            "properties": {
+              "subjectId": { "type": "string", "pattern": "^subject_[a-z0-9_]+$" },
+              "observationKind": { "type": "string", "minLength": 1 },
+              "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
+              "objectiveId": { "type": "string", "pattern": "^objective_[a-z0-9_]+$" },
+              "coverageRequirementId": {
+                "type": "string",
+                "pattern": "^coverage_[a-z0-9_]+$"
+              }
             }
           },
           "uniqueItems": true

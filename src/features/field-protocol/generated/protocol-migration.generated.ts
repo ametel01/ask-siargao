@@ -20,6 +20,25 @@ export interface ProtocolMigration {
     from: string;
     to: string;
   }[];
+  /**
+   * @minItems 1
+   */
+  legacyObservationRoutes: [
+    {
+      subjectId: string;
+      observationKind: string;
+      assignmentId: string;
+      objectiveId: string;
+      coverageRequirementId: string;
+    },
+    ...{
+      subjectId: string;
+      observationKind: string;
+      assignmentId: string;
+      objectiveId: string;
+      coverageRequirementId: string;
+    }[],
+  ];
   methodMappings: {
     from: string;
     to: string;

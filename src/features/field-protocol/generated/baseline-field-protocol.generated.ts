@@ -2486,6 +2486,7 @@ export const baselineFieldProtocolPackageData = {
           "targetCampaignId",
           "kindMappings",
           "subjectMappings",
+          "legacyObservationRoutes",
           "methodMappings",
           "ambiguousKinds",
           "unsupportedKinds",
@@ -2560,6 +2561,44 @@ export const baselineFieldProtocolPackageData = {
                 to: {
                   type: "string",
                   pattern: "^subject_[a-z0-9_]+$",
+                },
+              },
+            },
+            uniqueItems: true,
+          },
+          legacyObservationRoutes: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: [
+                "subjectId",
+                "observationKind",
+                "assignmentId",
+                "objectiveId",
+                "coverageRequirementId",
+              ],
+              properties: {
+                subjectId: {
+                  type: "string",
+                  pattern: "^subject_[a-z0-9_]+$",
+                },
+                observationKind: {
+                  type: "string",
+                  minLength: 1,
+                },
+                assignmentId: {
+                  type: "string",
+                  pattern: "^assignment_[a-z0-9_]+$",
+                },
+                objectiveId: {
+                  type: "string",
+                  pattern: "^objective_[a-z0-9_]+$",
+                },
+                coverageRequirementId: {
+                  type: "string",
+                  pattern: "^coverage_[a-z0-9_]+$",
                 },
               },
             },
@@ -3240,6 +3279,29 @@ export const baselineFieldProtocolPackageData = {
       {
         from: "legacy_general_luna",
         to: "subject_area_general_luna",
+      },
+    ],
+    legacyObservationRoutes: [
+      {
+        subjectId: "subject_area_del_carmen",
+        observationKind: "opening_signal",
+        assignmentId: "assignment_del_carmen_essentials",
+        objectiveId: "objective_del_carmen_observe_services",
+        coverageRequirementId: "coverage_opening",
+      },
+      {
+        subjectId: "subject_area_del_carmen",
+        observationKind: "connectivity",
+        assignmentId: "assignment_del_carmen_essentials",
+        objectiveId: "objective_del_carmen_observe_services",
+        coverageRequirementId: "coverage_connectivity",
+      },
+      {
+        subjectId: "subject_area_general_luna",
+        observationKind: "connectivity",
+        assignmentId: "assignment_general_luna_journey",
+        objectiveId: "objective_general_luna_repeat_crowd",
+        coverageRequirementId: "coverage_connectivity",
       },
     ],
     methodMappings: [
@@ -5973,11 +6035,11 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/distribution-schemas.v1.json",
-        sha256: "1c7eea85cfdf1154fc763b22e6e601c4b78d73d1a9ce2eb4a01f7893b5d0e867",
+        sha256: "4bbee0371d18c76826cebf9702f00270cbc4f3cac27ac5d5fb2da2a045019dc1",
       },
       {
         path: "canonical/v1/examples.v1.json",
-        sha256: "e130cb8324c918b1669af4dca35ca9d62db3a88e700d79c48c34550d44ce1f7d",
+        sha256: "a8be0c3d6aec9b12dc268bee0bd5496eaaf297ee5b336b64509941f70232db97",
       },
       {
         path: "canonical/v1/geography.v1.json",
@@ -5993,7 +6055,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/migration-legacy-0.9.0.v1.json",
-        sha256: "e51f9d2e1717baf76f535ca956f7b1caef5270d390ed1a7cf9530c7bf573faf9",
+        sha256: "754e9d551edf346d4caeaa7dd027bf097c007afc18fdc5af67fe3591defaf18f",
       },
       {
         path: "canonical/v1/observation-kinds.v1.json",
@@ -6001,7 +6063,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/schemas.v1.json",
-        sha256: "fcb2d1bd317febc508dccc86d5c9aff2a62b05b65b874f0e409e8895d78c2ff8",
+        sha256: "e178c4fd5c673cce7e202d2d252bbb889b1c556a7856c99f9f1a29116048a31d",
       },
       {
         path: "canonical/v1/subjects.v1.json",
@@ -6011,7 +6073,7 @@ export const baselineFieldProtocolPackageData = {
     signature: {
       algorithm: "Ed25519",
       value:
-        "9Cb7REqc8h02ZZX/UYXg7sbZo3SVbrPLa+jaUEb4b8Vlfromj7B4Mtbt4vEWzcH+VKXgZwUB1nPU5uolytJ9Dw==",
+        "5Tg6BOS9yAA5PHmzgTzKw2eL2dwMe76WpdVuLjW3GNab1Un2cJQsmDvQvVGUV2pzHZEzf+nejZZvkXAd0pkpAQ==",
     },
   },
 } as const;
@@ -6021,7 +6083,7 @@ export const trustedFieldProtocolSignersData = {
     {
       keyId: "ask-siargao-field-protocol-2026-01",
       algorithm: "Ed25519",
-      publicKeySpkiBase64: "MCowBQYDK2VwAyEA3du1w0t6ZDA4B8lRsnsD+bSf+D2f8qUDm1asXrUHF6E=",
+      publicKeySpkiBase64: "MCowBQYDK2VwAyEAZtuh4WfOr/LMcWecD0c8hzHKadAqfIbyzK8o2xUAgp4=",
       status: "trusted",
     },
   ],

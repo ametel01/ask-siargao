@@ -4,7 +4,7 @@
     {
       "keyId": "ask-siargao-field-protocol-2026-01",
       "algorithm": "Ed25519",
-      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA3du1w0t6ZDA4B8lRsnsD+bSf+D2f8qUDm1asXrUHF6E=",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAZtuh4WfOr/LMcWecD0c8hzHKadAqfIbyzK8o2xUAgp4=",
       "status": "trusted"
     }
   ]

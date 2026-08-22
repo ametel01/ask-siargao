@@ -3,7 +3,10 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { compile, type JSONSchema } from "json-schema-to-typescript";
 
-import { canonicalStringify } from "@/features/field-protocol/canonical-json";
+import {
+  canonicalStringify,
+  compareCanonicalStrings,
+} from "@/features/field-protocol/canonical-json";
 import { fieldProtocolPackageComponents } from "@/features/field-protocol/package-components";
 
 const repositoryRoot = resolve(import.meta.dir, "../../..");
@@ -129,7 +132,7 @@ async function signManifest(privateKeyPath: string) {
     path: `canonical/v1/${filename}`,
     sha256: createHash("sha256").update(canonicalStringify(artifact)).digest("hex"),
   }));
-  files.sort((left, right) => left.path.localeCompare(right.path));
+  files.sort((left, right) => compareCanonicalStrings(left.path, right.path));
 
   const unsignedManifest = {
     schemaVersion: "field-protocol-package-manifest.v1",

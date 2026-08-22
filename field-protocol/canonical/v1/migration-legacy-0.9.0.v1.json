@@ -15,6 +15,29 @@
     { "from": "legacy_del_carmen", "to": "subject_area_del_carmen" },
     { "from": "legacy_general_luna", "to": "subject_area_general_luna" }
   ],
+  "legacyObservationRoutes": [
+    {
+      "subjectId": "subject_area_del_carmen",
+      "observationKind": "opening_signal",
+      "assignmentId": "assignment_del_carmen_essentials",
+      "objectiveId": "objective_del_carmen_observe_services",
+      "coverageRequirementId": "coverage_opening"
+    },
+    {
+      "subjectId": "subject_area_del_carmen",
+      "observationKind": "connectivity",
+      "assignmentId": "assignment_del_carmen_essentials",
+      "objectiveId": "objective_del_carmen_observe_services",
+      "coverageRequirementId": "coverage_connectivity"
+    },
+    {
+      "subjectId": "subject_area_general_luna",
+      "observationKind": "connectivity",
+      "assignmentId": "assignment_general_luna_journey",
+      "objectiveId": "objective_general_luna_repeat_crowd",
+      "coverageRequirementId": "coverage_connectivity"
+    }
+  ],
   "methodMappings": [
     {
       "from": "structured_visual_check",

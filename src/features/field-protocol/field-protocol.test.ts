@@ -728,6 +728,12 @@ describe("baseline Field Protocol Package", () => {
           bundle.migration.targetCampaignId = "campaign_other";
         },
       },
+      {
+        name: "legacy observation route",
+        mutate: (bundle) => {
+          bundle.migration.legacyObservationRoutes[0].assignmentId = "assignment_missing";
+        },
+      },
     ];
 
     for (const mismatch of mismatches) {
@@ -820,6 +826,9 @@ describe("Protocol Migration preview", () => {
     expect(preview.results[1]?.original).toEqual(source);
     expect(preview.results[1]?.migrated).toMatchObject({
       protocolPackageVersion: "1.0.0",
+      assignmentId: "assignment_del_carmen_essentials",
+      objectiveId: "objective_del_carmen_observe_services",
+      coverageRequirementId: "coverage_opening",
       observationKind: "opening_signal",
       subject: { kind: "governed", subjectId: "subject_area_del_carmen" },
       methodProfileId: "method_structured_visual_check@1.0.0",
@@ -830,5 +839,59 @@ describe("Protocol Migration preview", () => {
     });
     expect(source.schemaVersion).toBe("field-record.v1");
     expect(source.observationKind).toBe("opening_hours");
+  });
+
+  test("takes legacy assignment, objective, and coverage routing from the migration artifact", () => {
+    const migration = structuredClone(
+      baselineFieldProtocolPackage.migration,
+    ) as unknown as ProtocolMigration;
+    migration.legacyObservationRoutes = [
+      {
+        subjectId: "subject_area_del_carmen",
+        observationKind: "opening_signal",
+        assignmentId: "assignment_general_luna_journey",
+        objectiveId: "objective_general_luna_repeat_crowd",
+        coverageRequirementId: "coverage_connectivity",
+      },
+    ];
+    const visit = {
+      schemaVersion: "field-record.v1",
+      recordType: "visit",
+      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1522",
+      clientBatchId: "0192f060-4f41-7aa1-b322-4aa9fc9f1521",
+      campaignSlug: "island-baseline-2026",
+      capturedAt: "2026-08-22T09:30:00+08:00",
+      localTimezone: "Asia/Manila",
+      observerKey: "legacy-researcher",
+      entityId: "legacy_del_carmen",
+      purposeCodes: ["guide_fact_check"],
+      startedAt: "2026-08-22T09:30:00+08:00",
+    };
+    const source = {
+      schemaVersion: "field-record.v1",
+      recordType: "observation",
+      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1520",
+      clientBatchId: "0192f060-4f41-7aa1-b322-4aa9fc9f1521",
+      campaignSlug: "island-baseline-2026",
+      capturedAt: "2026-08-22T09:32:00+08:00",
+      localTimezone: "Asia/Manila",
+      visitId: visit.id,
+      observationKind: "opening_hours",
+      directness: "direct_observation",
+      observedAt: "2026-08-22T09:32:00+08:00",
+      value: { state: "open", basis: "observed", postedHoursSeparatelyEvidenced: false },
+      method: "structured_visual_check",
+      conditionTags: ["weather_cloudy", "road_dry"],
+      fieldConfidence: "high",
+      reviewDueAt: "2026-08-29T09:32:00+08:00",
+      status: "captured",
+      llmUseAllowed: false,
+      articleUseAllowed: false,
+      publicRepublishAllowed: false,
+    };
+
+    const preview = previewProtocolMigration({ migration, records: [visit, source] });
+
+    expect(preview.results[1]).toMatchObject({ status: "failed" });
   });
 });

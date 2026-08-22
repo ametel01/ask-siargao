@@ -721,15 +721,8 @@ function previewRecordMigration(
 
   const observationKind =
     typeof record.observationKind === "string" ? record.observationKind : undefined;
-  const ambiguity = migration.ambiguousKinds.find((entry) => entry.kind === observationKind);
-  if (ambiguity) return { original, status: "needs_resolution", reason: ambiguity.reason };
-  if (observationKind && migration.unsupportedKinds.includes(observationKind)) {
-    return {
-      original,
-      status: "failed",
-      reason: `Observation Kind ${observationKind} cannot be migrated without distortion.`,
-    };
-  }
+  const classificationFailure = classifyMigrationKind(migration, observationKind);
+  if (classificationFailure) return { original, ...classificationFailure };
 
   const migrated = structuredClone(record);
   migrated.protocolPackageVersion = migration.toPackageVersion;
@@ -788,15 +781,8 @@ function previewLegacyCaptureMigration(
   }
 
   const observationKind = typeof record.observationKind === "string" ? record.observationKind : "";
-  const ambiguity = migration.ambiguousKinds.find((entry) => entry.kind === observationKind);
-  if (ambiguity) return { original, status: "needs_resolution", reason: ambiguity.reason };
-  if (migration.unsupportedKinds.includes(observationKind)) {
-    return {
-      original,
-      status: "failed",
-      reason: `Observation Kind ${observationKind} cannot be migrated without distortion.`,
-    };
-  }
+  const classificationFailure = classifyMigrationKind(migration, observationKind);
+  if (classificationFailure) return { original, ...classificationFailure };
 
   const kindMapping = migration.kindMappings.find((entry) => entry.from === observationKind);
   if (!kindMapping) {
@@ -857,23 +843,14 @@ function previewLegacyCaptureMigration(
     };
   }
 
-  const assignment = legacyAssignmentForSubject(subjectMapping.to);
-  if (!assignment) {
-    return {
-      original,
-      status: "needs_resolution",
-      reason: `Governed Subject ${subjectMapping.to} has no deterministic baseline assignment.`,
-    };
-  }
-  const coverageRequirementId = legacyCoverageRequirementId(
-    assignment.assignmentId,
-    kindMapping.to,
+  const route = migration.legacyObservationRoutes.find(
+    (entry) => entry.subjectId === subjectMapping.to && entry.observationKind === kindMapping.to,
   );
-  if (!coverageRequirementId) {
+  if (!route) {
     return {
       original,
       status: "needs_resolution",
-      reason: `Migrated Observation Kind ${kindMapping.to} has no deterministic Coverage Requirement.`,
+      reason: `Governed Subject ${subjectMapping.to} and Observation Kind ${kindMapping.to} have no signed migration route.`,
     };
   }
 
@@ -889,10 +866,10 @@ function previewLegacyCaptureMigration(
     protocolPackageId: migration.targetProtocolPackageId,
     protocolPackageVersion: migration.toPackageVersion,
     campaignId: migration.targetCampaignId,
-    assignmentId: assignment.assignmentId,
+    assignmentId: route.assignmentId,
     visitId: record.visitId,
-    objectiveId: assignment.objectiveId,
-    coverageRequirementId,
+    objectiveId: route.objectiveId,
+    coverageRequirementId: route.coverageRequirementId,
     researcherId,
     deviceId: `legacy-batch-${record.clientBatchId}`,
     recordedAt: record.capturedAt,
@@ -935,31 +912,18 @@ function previewLegacyCaptureMigration(
   return { original, status: "migrated", migrated: validation.data };
 }
 
-function legacyAssignmentForSubject(subjectId: string) {
-  if (subjectId === "subject_area_del_carmen") {
+function classifyMigrationKind(
+  migration: ProtocolMigration,
+  observationKind: string | undefined,
+): Pick<MigrationPreviewResult, "status" | "reason"> | undefined {
+  const ambiguity = migration.ambiguousKinds.find((entry) => entry.kind === observationKind);
+  if (ambiguity) return { status: "needs_resolution", reason: ambiguity.reason };
+  if (observationKind && migration.unsupportedKinds.includes(observationKind)) {
     return {
-      assignmentId: "assignment_del_carmen_essentials",
-      objectiveId: "objective_del_carmen_observe_services",
+      status: "failed",
+      reason: `Observation Kind ${observationKind} cannot be migrated without distortion.`,
     };
   }
-  if (subjectId === "subject_area_general_luna") {
-    return {
-      assignmentId: "assignment_general_luna_journey",
-      objectiveId: "objective_general_luna_attempt_arrival",
-    };
-  }
-  return undefined;
-}
-
-function legacyCoverageRequirementId(assignmentId: string, observationKind: string) {
-  if (assignmentId === "assignment_del_carmen_essentials") {
-    if (observationKind === "opening_signal") return "coverage_opening";
-    if (observationKind === "connectivity") return "coverage_connectivity";
-  }
-  if (assignmentId === "assignment_general_luna_journey" && observationKind === "connectivity") {
-    return "coverage_connectivity";
-  }
-  return undefined;
 }
 
 function utcOffsetMinutes(value: string) {
@@ -1037,6 +1001,61 @@ function verifyMigrationDeclaration(
     return invalidPackage(
       "The pinned migration target campaign does not match the package campaign.",
     );
+  }
+  const routeFailure = verifyLegacyObservationRoutes(migration, components.campaign);
+  if (routeFailure) return invalidPackage(routeFailure);
+}
+
+function verifyLegacyObservationRoutes(
+  migration: ProtocolMigration,
+  campaign: Record<string, unknown> | undefined,
+): string | undefined {
+  const assignments = Array.isArray(campaign?.assignments) ? campaign.assignments : [];
+  const subjectTargets = new Set(migration.subjectMappings.map((mapping) => mapping.to));
+  const kindTargets = new Set(migration.kindMappings.map((mapping) => mapping.to));
+  const routeKeys = new Set<string>();
+
+  for (const route of migration.legacyObservationRoutes) {
+    if (!subjectTargets.has(route.subjectId) || !kindTargets.has(route.observationKind)) {
+      return "A legacy observation route does not match the migration's governed mapping targets.";
+    }
+    const routeKey = `${route.subjectId}\u0000${route.observationKind}`;
+    if (routeKeys.has(routeKey)) {
+      return "The pinned migration declares more than one route for a legacy observation target.";
+    }
+    routeKeys.add(routeKey);
+
+    const assignment = assignments
+      .map((candidate) => asObject(candidate))
+      .find((candidate) => candidate?.id === route.assignmentId);
+    const objectives = Array.isArray(assignment?.objectives) ? assignment.objectives : [];
+    const objective = objectives
+      .map((candidate) => asObject(candidate))
+      .find((candidate) => candidate?.id === route.objectiveId);
+    const coverageRequirements = Array.isArray(assignment?.coverageRequirements)
+      ? assignment.coverageRequirements
+      : [];
+    const coverageRequirement = coverageRequirements
+      .map((candidate) => asObject(candidate))
+      .find((candidate) => candidate?.id === route.coverageRequirementId);
+    const admissibleRecordKinds = Array.isArray(coverageRequirement?.admissibleRecordKinds)
+      ? coverageRequirement.admissibleRecordKinds
+      : [];
+    const admissibleObservationKinds = Array.isArray(
+      coverageRequirement?.admissibleObservationKinds,
+    )
+      ? coverageRequirement.admissibleObservationKinds
+      : [];
+    if (
+      !assignment ||
+      !objective ||
+      !coverageRequirement ||
+      coverageRequirement.objectiveId !== route.objectiveId ||
+      !admissibleRecordKinds.includes("field-observation.v1") ||
+      !admissibleObservationKinds.includes(route.observationKind)
+    ) {
+      return "A legacy observation route does not resolve to a compatible Assignment, Objective, and Coverage Requirement in the pinned campaign.";
+    }
   }
 }
 
