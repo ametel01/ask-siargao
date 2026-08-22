@@ -20,6 +20,9 @@ describe("FieldDayPlanner", () => {
     expect(html).toContain("Transport mode");
     expect(html).toContain("Selected Field Assignments");
     expect(html).toContain("Coverage consequence:");
+    expect(html).toContain('data-plan-adjustment-action="true"');
+    expect(html).toContain("bg-[var(--surface-soft)]");
+    expect(html).toContain("text-[var(--text-strong)]");
     expect(html).toContain('role="status"');
     expect(html).toContain("Confirm Plan");
     expect(html).toContain("Unlock protected offline storage before confirming this plan.");
