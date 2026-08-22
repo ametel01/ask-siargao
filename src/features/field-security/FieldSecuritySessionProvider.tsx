@@ -43,24 +43,29 @@ export function FieldSecuritySessionProvider(props: {
   children: ReactNode;
   inactivityMs?: number;
 }) {
-  const session = useRef<FieldSecuritySession | undefined>(undefined);
-  if (!session.current) session.current = new FieldSecuritySession(props.inactivityMs);
+  const [session] = useState(() => new FieldSecuritySession(props.inactivityMs));
   const claims = useRef<OfflineFieldGrantClaims | undefined>(undefined);
-  const lastObservedWallClockMs = useRef(Date.now());
+  const lastObservedWallClockMs = useRef(0);
   const [snapshot, setSnapshot] = useState<{
     claims?: OfflineFieldGrantClaims;
     state: FieldSecurityState;
-  }>({ state: session.current.state });
+  }>({ state: session.state });
 
-  const lock = useCallback((reason: "inactivity" | "grant" | "manual" | "clock" = "manual") => {
-    session.current?.lock(reason);
-    claims.current = undefined;
-    setSnapshot({ state: session.current?.state ?? { reason, status: "locked" } });
-  }, []);
+  const lock = useCallback(
+    (reason: "inactivity" | "grant" | "manual" | "clock" = "manual") => {
+      session.lock(reason);
+      claims.current = undefined;
+      setSnapshot({ state: session.state });
+    },
+    [session],
+  );
 
-  const touch = useCallback((nowMs = Date.now()) => {
-    session.current?.touch(nowMs);
-  }, []);
+  const touch = useCallback(
+    (nowMs = Date.now()) => {
+      session.touch(nowMs);
+    },
+    [session],
+  );
 
   const unlockWithKey = useCallback(
     (input: { claims: OfflineFieldGrantClaims; key: Uint8Array; nowMs?: number }) => {
@@ -69,27 +74,26 @@ export function FieldSecuritySessionProvider(props: {
         lock("grant");
         throw new FieldSecurityError("field_grant_expired");
       }
-      session.current?.unlock(input.key, nowMs);
+      session.unlock(input.key, nowMs);
       claims.current = input.claims;
       lastObservedWallClockMs.current = nowMs;
       setSnapshot({
         claims: input.claims,
-        state: session.current?.state ?? { status: "unprepared" },
+        state: session.state,
       });
     },
-    [lock],
+    [lock, session],
   );
 
   const withVaultKey = useCallback(
     <T,>(callback: (key: Uint8Array) => T | Promise<T>): T | Promise<T> => {
-      const current = session.current;
-      if (!current) throw new FieldSecurityError("field_key_unavailable");
-      return current.withKey(callback as (key: Uint8Array) => T);
+      return session.withKey(callback as (key: Uint8Array) => T);
     },
-    [],
+    [session],
   ) as FieldSecuritySessionValue["withVaultKey"];
 
   useEffect(() => {
+    lastObservedWallClockMs.current = Date.now();
     const recordActivity = () => touch();
     const lockOnPageHide = () => lock("manual");
     const timer = setInterval(() => {
@@ -103,9 +107,9 @@ export function FieldSecuritySessionProvider(props: {
         lock("grant");
         return;
       }
-      if (session.current?.enforceInactivity(nowMs)) {
+      if (session.enforceInactivity(nowMs)) {
         claims.current = undefined;
-        setSnapshot({ state: session.current.state });
+        setSnapshot({ state: session.state });
       }
     }, 10_000);
     window.addEventListener("pointerdown", recordActivity, { passive: true });
@@ -113,13 +117,13 @@ export function FieldSecuritySessionProvider(props: {
     window.addEventListener("pagehide", lockOnPageHide, { once: true });
     return () => {
       clearInterval(timer);
-      session.current?.lock("manual");
+      session.lock("manual");
       claims.current = undefined;
       window.removeEventListener("pointerdown", recordActivity);
       window.removeEventListener("keydown", recordActivity);
       window.removeEventListener("pagehide", lockOnPageHide);
     };
-  }, [lock, touch]);
+  }, [lock, session, touch]);
 
   const value = useMemo<FieldSecuritySessionValue>(
     () => ({
