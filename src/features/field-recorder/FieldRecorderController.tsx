@@ -58,20 +58,25 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
   const security = useFieldSecuritySession();
   const repository = useMemo(() => new FieldRecorderRepository({ applicationVersion }), []);
   const vault = useMemo(() => new IndexedDbFieldVault(), []);
-  const writerInstanceId = useRef(crypto.randomUUID());
+  const writerInstanceId = useRef<string | undefined>(undefined);
   const pendingCommit = useRef<PendingCommit | undefined>(undefined);
   const [work, setWork] = useState<RecorderWork>();
   const [loadError, setLoadError] = useState<string>();
   const [runtime, setRuntime] = useState<RecorderRuntimeStatus>({
     grantExpiresAt: security.claims?.expiresAt,
     location: "not_requested",
-    online: navigator.onLine,
+    online: true,
     save: { status: "idle" },
     storageAvailableBytes: 0,
     vault: "unlocked",
     waitingUpdate: false,
     writer: "none",
   });
+
+  const getWriterInstanceId = useCallback(() => {
+    if (!writerInstanceId.current) writerInstanceId.current = crypto.randomUUID();
+    return writerInstanceId.current;
+  }, []);
 
   const claimWriter = useCallback(
     async (visitId: string, explicitTakeover: boolean) => {
@@ -87,7 +92,7 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
                   action: "explicit_writer_takeover",
                   at: new Date(nowMs).toISOString(),
                   visitReference,
-                  writerInstanceId: writerInstanceId.current,
+                  writerInstanceId: getWriterInstanceId(),
                 },
               })
             : undefined;
@@ -97,7 +102,7 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
             explicitTakeover,
             nowMs,
             visitReference,
-            writerInstanceId: writerInstanceId.current,
+            writerInstanceId: getWriterInstanceId(),
           });
         });
         setRuntime((current) => ({ ...current, writer: "active" }));
@@ -106,7 +111,7 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
         throw error;
       }
     },
-    [security, vault],
+    [getWriterInstanceId, security, vault],
   );
 
   useEffect(() => {
@@ -135,6 +140,7 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
       }
     });
     const online = () => setRuntime((current) => ({ ...current, online: navigator.onLine }));
+    online();
     window.addEventListener("online", online);
     window.addEventListener("offline", online);
     return () => {
@@ -176,7 +182,7 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
               writerFence = {
                 nowMs: Date.now(),
                 visitReference: writerReference(fenceVisitId),
-                writerInstanceId: writerInstanceId.current,
+                writerInstanceId: getWriterInstanceId(),
               };
             }
             const validation = await validateRecorderWorkspace({
@@ -242,7 +248,7 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
       };
       await execute();
     },
-    [claimWriter, props.protocol, repository, security, work],
+    [claimWriter, getWriterInstanceId, props.protocol, repository, security, work],
   );
 
   const actions = useMemo<FieldRecorderActions>(
