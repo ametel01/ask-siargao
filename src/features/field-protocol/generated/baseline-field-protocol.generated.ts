@@ -20,6 +20,103 @@ export const baselineFieldProtocolPackageData = {
       publicUse: false,
       preciseLocation: "denied",
     },
+    planningRules: {
+      selectionOrder: [
+        "eligibility_window_rarity",
+        "travel_compatibility",
+        "outstanding_required_coverage",
+        "editorial_priority",
+        "oldest_admissible_evidence",
+        "time_fit",
+        "assignment_id",
+      ],
+      eligibilityWindowKinds: [
+        {
+          kind: "access_state",
+          rarityRank: 2,
+          maximumAgeMinutes: 720,
+          hardGate: true,
+        },
+        {
+          kind: "arrival_window",
+          rarityRank: 1,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "changed_conditions",
+          rarityRank: 1,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "daypart",
+          rarityRank: 3,
+          maximumAgeMinutes: 720,
+          hardGate: true,
+        },
+        {
+          kind: "operating_state",
+          rarityRank: 2,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "provider_state",
+          rarityRank: 1,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "safe_marine_state",
+          rarityRank: 1,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "safe_route_state",
+          rarityRank: 1,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "safety_state",
+          rarityRank: 2,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "source_coverage",
+          rarityRank: 1,
+          maximumAgeMinutes: 10080,
+          hardGate: true,
+        },
+        {
+          kind: "tide_context",
+          rarityRank: 1,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "transport_state",
+          rarityRank: 2,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "transport_window",
+          rarityRank: 1,
+          maximumAgeMinutes: 180,
+          hardGate: true,
+        },
+        {
+          kind: "weekday_class",
+          rarityRank: 3,
+          maximumAgeMinutes: 1440,
+          hardGate: true,
+        },
+      ],
+    },
     branchingRules: [
       {
         when: "hard_gate_unsafe_or_ineligible",
@@ -50,9 +147,12 @@ export const baselineFieldProtocolPackageData = {
         geography: {
           form: "governed_area",
           areaId: "area_del_carmen",
+          anchorAreaId: "area_del_carmen",
           privateLocation: true,
         },
         estimatedMinutes: 150,
+        editorialPriority: 2,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "daypart",
@@ -227,9 +327,12 @@ export const baselineFieldProtocolPackageData = {
         geography: {
           form: "governed_area",
           areaId: "area_del_carmen",
+          anchorAreaId: "area_del_carmen",
           privateLocation: false,
         },
         estimatedMinutes: 210,
+        editorialPriority: 1,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "weekday_class",
@@ -454,10 +557,13 @@ export const baselineFieldProtocolPackageData = {
         geography: {
           form: "origin_destination_route",
           routeId: "route_airport_del_carmen",
+          anchorAreaId: "area_del_carmen",
           originSubjectId: "subject_sayak_airport",
           destinationSubjectId: "subject_area_del_carmen",
         },
         estimatedMinutes: 180,
+        editorialPriority: 1,
+        evidenceFreshnessReviewMinutes: 43200,
         eligibilityWindows: [
           {
             kind: "arrival_window",
@@ -641,9 +747,12 @@ export const baselineFieldProtocolPackageData = {
         geography: {
           form: "governed_area",
           areaId: "area_general_luna",
+          anchorAreaId: "area_general_luna",
           privateLocation: false,
         },
         estimatedMinutes: 240,
+        editorialPriority: 1,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "weekday_class",
@@ -812,9 +921,12 @@ export const baselineFieldProtocolPackageData = {
         title: "Connectivity transect",
         geography: {
           form: "route_corridor",
+          anchorAreaId: "area_del_carmen",
           areaIds: ["area_del_carmen", "area_general_luna"],
         },
         estimatedMinutes: 180,
+        editorialPriority: 1,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "changed_conditions",
@@ -931,9 +1043,12 @@ export const baselineFieldProtocolPackageData = {
         title: "Dapa port and service hub",
         geography: {
           form: "route_corridor",
+          anchorAreaId: "area_central_corridor",
           areaIds: ["area_dapa", "area_central_corridor"],
         },
         estimatedMinutes: 300,
+        editorialPriority: 1,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "transport_window",
@@ -1142,9 +1257,12 @@ export const baselineFieldProtocolPackageData = {
         title: "South and central corridor",
         geography: {
           form: "route_corridor",
+          anchorAreaId: "area_south_central",
           areaIds: ["area_south_central"],
         },
         estimatedMinutes: 360,
+        editorialPriority: 2,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "safe_route_state",
@@ -1298,9 +1416,12 @@ export const baselineFieldProtocolPackageData = {
         title: "Northbound services and access",
         geography: {
           form: "route_corridor",
+          anchorAreaId: "area_north",
           areaIds: ["area_north"],
         },
         estimatedMinutes: 420,
+        editorialPriority: 2,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "weekday_class",
@@ -1472,10 +1593,13 @@ export const baselineFieldProtocolPackageData = {
         geography: {
           form: "origin_destination_route",
           routeId: "route_santa_monica_alegria",
+          anchorAreaId: "area_north",
           originSubjectId: "subject_route_northbound",
           destinationSubjectId: "subject_route_santa_monica_alegria",
         },
         estimatedMinutes: 360,
+        editorialPriority: 2,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "safe_route_state",
@@ -1632,9 +1756,12 @@ export const baselineFieldProtocolPackageData = {
         geography: {
           form: "access_point",
           areaId: "area_pilar",
+          anchorAreaId: "area_pilar",
           subjectId: "subject_area_pilar",
         },
         estimatedMinutes: 300,
+        editorialPriority: 2,
+        evidenceFreshnessReviewMinutes: 720,
         eligibilityWindows: [
           {
             kind: "tide_context",
@@ -1778,9 +1905,12 @@ export const baselineFieldProtocolPackageData = {
         geography: {
           form: "access_point",
           areaId: "area_del_carmen",
+          anchorAreaId: "area_del_carmen",
           subjectId: "subject_del_carmen_departure_points",
         },
         estimatedMinutes: 360,
+        editorialPriority: 2,
+        evidenceFreshnessReviewMinutes: 720,
         eligibilityWindows: [
           {
             kind: "provider_state",
@@ -1962,9 +2092,12 @@ export const baselineFieldProtocolPackageData = {
         title: "No-scooter accessibility journey",
         geography: {
           form: "route_corridor",
+          anchorAreaId: "area_del_carmen",
           areaIds: ["area_del_carmen", "area_dapa", "area_general_luna"],
         },
         estimatedMinutes: 300,
+        editorialPriority: 1,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "transport_state",
@@ -2146,9 +2279,12 @@ export const baselineFieldProtocolPackageData = {
         title: "Conflict and freshness follow-up",
         geography: {
           form: "governed_subject_subset",
+          anchorResolution: "coverage_snapshot_required",
           selectionRule: "nearest_travel_compatible_unresolved_subject",
         },
         estimatedMinutes: 180,
+        editorialPriority: 1,
+        evidenceFreshnessReviewMinutes: 10080,
         eligibilityWindows: [
           {
             kind: "source_coverage",
@@ -2652,6 +2788,209 @@ export const baselineFieldProtocolPackageData = {
           },
         },
       },
+      fieldPlanningInputs: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        $id: "https://asksiargao.com/schemas/field-planning-inputs.v1.json",
+        title: "FieldPlanningInputs",
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "schemaVersion",
+          "protocolPackageId",
+          "protocolPackageVersion",
+          "coverageSnapshotId",
+          "coverageSnapshotVersion",
+          "planningAt",
+          "startingAreaId",
+          "transportMode",
+          "availableMinutes",
+          "reserveMinutes",
+          "assignmentGates",
+          "eligibilityEvidence",
+        ],
+        properties: {
+          schemaVersion: {
+            const: "field-planning-inputs.v1",
+          },
+          protocolPackageId: {
+            type: "string",
+            pattern: "^field-protocol-[a-z0-9-]+$",
+          },
+          protocolPackageVersion: {
+            type: "string",
+            pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          },
+          coverageSnapshotId: {
+            type: "string",
+            minLength: 1,
+          },
+          coverageSnapshotVersion: {
+            type: "string",
+            minLength: 1,
+          },
+          planningAt: {
+            type: "string",
+            format: "date-time",
+          },
+          startingAreaId: {
+            type: "string",
+            pattern: "^area_[a-z0-9_]+$",
+          },
+          transportMode: {
+            type: "string",
+            minLength: 1,
+          },
+          availableMinutes: {
+            type: "integer",
+            minimum: 0,
+          },
+          reserveMinutes: {
+            type: "object",
+            additionalProperties: false,
+            required: ["safety", "documentation", "rest", "daylight"],
+            properties: {
+              safety: {
+                type: "integer",
+                minimum: 0,
+              },
+              documentation: {
+                type: "integer",
+                minimum: 0,
+              },
+              rest: {
+                type: "integer",
+                minimum: 0,
+              },
+              daylight: {
+                type: "integer",
+                minimum: 0,
+              },
+            },
+          },
+          preciseLocation: {
+            type: "object",
+            additionalProperties: false,
+            required: ["label", "permission"],
+            properties: {
+              label: {
+                type: "string",
+                minLength: 1,
+              },
+              permission: {
+                const: "granted",
+              },
+            },
+          },
+          assignmentGates: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: [
+                "id",
+                "assignmentId",
+                "safety",
+                "permission",
+                "access",
+                "sourceId",
+                "retrievedAt",
+                "validUntil",
+                "fingerprint",
+              ],
+              properties: {
+                id: {
+                  type: "string",
+                  minLength: 1,
+                },
+                assignmentId: {
+                  type: "string",
+                  pattern: "^assignment_[a-z0-9_]+$",
+                },
+                safety: {
+                  enum: ["allowed", "blocked", "unknown"],
+                },
+                permission: {
+                  enum: ["allowed", "blocked", "unknown"],
+                },
+                access: {
+                  enum: ["allowed", "blocked", "unknown"],
+                },
+                sourceId: {
+                  type: "string",
+                  minLength: 1,
+                },
+                retrievedAt: {
+                  type: "string",
+                  format: "date-time",
+                },
+                validUntil: {
+                  type: "string",
+                  format: "date-time",
+                },
+                fingerprint: {
+                  type: "string",
+                  minLength: 1,
+                },
+              },
+            },
+          },
+          eligibilityEvidence: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: [
+                "id",
+                "assignmentId",
+                "kind",
+                "value",
+                "state",
+                "sourceId",
+                "retrievedAt",
+                "validUntil",
+                "fingerprint",
+              ],
+              properties: {
+                id: {
+                  type: "string",
+                  minLength: 1,
+                },
+                assignmentId: {
+                  type: "string",
+                  pattern: "^assignment_[a-z0-9_]+$",
+                },
+                kind: {
+                  type: "string",
+                  minLength: 1,
+                },
+                value: {
+                  type: "string",
+                  minLength: 1,
+                },
+                state: {
+                  enum: ["allowed", "blocked", "unknown"],
+                },
+                sourceId: {
+                  type: "string",
+                  minLength: 1,
+                },
+                retrievedAt: {
+                  type: "string",
+                  format: "date-time",
+                },
+                validUntil: {
+                  type: "string",
+                  format: "date-time",
+                },
+                fingerprint: {
+                  type: "string",
+                  minLength: 1,
+                },
+              },
+            },
+          },
+        },
+      },
     },
   },
   examples: {
@@ -3095,6 +3434,7 @@ export const baselineFieldProtocolPackageData = {
         to: "area_central_corridor",
         modes: ["motorbike", "tricycle", "car", "van"],
         durationBandMinutes: [25, 50],
+        direction: "bidirectional",
         transferBoundary: false,
       },
       {
@@ -3102,6 +3442,7 @@ export const baselineFieldProtocolPackageData = {
         to: "area_general_luna",
         modes: ["motorbike", "tricycle", "car", "van"],
         durationBandMinutes: [30, 60],
+        direction: "bidirectional",
         transferBoundary: false,
       },
       {
@@ -3109,6 +3450,7 @@ export const baselineFieldProtocolPackageData = {
         to: "area_dapa",
         modes: ["motorbike", "tricycle", "car", "van"],
         durationBandMinutes: [20, 45],
+        direction: "bidirectional",
         transferBoundary: false,
       },
       {
@@ -3116,6 +3458,7 @@ export const baselineFieldProtocolPackageData = {
         to: "area_south_central",
         modes: ["motorbike", "tricycle", "car"],
         durationBandMinutes: [20, 55],
+        direction: "bidirectional",
         transferBoundary: false,
       },
       {
@@ -3123,6 +3466,7 @@ export const baselineFieldProtocolPackageData = {
         to: "area_north",
         modes: ["motorbike", "tricycle", "car", "van"],
         durationBandMinutes: [45, 105],
+        direction: "bidirectional",
         transferBoundary: false,
       },
       {
@@ -3130,6 +3474,7 @@ export const baselineFieldProtocolPackageData = {
         to: "area_pilar",
         modes: ["motorbike", "tricycle", "car"],
         durationBandMinutes: [30, 75],
+        direction: "bidirectional",
         transferBoundary: false,
       },
       {
@@ -3137,6 +3482,7 @@ export const baselineFieldProtocolPackageData = {
         to: "area_del_carmen",
         modes: ["boat"],
         durationBandMinutes: [15, 180],
+        direction: "bidirectional",
         transferBoundary: true,
       },
     ],
@@ -6008,7 +6354,7 @@ export const baselineFieldProtocolPackageData = {
     packageId: "field-protocol-siargao-baseline",
     packageVersion: "1.0.0",
     createdAt: "2026-08-22T00:00:00.000Z",
-    signerKeyId: "ask-siargao-field-protocol-2026-01",
+    signerKeyId: "ask-siargao-field-protocol-2026-02",
     componentVersions: {
       campaign: "1.0.0",
       distributionSchemas: "1.0.0",
@@ -6033,11 +6379,11 @@ export const baselineFieldProtocolPackageData = {
     files: [
       {
         path: "canonical/v1/campaign-island-baseline.v1.json",
-        sha256: "8a9834781889c49d32cefabd30a139edea42ccb86b5cf7bbda580566fdd5ee9f",
+        sha256: "c534586923e9454d3866f8d0055fa6fe19c59c2745af2fe8c230ad92b34ba0bf",
       },
       {
         path: "canonical/v1/distribution-schemas.v1.json",
-        sha256: "4bbee0371d18c76826cebf9702f00270cbc4f3cac27ac5d5fb2da2a045019dc1",
+        sha256: "8b9bc6ee1dbba025ec01cd49c0aaf745a8f6ebd9cb42e2e5a92fa1806207e8f7",
       },
       {
         path: "canonical/v1/examples.v1.json",
@@ -6045,7 +6391,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/geography.v1.json",
-        sha256: "14581ee2cea2bbec9a7c2b921243c0db8f639d7f8e4df3a9852ee45d434b31fc",
+        sha256: "f088e04fd68dd85c6af6dba60348f39971f4afe9898c54dd6fb592a6cff46352",
       },
       {
         path: "canonical/v1/help.v1.json",
@@ -6075,7 +6421,7 @@ export const baselineFieldProtocolPackageData = {
     signature: {
       algorithm: "Ed25519",
       value:
-        "aOwWPuNBMsvonTuWOOgONcxvYFmMls/zpDsBDAk/Vd5+Xi1f68hFkk/x/TxvFTje7r+DfiEde6iltT9J1Lq4BA==",
+        "TrCfArM8UaTAZurHqu13dpjDdXZ9yX3ai1wJAT53lNne2d+C/6TPngSydkUD8vsmqhyEqTQyp0BCG3Fh12K5Cw==",
     },
   },
 } as const;
@@ -6086,6 +6432,12 @@ export const trustedFieldProtocolSignersData = {
       keyId: "ask-siargao-field-protocol-2026-01",
       algorithm: "Ed25519",
       publicKeySpkiBase64: "MCowBQYDK2VwAyEAHz50PLHM25xqjJvMus5IfgdveJKGCsQbRCQp7s5d1IA=",
+      status: "trusted",
+    },
+    {
+      keyId: "ask-siargao-field-protocol-2026-02",
+      algorithm: "Ed25519",
+      publicKeySpkiBase64: "MCowBQYDK2VwAyEAMnIejrkV/CCZHZpQiXE+ZW5x/l1dRspg+oHU1+W1lcg=",
       status: "trusted",
     },
   ],

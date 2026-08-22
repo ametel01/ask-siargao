@@ -1,0 +1,13 @@
+{
+  "selectedAssignmentIds": ["assignment_a", "assignment_b"],
+  "availableMinutes": 120,
+  "reserveMinutes": 20,
+  "usableMinutes": 100,
+  "consumedMinutes": 80,
+  "plannedReturnMinutes": 10,
+  "remainingMinutes": 10,
+  "excludedCodes": {
+    "assignment_c": "hard_gate_blocked",
+    "assignment_dynamic": "unresolved_geography"
+  }
+}

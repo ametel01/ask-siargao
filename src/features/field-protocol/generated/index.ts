@@ -6,6 +6,7 @@ export * from "./capture-exception.generated";
 export * from "./evidence-asset.generated";
 export * from "./field-batch.generated";
 export * from "./field-observation.generated";
+export * from "./field-planning-inputs.generated";
 export * from "./field-recovery-export.generated";
 export * from "./field-review.generated";
 export * from "./field-visit.generated";
