@@ -31,6 +31,15 @@ describe("Clerk route policy", () => {
       ["/accommodations/example-stay", "public"],
       ["/accommodations/example-stay/llm.md", "public"],
       ["/settings", "protected"],
+      ["/operator/field", "protected"],
+      ["/operator/field/security-workspace", "protected"],
+      ["/operator/field/offline-shell", "protected"],
+      ["/operator/field/manifest.webmanifest", "public"],
+      ["/field-service-worker", "protected"],
+      ["/api/operator/field/devices", "protected"],
+      ["/api/operator/field/devices/challenge", "protected"],
+      ["/api/operator/field/devices/field_device_1234567890123456/revoke", "protected"],
+      ["/api/operator/field/grants", "protected"],
       ["/profile", "protected"],
       ["/admin/diagnostics", "protected"],
       ["/admin/field-ingestion", "protected"],
@@ -70,7 +79,7 @@ describe("Clerk route policy", () => {
     const policyFiles = clerkRoutePolicyEntries.map((entry) => entry.routeFile).toSorted();
 
     expect(policyFiles).toEqual(routeFiles.toSorted());
-    expect(routeFiles).toHaveLength(76);
+    expect(routeFiles).toHaveLength(85);
   });
 
   test("proves a seeded omitted route would fail inventory coverage", () => {

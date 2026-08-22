@@ -8,6 +8,7 @@ import {
   readClerkDeploymentConfig,
 } from "@/server/auth/clerk-deployment-config";
 import { getClerkRoutePolicy } from "@/server/auth/clerk-route-policy";
+import { isFieldSecurityProductionHarnessRequest } from "@/server/field-security/test-harness";
 
 type ClerkProxyAuth = {
   protect: () => Promise<unknown>;
@@ -61,7 +62,9 @@ export function applyDisabledClerkRoutePolicy(requestOrPathname: NextRequest | s
 
   if (
     decision.action === "allow" ||
-    (decision.action === "protect" && isProtectedUiHarnessRequest(requestOrPathname))
+    (decision.action === "protect" &&
+      (isProtectedUiHarnessRequest(requestOrPathname) ||
+        isFieldSecurityHarnessRequest(requestOrPathname)))
   ) {
     return NextResponse.next();
   }
@@ -69,6 +72,14 @@ export function applyDisabledClerkRoutePolicy(requestOrPathname: NextRequest | s
   return denyClerkPerimeter(
     decision.action === "protect" ? "clerk_disabled_protected_route" : decision.reason,
   );
+}
+
+function isFieldSecurityHarnessRequest(requestOrPathname: NextRequest | string) {
+  if (typeof requestOrPathname === "string") return false;
+  return isFieldSecurityProductionHarnessRequest({
+    headers: requestOrPathname.headers,
+    pathname: requestOrPathname.nextUrl.pathname,
+  });
 }
 
 export function getClerkPerimeterDecision(
