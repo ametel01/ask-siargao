@@ -17,6 +17,33 @@
     "publicUse": false,
     "preciseLocation": "denied"
   },
+  "planningRules": {
+    "selectionOrder": [
+      "eligibility_window_rarity",
+      "travel_compatibility",
+      "outstanding_required_coverage",
+      "editorial_priority",
+      "oldest_admissible_evidence",
+      "time_fit",
+      "assignment_id"
+    ],
+    "eligibilityWindowKinds": [
+      { "kind": "access_state", "rarityRank": 2, "maximumAgeMinutes": 720, "hardGate": true },
+      { "kind": "arrival_window", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "changed_conditions", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "daypart", "rarityRank": 3, "maximumAgeMinutes": 720, "hardGate": true },
+      { "kind": "operating_state", "rarityRank": 2, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "provider_state", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "safe_marine_state", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "safe_route_state", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "safety_state", "rarityRank": 2, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "source_coverage", "rarityRank": 1, "maximumAgeMinutes": 10080, "hardGate": true },
+      { "kind": "tide_context", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "transport_state", "rarityRank": 2, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "transport_window", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "weekday_class", "rarityRank": 3, "maximumAgeMinutes": 1440, "hardGate": true }
+    ]
+  },
   "branchingRules": [
     {
       "when": "hard_gate_unsafe_or_ineligible",
@@ -47,9 +74,12 @@
       "geography": {
         "form": "governed_area",
         "areaId": "area_del_carmen",
+        "anchorAreaId": "area_del_carmen",
         "privateLocation": true
       },
       "estimatedMinutes": 150,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "daypart",
@@ -224,9 +254,12 @@
       "geography": {
         "form": "governed_area",
         "areaId": "area_del_carmen",
+        "anchorAreaId": "area_del_carmen",
         "privateLocation": false
       },
       "estimatedMinutes": 210,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "weekday_class",
@@ -451,10 +484,13 @@
       "geography": {
         "form": "origin_destination_route",
         "routeId": "route_airport_del_carmen",
+        "anchorAreaId": "area_del_carmen",
         "originSubjectId": "subject_sayak_airport",
         "destinationSubjectId": "subject_area_del_carmen"
       },
       "estimatedMinutes": 180,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 43200,
       "eligibilityWindows": [
         {
           "kind": "arrival_window",
@@ -638,9 +674,12 @@
       "geography": {
         "form": "governed_area",
         "areaId": "area_general_luna",
+        "anchorAreaId": "area_general_luna",
         "privateLocation": false
       },
       "estimatedMinutes": 240,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "weekday_class",
@@ -809,9 +848,12 @@
       "title": "Connectivity transect",
       "geography": {
         "form": "route_corridor",
+        "anchorAreaId": "area_del_carmen",
         "areaIds": ["area_del_carmen", "area_general_luna"]
       },
       "estimatedMinutes": 180,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "changed_conditions",
@@ -928,9 +970,12 @@
       "title": "Dapa port and service hub",
       "geography": {
         "form": "route_corridor",
+        "anchorAreaId": "area_central_corridor",
         "areaIds": ["area_dapa", "area_central_corridor"]
       },
       "estimatedMinutes": 300,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "transport_window",
@@ -1139,9 +1184,12 @@
       "title": "South and central corridor",
       "geography": {
         "form": "route_corridor",
+        "anchorAreaId": "area_south_central",
         "areaIds": ["area_south_central"]
       },
       "estimatedMinutes": 360,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "safe_route_state",
@@ -1295,9 +1343,12 @@
       "title": "Northbound services and access",
       "geography": {
         "form": "route_corridor",
+        "anchorAreaId": "area_north",
         "areaIds": ["area_north"]
       },
       "estimatedMinutes": 420,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "weekday_class",
@@ -1469,10 +1520,13 @@
       "geography": {
         "form": "origin_destination_route",
         "routeId": "route_santa_monica_alegria",
+        "anchorAreaId": "area_north",
         "originSubjectId": "subject_route_northbound",
         "destinationSubjectId": "subject_route_santa_monica_alegria"
       },
       "estimatedMinutes": 360,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "safe_route_state",
@@ -1629,9 +1683,12 @@
       "geography": {
         "form": "access_point",
         "areaId": "area_pilar",
+        "anchorAreaId": "area_pilar",
         "subjectId": "subject_area_pilar"
       },
       "estimatedMinutes": 300,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 720,
       "eligibilityWindows": [
         {
           "kind": "tide_context",
@@ -1775,9 +1832,12 @@
       "geography": {
         "form": "access_point",
         "areaId": "area_del_carmen",
+        "anchorAreaId": "area_del_carmen",
         "subjectId": "subject_del_carmen_departure_points"
       },
       "estimatedMinutes": 360,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 720,
       "eligibilityWindows": [
         {
           "kind": "provider_state",
@@ -1959,9 +2019,12 @@
       "title": "No-scooter accessibility journey",
       "geography": {
         "form": "route_corridor",
+        "anchorAreaId": "area_del_carmen",
         "areaIds": ["area_del_carmen", "area_dapa", "area_general_luna"]
       },
       "estimatedMinutes": 300,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "transport_state",
@@ -2143,9 +2206,12 @@
       "title": "Conflict and freshness follow-up",
       "geography": {
         "form": "governed_subject_subset",
+        "anchorResolution": "coverage_snapshot_required",
         "selectionRule": "nearest_travel_compatible_unresolved_subject"
       },
       "estimatedMinutes": 180,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
       "eligibilityWindows": [
         {
           "kind": "source_coverage",

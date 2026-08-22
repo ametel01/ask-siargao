@@ -3,7 +3,7 @@
   "packageId": "field-protocol-siargao-baseline",
   "packageVersion": "1.0.0",
   "createdAt": "2026-08-22T00:00:00.000Z",
-  "signerKeyId": "ask-siargao-field-protocol-2026-01",
+  "signerKeyId": "ask-siargao-field-protocol-2026-02",
   "componentVersions": {
     "campaign": "1.0.0",
     "distributionSchemas": "1.0.0",
@@ -28,11 +28,11 @@
   "files": [
     {
       "path": "canonical/v1/campaign-island-baseline.v1.json",
-      "sha256": "8a9834781889c49d32cefabd30a139edea42ccb86b5cf7bbda580566fdd5ee9f"
+      "sha256": "c534586923e9454d3866f8d0055fa6fe19c59c2745af2fe8c230ad92b34ba0bf"
     },
     {
       "path": "canonical/v1/distribution-schemas.v1.json",
-      "sha256": "4bbee0371d18c76826cebf9702f00270cbc4f3cac27ac5d5fb2da2a045019dc1"
+      "sha256": "8b9bc6ee1dbba025ec01cd49c0aaf745a8f6ebd9cb42e2e5a92fa1806207e8f7"
     },
     {
       "path": "canonical/v1/examples.v1.json",
@@ -40,7 +40,7 @@
     },
     {
       "path": "canonical/v1/geography.v1.json",
-      "sha256": "14581ee2cea2bbec9a7c2b921243c0db8f639d7f8e4df3a9852ee45d434b31fc"
+      "sha256": "f088e04fd68dd85c6af6dba60348f39971f4afe9898c54dd6fb592a6cff46352"
     },
     {
       "path": "canonical/v1/help.v1.json",
@@ -69,6 +69,6 @@
   ],
   "signature": {
     "algorithm": "Ed25519",
-    "value": "aOwWPuNBMsvonTuWOOgONcxvYFmMls/zpDsBDAk/Vd5+Xi1f68hFkk/x/TxvFTje7r+DfiEde6iltT9J1Lq4BA=="
+    "value": "TrCfArM8UaTAZurHqu13dpjDdXZ9yX3ai1wJAT53lNne2d+C/6TPngSydkUD8vsmqhyEqTQyp0BCG3Fh12K5Cw=="
   }
 }

@@ -33,6 +33,7 @@
       "to": "area_central_corridor",
       "modes": ["motorbike", "tricycle", "car", "van"],
       "durationBandMinutes": [25, 50],
+      "direction": "bidirectional",
       "transferBoundary": false
     },
     {
@@ -40,6 +41,7 @@
       "to": "area_general_luna",
       "modes": ["motorbike", "tricycle", "car", "van"],
       "durationBandMinutes": [30, 60],
+      "direction": "bidirectional",
       "transferBoundary": false
     },
     {
@@ -47,6 +49,7 @@
       "to": "area_dapa",
       "modes": ["motorbike", "tricycle", "car", "van"],
       "durationBandMinutes": [20, 45],
+      "direction": "bidirectional",
       "transferBoundary": false
     },
     {
@@ -54,6 +57,7 @@
       "to": "area_south_central",
       "modes": ["motorbike", "tricycle", "car"],
       "durationBandMinutes": [20, 55],
+      "direction": "bidirectional",
       "transferBoundary": false
     },
     {
@@ -61,6 +65,7 @@
       "to": "area_north",
       "modes": ["motorbike", "tricycle", "car", "van"],
       "durationBandMinutes": [45, 105],
+      "direction": "bidirectional",
       "transferBoundary": false
     },
     {
@@ -68,6 +73,7 @@
       "to": "area_pilar",
       "modes": ["motorbike", "tricycle", "car"],
       "durationBandMinutes": [30, 75],
+      "direction": "bidirectional",
       "transferBoundary": false
     },
     {
@@ -75,6 +81,7 @@
       "to": "area_del_carmen",
       "modes": ["boat"],
       "durationBandMinutes": [15, 180],
+      "direction": "bidirectional",
       "transferBoundary": true
     }
   ]

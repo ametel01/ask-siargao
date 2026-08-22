@@ -43,6 +43,13 @@ export const clerkRoutePolicyEntries = [
     "operator allowlist or local admin token remains required by the page",
   ),
   page(
+    "src/app/operator/field/plan/page.tsx",
+    "/operator/field/plan",
+    "protected",
+    "Field Researcher deterministic planning surface",
+    "protected Field Workspace authorization remains required by its parent shell",
+  ),
+  page(
     "src/app/audits/[auditRequestId]/status/page.tsx",
     "/audits/audit_123/status",
     "protected",

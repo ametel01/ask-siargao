@@ -1130,7 +1130,7 @@ describe("baseline Field Protocol Package", () => {
       success: true,
       packageId: "field-protocol-siargao-baseline",
       packageVersion: "1.0.0",
-      signerKeyId: "ask-siargao-field-protocol-2026-01",
+      signerKeyId: "ask-siargao-field-protocol-2026-02",
     });
 
     const tampered = structuredClone(baselineFieldProtocolPackage) as unknown as {

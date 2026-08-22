@@ -139,7 +139,7 @@ async function signManifest(privateKeyPath: string) {
     packageId: "field-protocol-siargao-baseline",
     packageVersion: "1.0.0",
     createdAt: "2026-08-22T00:00:00.000Z",
-    signerKeyId: "ask-siargao-field-protocol-2026-01",
+    signerKeyId: "ask-siargao-field-protocol-2026-02",
     componentVersions: Object.fromEntries(
       fieldProtocolPackageComponents.map((component) => [
         component.key,

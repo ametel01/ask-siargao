@@ -240,6 +240,116 @@
           "uniqueItems": true
         }
       }
+    },
+    "fieldPlanningInputs": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://asksiargao.com/schemas/field-planning-inputs.v1.json",
+      "title": "FieldPlanningInputs",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolPackageId",
+        "protocolPackageVersion",
+        "coverageSnapshotId",
+        "coverageSnapshotVersion",
+        "planningAt",
+        "startingAreaId",
+        "transportMode",
+        "availableMinutes",
+        "reserveMinutes",
+        "assignmentGates",
+        "eligibilityEvidence"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "field-planning-inputs.v1" },
+        "protocolPackageId": { "type": "string", "pattern": "^field-protocol-[a-z0-9-]+$" },
+        "protocolPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "coverageSnapshotId": { "type": "string", "minLength": 1 },
+        "coverageSnapshotVersion": { "type": "string", "minLength": 1 },
+        "planningAt": { "type": "string", "format": "date-time" },
+        "startingAreaId": { "type": "string", "pattern": "^area_[a-z0-9_]+$" },
+        "transportMode": { "type": "string", "minLength": 1 },
+        "availableMinutes": { "type": "integer", "minimum": 0 },
+        "reserveMinutes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["safety", "documentation", "rest", "daylight"],
+          "properties": {
+            "safety": { "type": "integer", "minimum": 0 },
+            "documentation": { "type": "integer", "minimum": 0 },
+            "rest": { "type": "integer", "minimum": 0 },
+            "daylight": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "preciseLocation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "permission"],
+          "properties": {
+            "label": { "type": "string", "minLength": 1 },
+            "permission": { "const": "granted" }
+          }
+        },
+        "assignmentGates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "assignmentId",
+              "safety",
+              "permission",
+              "access",
+              "sourceId",
+              "retrievedAt",
+              "validUntil",
+              "fingerprint"
+            ],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
+              "safety": { "enum": ["allowed", "blocked", "unknown"] },
+              "permission": { "enum": ["allowed", "blocked", "unknown"] },
+              "access": { "enum": ["allowed", "blocked", "unknown"] },
+              "sourceId": { "type": "string", "minLength": 1 },
+              "retrievedAt": { "type": "string", "format": "date-time" },
+              "validUntil": { "type": "string", "format": "date-time" },
+              "fingerprint": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "eligibilityEvidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "assignmentId",
+              "kind",
+              "value",
+              "state",
+              "sourceId",
+              "retrievedAt",
+              "validUntil",
+              "fingerprint"
+            ],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
+              "kind": { "type": "string", "minLength": 1 },
+              "value": { "type": "string", "minLength": 1 },
+              "state": { "enum": ["allowed", "blocked", "unknown"] },
+              "sourceId": { "type": "string", "minLength": 1 },
+              "retrievedAt": { "type": "string", "format": "date-time" },
+              "validUntil": { "type": "string", "format": "date-time" },
+              "fingerprint": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
     }
   }
 }
