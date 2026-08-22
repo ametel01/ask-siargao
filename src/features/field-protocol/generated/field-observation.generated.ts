@@ -79,10 +79,10 @@ export interface FieldObservation {
   validUntil?: string;
   reviewDueAt: string;
   permissions: {
-    llmUse: false;
-    articleUse: false;
-    quotationUse: false;
-    publicUse: false;
+    llmUse: boolean;
+    articleUse: boolean;
+    quotationUse: boolean;
+    publicUse: boolean;
   };
   assetIds?: string[];
   contradictsObservationIds?: string[];

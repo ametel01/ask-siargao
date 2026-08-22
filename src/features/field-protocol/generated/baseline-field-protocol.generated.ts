@@ -79,6 +79,20 @@ export const baselineFieldProtocolPackageData = {
             },
           },
           {
+            id: "objective_home_observe_practical_essentials",
+            action: "observe",
+            observationKinds: ["facility", "service_status"],
+            facilityTypes: ["drinking_water", "waste_disposal", "food"],
+            coverage: {
+              required: true,
+              minimumRecords: 3,
+              supportingAsset: "optional",
+              repetition: {
+                minimumDistinctWindows: 1,
+              },
+            },
+          },
+          {
             id: "objective_home_measure_environment",
             action: "measure",
             observationKinds: ["connectivity", "noise_snapshot"],
@@ -88,6 +102,20 @@ export const baselineFieldProtocolPackageData = {
               supportingAsset: "not_required",
               repetition: {
                 minimumDistinctWindows: 2,
+              },
+            },
+          },
+          {
+            id: "objective_home_attempt_offline_readiness",
+            action: "attempt",
+            observationKinds: ["connectivity", "power"],
+            workflowRequirements: ["offline_field_readiness"],
+            coverage: {
+              required: true,
+              minimumRecords: 2,
+              supportingAsset: "not_required",
+              repetition: {
+                minimumDistinctWindows: 1,
               },
             },
           },
@@ -199,6 +227,25 @@ export const baselineFieldProtocolPackageData = {
               required: true,
               minimumRecords: 1,
               supportingAsset: "required",
+              repetition: {
+                minimumDistinctWindows: 1,
+              },
+            },
+          },
+          {
+            id: "objective_airport_observe_arrival_conditions",
+            action: "observe",
+            observationKinds: [
+              "route_wait",
+              "price",
+              "accessibility",
+              "connectivity",
+              "payment_method",
+            ],
+            coverage: {
+              required: true,
+              minimumRecords: 5,
+              supportingAsset: "required_for_posted_information",
               repetition: {
                 minimumDistinctWindows: 1,
               },
@@ -919,8 +966,12 @@ export const baselineFieldProtocolPackageData = {
           "migrationId",
           "fromPackageVersion",
           "toPackageVersion",
+          "sourceSchemaVersions",
+          "targetProtocolPackageId",
+          "targetCampaignId",
           "kindMappings",
           "subjectMappings",
+          "methodMappings",
           "ambiguousKinds",
           "unsupportedKinds",
         ],
@@ -943,6 +994,23 @@ export const baselineFieldProtocolPackageData = {
           toPackageVersion: {
             type: "string",
             pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          },
+          sourceSchemaVersions: {
+            type: "array",
+            items: {
+              type: "string",
+              minLength: 1,
+            },
+            minItems: 1,
+            uniqueItems: true,
+          },
+          targetProtocolPackageId: {
+            type: "string",
+            pattern: "^field-protocol-[a-z0-9-]+$",
+          },
+          targetCampaignId: {
+            type: "string",
+            pattern: "^campaign_[a-z0-9_]+$",
           },
           kindMappings: {
             type: "array",
@@ -977,6 +1045,25 @@ export const baselineFieldProtocolPackageData = {
                 to: {
                   type: "string",
                   pattern: "^subject_[a-z0-9_]+$",
+                },
+              },
+            },
+            uniqueItems: true,
+          },
+          methodMappings: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["from", "to"],
+              properties: {
+                from: {
+                  type: "string",
+                  minLength: 1,
+                },
+                to: {
+                  type: "string",
+                  pattern: "^method_[a-z0-9_]+@[0-9]+\\.[0-9]+\\.[0-9]+$",
                 },
               },
             },
@@ -1153,17 +1240,50 @@ export const baselineFieldProtocolPackageData = {
         attribution: "role_only",
         captureContext: "Asked at the service counter before any transaction.",
         consents: {
-          participation: true,
-          llmUse: false,
-          articleUse: false,
-          quotationUse: false,
-          publicUse: false,
+          participation: {
+            decision: "granted",
+            method: "verbal",
+            recordedAt: "2026-08-22T09:14:00+08:00",
+          },
+          llmUse: {
+            decision: "denied",
+            method: "verbal",
+            recordedAt: "2026-08-22T09:14:00+08:00",
+          },
+          articleUse: {
+            decision: "denied",
+            method: "verbal",
+            recordedAt: "2026-08-22T09:14:00+08:00",
+          },
+          quotationUse: {
+            decision: "denied",
+            method: "verbal",
+            recordedAt: "2026-08-22T09:14:00+08:00",
+          },
+          publicUse: {
+            decision: "denied",
+            method: "verbal",
+            recordedAt: "2026-08-22T09:14:00+08:00",
+          },
         },
-        consentMethod: "verbal",
-        consentRecordedAt: "2026-08-22T09:14:00+08:00",
         withdrawalRoute: "Contact the Ask Siargao research owner.",
-        translationIds: [],
+        translationIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1510"],
         assetIds: [],
+      },
+      statementTranslation: {
+        schemaVersion: "statement-translation.v1",
+        id: "0192f060-4f41-7aa1-b322-4aa9fc9f1510",
+        protocolPackageId: "field-protocol-siargao-baseline",
+        protocolPackageVersion: "1.0.0",
+        sourceStatementId: "0192f060-4f41-7aa1-b322-4aa9fc9f1504",
+        originalLanguage: "en",
+        targetLanguage: "fil",
+        translatedText: "Tinatanggap ang cash; hindi inalok ang card.",
+        translator: {
+          kind: "human",
+          identityOrMethod: "researcher_example",
+        },
+        recordedAt: "2026-08-22T09:16:00+08:00",
       },
       evidenceAsset: {
         schemaVersion: "evidence-asset.v1",
@@ -1265,11 +1385,88 @@ export const baselineFieldProtocolPackageData = {
           {
             packageId: "field-protocol-siargao-baseline",
             version: "1.0.0",
+            componentVersions: {
+              schemas: "1.0.0",
+              distributionSchemas: "1.0.0",
+              observationKinds: "1.0.0",
+              methodProfiles: "1.0.0",
+              subjects: "1.0.0",
+              geography: "1.0.0",
+              campaign: "1.0.0",
+              help: "1.0.0",
+              migration: "1.0.0",
+              examples: "1.0.0",
+            },
           },
         ],
         createdAt: "2026-08-23T11:00:00+08:00",
-        recordIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1502"],
-        reviewIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1508"],
+        recordCounts: {
+          fieldVisit: 1,
+          fieldObservation: 1,
+          routeRun: 0,
+          sourceStatement: 1,
+          statementTranslation: 1,
+          evidenceAsset: 1,
+          fieldReview: 1,
+        },
+        files: [
+          {
+            recordType: "fieldVisit",
+            filename: "field-visits.jsonl",
+            byteSize: 1024,
+            sha256: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            recordCount: 1,
+          },
+          {
+            recordType: "fieldObservation",
+            filename: "field-observations.jsonl",
+            byteSize: 2048,
+            sha256: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            recordCount: 1,
+          },
+          {
+            recordType: "sourceStatement",
+            filename: "source-statements.jsonl",
+            byteSize: 1024,
+            sha256: "1111111111111111111111111111111111111111111111111111111111111111",
+            recordCount: 1,
+          },
+          {
+            recordType: "statementTranslation",
+            filename: "statement-translations.jsonl",
+            byteSize: 512,
+            sha256: "2222222222222222222222222222222222222222222222222222222222222222",
+            recordCount: 1,
+          },
+          {
+            recordType: "evidenceAsset",
+            filename: "evidence-assets.jsonl",
+            byteSize: 1024,
+            sha256: "3333333333333333333333333333333333333333333333333333333333333333",
+            recordCount: 1,
+          },
+          {
+            recordType: "fieldReview",
+            filename: "field-reviews.jsonl",
+            byteSize: 512,
+            sha256: "4444444444444444444444444444444444444444444444444444444444444444",
+            recordCount: 1,
+          },
+        ],
+        reviewerSummary: {
+          reviewerIds: ["reviewer_example"],
+          includesSelfReview: false,
+          independentReviewCount: 1,
+        },
+        lineage: {
+          campaignIds: ["campaign_island_baseline"],
+          assignmentIds: ["assignment_del_carmen_essentials"],
+          visitIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1501"],
+          researcherIds: ["researcher_example"],
+          supersessionRecordIds: [],
+          conflictRecordIds: [],
+          reviewIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1508"],
+        },
         assetReferences: ["0192f060-4f41-7aa1-b322-4aa9fc9f1505"],
         referentialClosureSha256:
           "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
@@ -1388,81 +1585,6 @@ export const baselineFieldProtocolPackageData = {
         "A Protocol Migration never rewrites originals. Preview every result and quarantine ambiguity or failure before activation.",
     },
   },
-  manifest: {
-    schemaVersion: "field-protocol-package-manifest.v1",
-    packageId: "field-protocol-siargao-baseline",
-    packageVersion: "1.0.0",
-    createdAt: "2026-08-22T00:00:00.000Z",
-    signerKeyId: "ask-siargao-field-protocol-2026-01",
-    componentVersions: {
-      schemas: "1.0.0",
-      distributionSchemas: "1.0.0",
-      observationKinds: "1.0.0",
-      methodProfiles: "1.0.0",
-      subjects: "1.0.0",
-      geography: "1.0.0",
-      campaign: "1.0.0",
-      help: "1.0.0",
-      migration: "1.0.0",
-      examples: "1.0.0",
-    },
-    compatibility: {
-      minimumApplicationVersion: "0.1.0",
-      maximumApplicationVersionExclusive: "1.0.0",
-    },
-    migrationDeclaration: {
-      strategy: "explicit_preview_required",
-      supportedFromVersions: ["0.9.0"],
-      migrationIds: ["migration_legacy_0_9_0_to_baseline_1_0_0"],
-    },
-    files: [
-      {
-        path: "canonical/v1/campaign-island-baseline.v1.json",
-        sha256: "5f5710d977a8373559ff8681b7613681cf75150038ad19118d530eaa9970281b",
-      },
-      {
-        path: "canonical/v1/distribution-schemas.v1.json",
-        sha256: "e197bd0fca5a9c18be2cfb3b7d2cab1a436dd494fa8a9364edf566a2c045e5e5",
-      },
-      {
-        path: "canonical/v1/examples.v1.json",
-        sha256: "eec7bfde731ef55655c867c91ac97c2ca6bd848a1a25443d377aec3e56c221f1",
-      },
-      {
-        path: "canonical/v1/geography.v1.json",
-        sha256: "c2575f96996f2a966b5227bef05a26e7055c66289f89e7a92155bfe857b051e0",
-      },
-      {
-        path: "canonical/v1/help.v1.json",
-        sha256: "a8ae4351d831e922c7329be2482001d83b289e5a76d93b2fe009b02bf27f1d76",
-      },
-      {
-        path: "canonical/v1/method-profiles.v1.json",
-        sha256: "45271502a94c39b1432b17d370cc2695556e41ef3591e0f70aa8bb6fac18f22f",
-      },
-      {
-        path: "canonical/v1/migration-legacy-0.9.0.v1.json",
-        sha256: "65aae9c90166df9bd127e7b0cb45ee021faa08d475bdc788b142cbb8cff1176c",
-      },
-      {
-        path: "canonical/v1/observation-kinds.v1.json",
-        sha256: "7d0560f35f202bc445e1ff1ea696f26a6f50007ffcce242c15a9b2da3a5ec2c3",
-      },
-      {
-        path: "canonical/v1/schemas.v1.json",
-        sha256: "75130663fe91caa03d4fceaa0f16760d1e9ee26396fb3cbaa251721d7267c229",
-      },
-      {
-        path: "canonical/v1/subjects.v1.json",
-        sha256: "0e907f8f2ab1c1066be81d9d972025a1fa5ca30b88d797f31fa6200588b4cd60",
-      },
-    ],
-    signature: {
-      algorithm: "Ed25519",
-      value:
-        "XRv1goo00ySRuapFzUk+QchYNtS+RadZYRKQSffN/DCjbJHeCWr2dN+XWmbdkXf3whDiv5c52DIsXwYGJDm5BQ==",
-    },
-  },
   methodProfiles: {
     schemaVersion: "method-profile-registry.v1",
     componentVersion: "1.0.0",
@@ -1558,6 +1680,9 @@ export const baselineFieldProtocolPackageData = {
     migrationId: "migration_legacy_0_9_0_to_baseline_1_0_0",
     fromPackageVersion: "0.9.0",
     toPackageVersion: "1.0.0",
+    sourceSchemaVersions: ["field-record.v1"],
+    targetProtocolPackageId: "field-protocol-siargao-baseline",
+    targetCampaignId: "campaign_island_baseline",
     kindMappings: [
       {
         from: "opening_hours",
@@ -1576,6 +1701,16 @@ export const baselineFieldProtocolPackageData = {
       {
         from: "legacy_general_luna",
         to: "subject_area_general_luna",
+      },
+    ],
+    methodMappings: [
+      {
+        from: "structured_visual_check",
+        to: "method_structured_visual_check@1.0.0",
+      },
+      {
+        from: "network_test",
+        to: "method_connectivity_test@1.0.0",
       },
     ],
     ambiguousKinds: [
@@ -1851,6 +1986,9 @@ export const baselineFieldProtocolPackageData = {
                 "clinic",
                 "pharmacy",
                 "fuel",
+                "drinking_water",
+                "waste_disposal",
+                "food",
               ],
             },
             state: {
@@ -2784,16 +2922,20 @@ export const baselineFieldProtocolPackageData = {
             required: ["llmUse", "articleUse", "quotationUse", "publicUse"],
             properties: {
               llmUse: {
-                const: false,
+                type: "boolean",
+                default: false,
               },
               articleUse: {
-                const: false,
+                type: "boolean",
+                default: false,
               },
               quotationUse: {
-                const: false,
+                type: "boolean",
+                default: false,
               },
               publicUse: {
-                const: false,
+                type: "boolean",
+                default: false,
               },
             },
           },
@@ -3049,8 +3191,6 @@ export const baselineFieldProtocolPackageData = {
           "attribution",
           "captureContext",
           "consents",
-          "consentMethod",
-          "consentRecordedAt",
           "withdrawalRoute",
           "translationIds",
           "assetIds",
@@ -3163,29 +3303,21 @@ export const baselineFieldProtocolPackageData = {
             required: ["participation", "llmUse", "articleUse", "quotationUse", "publicUse"],
             properties: {
               participation: {
-                type: "boolean",
+                $ref: "#/$defs/consentDecision",
               },
               llmUse: {
-                type: "boolean",
+                $ref: "#/$defs/consentDecision",
               },
               articleUse: {
-                type: "boolean",
+                $ref: "#/$defs/consentDecision",
               },
               quotationUse: {
-                type: "boolean",
+                $ref: "#/$defs/consentDecision",
               },
               publicUse: {
-                type: "boolean",
+                $ref: "#/$defs/consentDecision",
               },
             },
-          },
-          consentMethod: {
-            enum: ["verbal", "written", "recorded_form"],
-          },
-          consentRecordedAt: {
-            type: "string",
-            pattern:
-              "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
           },
           validUntil: {
             type: "string",
@@ -3216,6 +3348,101 @@ export const baselineFieldProtocolPackageData = {
               format: "uuid",
             },
             uniqueItems: true,
+          },
+        },
+        $defs: {
+          consentDecision: {
+            type: "object",
+            additionalProperties: false,
+            required: ["decision", "method", "recordedAt"],
+            properties: {
+              decision: {
+                enum: ["granted", "denied", "withdrawn"],
+              },
+              method: {
+                enum: ["verbal", "written", "recorded_form"],
+              },
+              recordedAt: {
+                type: "string",
+                pattern:
+                  "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+              },
+            },
+          },
+        },
+      },
+      statementTranslation: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        $id: "https://asksiargao.com/schemas/statement-translation.v1.json",
+        title: "StatementTranslation",
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "schemaVersion",
+          "id",
+          "protocolPackageId",
+          "protocolPackageVersion",
+          "sourceStatementId",
+          "originalLanguage",
+          "targetLanguage",
+          "translatedText",
+          "translator",
+          "recordedAt",
+        ],
+        properties: {
+          schemaVersion: {
+            const: "statement-translation.v1",
+          },
+          id: {
+            type: "string",
+            format: "uuid",
+          },
+          protocolPackageId: {
+            type: "string",
+            pattern: "^field-protocol-[a-z0-9-]+$",
+          },
+          protocolPackageVersion: {
+            type: "string",
+            pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          },
+          sourceStatementId: {
+            type: "string",
+            format: "uuid",
+          },
+          originalLanguage: {
+            type: "string",
+            pattern: "^[a-z]{2,3}(-[A-Z]{2})?$",
+          },
+          targetLanguage: {
+            type: "string",
+            pattern: "^[a-z]{2,3}(-[A-Z]{2})?$",
+          },
+          translatedText: {
+            type: "string",
+            minLength: 1,
+          },
+          translator: {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "identityOrMethod"],
+            properties: {
+              kind: {
+                enum: ["human", "machine"],
+              },
+              identityOrMethod: {
+                type: "string",
+                minLength: 1,
+              },
+            },
+          },
+          recordedAt: {
+            type: "string",
+            pattern:
+              "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+          },
+          supersedesId: {
+            type: "string",
+            format: "uuid",
           },
         },
       },
@@ -3730,8 +3957,10 @@ export const baselineFieldProtocolPackageData = {
           "batchId",
           "protocolPackages",
           "createdAt",
-          "recordIds",
-          "reviewIds",
+          "recordCounts",
+          "files",
+          "reviewerSummary",
+          "lineage",
           "assetReferences",
           "referentialClosureSha256",
           "payloadSha256",
@@ -3754,7 +3983,7 @@ export const baselineFieldProtocolPackageData = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["packageId", "version"],
+              required: ["packageId", "version", "componentVersions"],
               properties: {
                 packageId: {
                   type: "string",
@@ -3763,6 +3992,64 @@ export const baselineFieldProtocolPackageData = {
                 version: {
                   type: "string",
                   pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                },
+                componentVersions: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: [
+                    "schemas",
+                    "distributionSchemas",
+                    "observationKinds",
+                    "methodProfiles",
+                    "subjects",
+                    "geography",
+                    "campaign",
+                    "help",
+                    "migration",
+                    "examples",
+                  ],
+                  properties: {
+                    schemas: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    distributionSchemas: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    observationKinds: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    methodProfiles: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    subjects: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    geography: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    campaign: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    help: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    migration: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                    examples: {
+                      type: "string",
+                      pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    },
+                  },
                 },
               },
             },
@@ -3774,23 +4061,186 @@ export const baselineFieldProtocolPackageData = {
             pattern:
               "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
           },
-          recordIds: {
+          recordCounts: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "fieldVisit",
+              "fieldObservation",
+              "routeRun",
+              "sourceStatement",
+              "statementTranslation",
+              "evidenceAsset",
+              "fieldReview",
+            ],
+            properties: {
+              fieldVisit: {
+                type: "integer",
+                minimum: 0,
+              },
+              fieldObservation: {
+                type: "integer",
+                minimum: 0,
+              },
+              routeRun: {
+                type: "integer",
+                minimum: 0,
+              },
+              sourceStatement: {
+                type: "integer",
+                minimum: 0,
+              },
+              statementTranslation: {
+                type: "integer",
+                minimum: 0,
+              },
+              evidenceAsset: {
+                type: "integer",
+                minimum: 0,
+              },
+              fieldReview: {
+                type: "integer",
+                minimum: 0,
+              },
+            },
+          },
+          files: {
             type: "array",
             items: {
-              type: "string",
-              format: "uuid",
+              type: "object",
+              additionalProperties: false,
+              required: ["recordType", "filename", "byteSize", "sha256", "recordCount"],
+              properties: {
+                recordType: {
+                  enum: [
+                    "fieldVisit",
+                    "fieldObservation",
+                    "routeRun",
+                    "sourceStatement",
+                    "statementTranslation",
+                    "evidenceAsset",
+                    "fieldReview",
+                  ],
+                },
+                filename: {
+                  type: "string",
+                  pattern: "^[a-z][a-z0-9-]*\\.jsonl$",
+                },
+                byteSize: {
+                  type: "integer",
+                  minimum: 1,
+                },
+                sha256: {
+                  type: "string",
+                  pattern: "^[a-f0-9]{64}$",
+                },
+                recordCount: {
+                  type: "integer",
+                  minimum: 1,
+                },
+              },
             },
             minItems: 1,
             uniqueItems: true,
           },
-          reviewIds: {
-            type: "array",
-            items: {
-              type: "string",
-              format: "uuid",
+          reviewerSummary: {
+            type: "object",
+            additionalProperties: false,
+            required: ["reviewerIds", "includesSelfReview", "independentReviewCount"],
+            properties: {
+              reviewerIds: {
+                type: "array",
+                items: {
+                  type: "string",
+                  minLength: 1,
+                },
+                minItems: 1,
+                uniqueItems: true,
+              },
+              includesSelfReview: {
+                type: "boolean",
+              },
+              independentReviewCount: {
+                type: "integer",
+                minimum: 0,
+              },
             },
-            minItems: 1,
-            uniqueItems: true,
+          },
+          lineage: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "campaignIds",
+              "assignmentIds",
+              "visitIds",
+              "researcherIds",
+              "supersessionRecordIds",
+              "conflictRecordIds",
+              "reviewIds",
+            ],
+            properties: {
+              campaignIds: {
+                type: "array",
+                items: {
+                  type: "string",
+                  pattern: "^campaign_[a-z0-9_]+$",
+                },
+                minItems: 1,
+                uniqueItems: true,
+              },
+              assignmentIds: {
+                type: "array",
+                items: {
+                  type: "string",
+                  pattern: "^assignment_[a-z0-9_]+$",
+                },
+                minItems: 1,
+                uniqueItems: true,
+              },
+              visitIds: {
+                type: "array",
+                items: {
+                  type: "string",
+                  format: "uuid",
+                },
+                minItems: 1,
+                uniqueItems: true,
+              },
+              researcherIds: {
+                type: "array",
+                items: {
+                  type: "string",
+                  minLength: 1,
+                },
+                minItems: 1,
+                uniqueItems: true,
+              },
+              supersessionRecordIds: {
+                type: "array",
+                items: {
+                  type: "string",
+                  format: "uuid",
+                },
+                uniqueItems: true,
+              },
+              conflictRecordIds: {
+                type: "array",
+                items: {
+                  type: "string",
+                  format: "uuid",
+                },
+                uniqueItems: true,
+              },
+              reviewIds: {
+                type: "array",
+                items: {
+                  type: "string",
+                  format: "uuid",
+                },
+                minItems: 1,
+                uniqueItems: true,
+              },
+            },
           },
           assetReferences: {
             type: "array",
@@ -3898,6 +4348,81 @@ export const baselineFieldProtocolPackageData = {
       },
     ],
   },
+  manifest: {
+    schemaVersion: "field-protocol-package-manifest.v1",
+    packageId: "field-protocol-siargao-baseline",
+    packageVersion: "1.0.0",
+    createdAt: "2026-08-22T00:00:00.000Z",
+    signerKeyId: "ask-siargao-field-protocol-2026-01",
+    componentVersions: {
+      campaign: "1.0.0",
+      distributionSchemas: "1.0.0",
+      examples: "1.0.0",
+      geography: "1.0.0",
+      help: "1.0.0",
+      methodProfiles: "1.0.0",
+      migration: "1.0.0",
+      observationKinds: "1.0.0",
+      schemas: "1.0.0",
+      subjects: "1.0.0",
+    },
+    compatibility: {
+      minimumApplicationVersion: "0.1.0",
+      maximumApplicationVersionExclusive: "1.0.0",
+    },
+    migrationDeclaration: {
+      strategy: "explicit_preview_required",
+      supportedFromVersions: ["0.9.0"],
+      migrationIds: ["migration_legacy_0_9_0_to_baseline_1_0_0"],
+    },
+    files: [
+      {
+        path: "canonical/v1/campaign-island-baseline.v1.json",
+        sha256: "bd0cd814c989e86c93a1cbae7519b1ce3accdabf468e4eebe0752559b5645338",
+      },
+      {
+        path: "canonical/v1/distribution-schemas.v1.json",
+        sha256: "1c7eea85cfdf1154fc763b22e6e601c4b78d73d1a9ce2eb4a01f7893b5d0e867",
+      },
+      {
+        path: "canonical/v1/examples.v1.json",
+        sha256: "8e6326ad59020a059b4d11809182a1687588a71646994f41f0754d6221ac09d2",
+      },
+      {
+        path: "canonical/v1/geography.v1.json",
+        sha256: "c2575f96996f2a966b5227bef05a26e7055c66289f89e7a92155bfe857b051e0",
+      },
+      {
+        path: "canonical/v1/help.v1.json",
+        sha256: "a8ae4351d831e922c7329be2482001d83b289e5a76d93b2fe009b02bf27f1d76",
+      },
+      {
+        path: "canonical/v1/method-profiles.v1.json",
+        sha256: "45271502a94c39b1432b17d370cc2695556e41ef3591e0f70aa8bb6fac18f22f",
+      },
+      {
+        path: "canonical/v1/migration-legacy-0.9.0.v1.json",
+        sha256: "69352a398035d5702e325a618805bcc09977e227812cdb1dfa904c43fd584676",
+      },
+      {
+        path: "canonical/v1/observation-kinds.v1.json",
+        sha256: "23790ca38729ebb0666aa078091065ff4ef0ada9339b6f64320284aad2e88e1f",
+      },
+      {
+        path: "canonical/v1/schemas.v1.json",
+        sha256: "23f828280a7fe995b7443a6b19af811b285fa4b54d52a2fa0f0707d8dfa9f659",
+      },
+      {
+        path: "canonical/v1/subjects.v1.json",
+        sha256: "0e907f8f2ab1c1066be81d9d972025a1fa5ca30b88d797f31fa6200588b4cd60",
+      },
+    ],
+    signature: {
+      algorithm: "Ed25519",
+      value:
+        "a6wvKKJGZZXK7sUOcFsdl9VQx176GRi7ZHEy0QX0MTtxlRlKDkGk9/eEh0m2i1pMlAYNiUpeizYyfALAKxHLBg==",
+    },
+  },
 } as const;
 export const trustedFieldProtocolSignersData = {
   schemaVersion: "field-protocol-trusted-signers.v1",
@@ -3905,7 +4430,7 @@ export const trustedFieldProtocolSignersData = {
     {
       keyId: "ask-siargao-field-protocol-2026-01",
       algorithm: "Ed25519",
-      publicKeySpkiBase64: "MCowBQYDK2VwAyEAMs3+5zTuOC5NacZj6NS1Wlu6dI1etPNFhsxhLXfcqJo=",
+      publicKeySpkiBase64: "MCowBQYDK2VwAyEAsYe6up2vqH+ZJ+rW3E5SfPXMj7B2ElfHASK0oE0XSk4=",
       status: "trusted",
     },
   ],

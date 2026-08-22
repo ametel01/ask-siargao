@@ -38,17 +38,20 @@ export interface SourceStatement {
   attribution: "named" | "role_only" | "anonymous" | "not_for_publication";
   captureContext: string;
   consents: {
-    participation: boolean;
-    llmUse: boolean;
-    articleUse: boolean;
-    quotationUse: boolean;
-    publicUse: boolean;
+    participation: ConsentDecision;
+    llmUse: ConsentDecision;
+    articleUse: ConsentDecision;
+    quotationUse: ConsentDecision;
+    publicUse: ConsentDecision;
   };
-  consentMethod: "verbal" | "written" | "recorded_form";
-  consentRecordedAt: string;
   validUntil?: string;
   recontactAfter?: string;
   withdrawalRoute: string;
   translationIds: string[];
   assetIds: string[];
+}
+export interface ConsentDecision {
+  decision: "granted" | "denied" | "withdrawn";
+  method: "verbal" | "written" | "recorded_form";
+  recordedAt: string;
 }

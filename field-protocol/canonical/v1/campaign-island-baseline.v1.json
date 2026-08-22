@@ -65,6 +65,18 @@
           }
         },
         {
+          "id": "objective_home_observe_practical_essentials",
+          "action": "observe",
+          "observationKinds": ["facility", "service_status"],
+          "facilityTypes": ["drinking_water", "waste_disposal", "food"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 3,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
           "id": "objective_home_measure_environment",
           "action": "measure",
           "observationKinds": ["connectivity", "noise_snapshot"],
@@ -73,6 +85,18 @@
             "minimumRecords": 2,
             "supportingAsset": "not_required",
             "repetition": { "minimumDistinctWindows": 2 }
+          }
+        },
+        {
+          "id": "objective_home_attempt_offline_readiness",
+          "action": "attempt",
+          "observationKinds": ["connectivity", "power"],
+          "workflowRequirements": ["offline_field_readiness"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 2,
+            "supportingAsset": "not_required",
+            "repetition": { "minimumDistinctWindows": 1 }
           }
         }
       ],
@@ -165,6 +189,23 @@
             "required": true,
             "minimumRecords": 1,
             "supportingAsset": "required",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
+          "id": "objective_airport_observe_arrival_conditions",
+          "action": "observe",
+          "observationKinds": [
+            "route_wait",
+            "price",
+            "accessibility",
+            "connectivity",
+            "payment_method"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 5,
+            "supportingAsset": "required_for_posted_information",
             "repetition": { "minimumDistinctWindows": 1 }
           }
         }

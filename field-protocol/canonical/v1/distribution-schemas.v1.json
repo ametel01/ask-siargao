@@ -126,8 +126,12 @@
         "migrationId",
         "fromPackageVersion",
         "toPackageVersion",
+        "sourceSchemaVersions",
+        "targetProtocolPackageId",
+        "targetCampaignId",
         "kindMappings",
         "subjectMappings",
+        "methodMappings",
         "ambiguousKinds",
         "unsupportedKinds"
       ],
@@ -137,6 +141,17 @@
         "migrationId": { "type": "string", "pattern": "^migration_[a-z0-9_]+$" },
         "fromPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
         "toPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "sourceSchemaVersions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "targetProtocolPackageId": {
+          "type": "string",
+          "pattern": "^field-protocol-[a-z0-9-]+$"
+        },
+        "targetCampaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
         "kindMappings": {
           "type": "array",
           "items": {
@@ -159,6 +174,22 @@
             "properties": {
               "from": { "type": "string", "minLength": 1 },
               "to": { "type": "string", "pattern": "^subject_[a-z0-9_]+$" }
+            }
+          },
+          "uniqueItems": true
+        },
+        "methodMappings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to"],
+            "properties": {
+              "from": { "type": "string", "minLength": 1 },
+              "to": {
+                "type": "string",
+                "pattern": "^method_[a-z0-9_]+@[0-9]+\\.[0-9]+\\.[0-9]+$"
+              }
             }
           },
           "uniqueItems": true

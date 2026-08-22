@@ -126,17 +126,50 @@
       "attribution": "role_only",
       "captureContext": "Asked at the service counter before any transaction.",
       "consents": {
-        "participation": true,
-        "llmUse": false,
-        "articleUse": false,
-        "quotationUse": false,
-        "publicUse": false
+        "participation": {
+          "decision": "granted",
+          "method": "verbal",
+          "recordedAt": "2026-08-22T09:14:00+08:00"
+        },
+        "llmUse": {
+          "decision": "denied",
+          "method": "verbal",
+          "recordedAt": "2026-08-22T09:14:00+08:00"
+        },
+        "articleUse": {
+          "decision": "denied",
+          "method": "verbal",
+          "recordedAt": "2026-08-22T09:14:00+08:00"
+        },
+        "quotationUse": {
+          "decision": "denied",
+          "method": "verbal",
+          "recordedAt": "2026-08-22T09:14:00+08:00"
+        },
+        "publicUse": {
+          "decision": "denied",
+          "method": "verbal",
+          "recordedAt": "2026-08-22T09:14:00+08:00"
+        }
       },
-      "consentMethod": "verbal",
-      "consentRecordedAt": "2026-08-22T09:14:00+08:00",
       "withdrawalRoute": "Contact the Ask Siargao research owner.",
-      "translationIds": [],
+      "translationIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1510"],
       "assetIds": []
+    },
+    "statementTranslation": {
+      "schemaVersion": "statement-translation.v1",
+      "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1510",
+      "protocolPackageId": "field-protocol-siargao-baseline",
+      "protocolPackageVersion": "1.0.0",
+      "sourceStatementId": "0192f060-4f41-7aa1-b322-4aa9fc9f1504",
+      "originalLanguage": "en",
+      "targetLanguage": "fil",
+      "translatedText": "Tinatanggap ang cash; hindi inalok ang card.",
+      "translator": {
+        "kind": "human",
+        "identityOrMethod": "researcher_example"
+      },
+      "recordedAt": "2026-08-22T09:16:00+08:00"
     },
     "evidenceAsset": {
       "schemaVersion": "evidence-asset.v1",
@@ -230,10 +263,92 @@
       "schemaVersion": "field-batch.v2",
       "filename": "ask-siargao-field-batch-abcdef123456.asfbatch",
       "batchId": "0192f060-4f41-7aa1-b322-4aa9fc9f1509",
-      "protocolPackages": [{ "packageId": "field-protocol-siargao-baseline", "version": "1.0.0" }],
+      "protocolPackages": [
+        {
+          "packageId": "field-protocol-siargao-baseline",
+          "version": "1.0.0",
+          "componentVersions": {
+            "schemas": "1.0.0",
+            "distributionSchemas": "1.0.0",
+            "observationKinds": "1.0.0",
+            "methodProfiles": "1.0.0",
+            "subjects": "1.0.0",
+            "geography": "1.0.0",
+            "campaign": "1.0.0",
+            "help": "1.0.0",
+            "migration": "1.0.0",
+            "examples": "1.0.0"
+          }
+        }
+      ],
       "createdAt": "2026-08-23T11:00:00+08:00",
-      "recordIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1502"],
-      "reviewIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1508"],
+      "recordCounts": {
+        "fieldVisit": 1,
+        "fieldObservation": 1,
+        "routeRun": 0,
+        "sourceStatement": 1,
+        "statementTranslation": 1,
+        "evidenceAsset": 1,
+        "fieldReview": 1
+      },
+      "files": [
+        {
+          "recordType": "fieldVisit",
+          "filename": "field-visits.jsonl",
+          "byteSize": 1024,
+          "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "recordCount": 1
+        },
+        {
+          "recordType": "fieldObservation",
+          "filename": "field-observations.jsonl",
+          "byteSize": 2048,
+          "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "recordCount": 1
+        },
+        {
+          "recordType": "sourceStatement",
+          "filename": "source-statements.jsonl",
+          "byteSize": 1024,
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "recordCount": 1
+        },
+        {
+          "recordType": "statementTranslation",
+          "filename": "statement-translations.jsonl",
+          "byteSize": 512,
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "recordCount": 1
+        },
+        {
+          "recordType": "evidenceAsset",
+          "filename": "evidence-assets.jsonl",
+          "byteSize": 1024,
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+          "recordCount": 1
+        },
+        {
+          "recordType": "fieldReview",
+          "filename": "field-reviews.jsonl",
+          "byteSize": 512,
+          "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+          "recordCount": 1
+        }
+      ],
+      "reviewerSummary": {
+        "reviewerIds": ["reviewer_example"],
+        "includesSelfReview": false,
+        "independentReviewCount": 1
+      },
+      "lineage": {
+        "campaignIds": ["campaign_island_baseline"],
+        "assignmentIds": ["assignment_del_carmen_essentials"],
+        "visitIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1501"],
+        "researcherIds": ["researcher_example"],
+        "supersessionRecordIds": [],
+        "conflictRecordIds": [],
+        "reviewIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1508"]
+      },
       "assetReferences": ["0192f060-4f41-7aa1-b322-4aa9fc9f1505"],
       "referentialClosureSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "payloadSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",

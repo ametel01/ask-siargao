@@ -15,3 +15,4 @@ export * from "./protocol-migration.generated";
 export * from "./route-run.generated";
 export * from "./schema-gap.generated";
 export * from "./source-statement.generated";
+export * from "./statement-translation.generated";

@@ -1,21 +1,27 @@
 import { z } from "zod";
 
+import { parseFieldFile } from "@/features/field-ingestion/field-capture";
+import { canonicalStringify } from "@/features/field-protocol/canonical-json";
 import {
   baselineFieldProtocolPackageData,
   type CaptureException,
   type EvidenceAsset,
   type FieldBatch,
   type FieldObservation,
+  type FieldProtocolPackageManifest,
   type FieldRecoveryExport,
   type FieldReview,
   type FieldVisit,
   type ObservationKind,
   type ObservationValueByKind,
+  type ProtocolMigration,
   type RouteRun,
   type SchemaGap,
   type SourceStatement,
+  type StatementTranslation,
   trustedFieldProtocolSignersData,
 } from "@/features/field-protocol/generated";
+import { fieldProtocolPackageComponents } from "@/features/field-protocol/package-components";
 
 export type FieldProtocolRecordByKind = {
   captureException: CaptureException;
@@ -28,6 +34,7 @@ export type FieldProtocolRecordByKind = {
   routeRun: RouteRun;
   schemaGap: SchemaGap;
   sourceStatement: SourceStatement;
+  statementTranslation: StatementTranslation;
 };
 
 export type FieldProtocolRecordKind = keyof FieldProtocolRecordByKind;
@@ -113,6 +120,10 @@ export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
     const issues = validateObservationSemantics(parsed.data as FieldObservation);
     if (issues.length > 0) return { success: false, issues };
   }
+  if (kind === "fieldBatch") {
+    const issues = validateFieldBatchSemantics(parsed.data as FieldBatch);
+    if (issues.length > 0) return { success: false, issues };
+  }
 
   return { success: true, data: parsed.data as FieldProtocolRecordByKind[K] };
 }
@@ -135,7 +146,7 @@ export async function verifyFieldProtocolPackage(input: {
     );
   }
 
-  const typedManifest = parsedManifest.data as Manifest;
+  const typedManifest = parsedManifest.data as FieldProtocolPackageManifest;
   if (
     !versionInRange(
       input.applicationVersion,
@@ -160,6 +171,21 @@ export async function verifyFieldProtocolPackage(input: {
         message: `Component ${component} does not match pinned version ${expectedVersion}.`,
       };
     }
+  }
+
+  const expectedPaths = fieldProtocolPackageComponents.map(
+    ({ filename }) => `canonical/v1/${filename}`,
+  );
+  const actualPaths = typedManifest.files.map(({ path }) => path);
+  if (
+    expectedPaths.length !== actualPaths.length ||
+    expectedPaths.some((path) => !actualPaths.includes(path))
+  ) {
+    return {
+      success: false,
+      code: "integrity_mismatch",
+      message: "The package manifest does not contain the complete canonical artifact set.",
+    };
   }
 
   for (const file of typedManifest.files) {
@@ -373,6 +399,15 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
   }
 
   if (observation.normalizedMeasurement) {
+    if (!registryEntry.allowedUnits.includes(observation.normalizedMeasurement.unit)) {
+      issues.push(
+        issue(
+          "unit_not_allowed",
+          `Unit ${observation.normalizedMeasurement.unit} is not allowed for ${registryEntry.kind}.`,
+          "normalizedMeasurement.unit",
+        ),
+      );
+    }
     if (!observation.rawMeasurement) {
       issues.push(
         issue(
@@ -420,17 +455,64 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
   return issues;
 }
 
+function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue[] {
+  const issues: ProtocolValidationIssue[] = [];
+  const fileCounts = new Map<string, number>();
+  for (const file of batch.files) {
+    fileCounts.set(file.recordType, (fileCounts.get(file.recordType) ?? 0) + file.recordCount);
+  }
+  for (const [recordType, expectedCount] of Object.entries(batch.recordCounts)) {
+    if ((fileCounts.get(recordType) ?? 0) !== expectedCount) {
+      issues.push(
+        issue(
+          "batch_record_count_mismatch",
+          `Typed files contain ${fileCounts.get(recordType) ?? 0} ${recordType} records but the batch declares ${expectedCount}.`,
+          `recordCounts.${recordType}`,
+        ),
+      );
+    }
+  }
+
+  const expectedIndependentReviews =
+    batch.reviewerSummary.reviewerIds.length - (batch.reviewerSummary.includesSelfReview ? 1 : 0);
+  if (batch.reviewerSummary.independentReviewCount !== expectedIndependentReviews) {
+    issues.push(
+      issue(
+        "batch_reviewer_independence_mismatch",
+        "Independent review count does not match the declared reviewer identities and self-review state.",
+        "reviewerSummary.independentReviewCount",
+      ),
+    );
+  }
+  return issues;
+}
+
 function previewRecordMigration(
   migration: ProtocolMigration,
   originalValue: unknown,
 ): MigrationPreviewResult {
   const original = structuredClone(originalValue);
   const record = asObject(originalValue);
-  if (!record || record.protocolPackageVersion !== migration.fromPackageVersion) {
+  if (!record) {
     return {
       original,
       status: "failed",
-      reason: `Record is not pinned to source package ${migration.fromPackageVersion}.`,
+      reason: "Record is not an object.",
+    };
+  }
+
+  if (
+    typeof record.schemaVersion === "string" &&
+    migration.sourceSchemaVersions.includes(record.schemaVersion)
+  ) {
+    return previewLegacyCaptureMigration(migration, record, original);
+  }
+
+  if (record.protocolPackageVersion !== migration.fromPackageVersion) {
+    return {
+      original,
+      status: "failed",
+      reason: `Record is neither a supported Legacy Capture schema nor pinned to source package ${migration.fromPackageVersion}.`,
     };
   }
 
@@ -480,6 +562,177 @@ function previewRecordMigration(
   return { original, status: "migrated", migrated: validation.data };
 }
 
+function previewLegacyCaptureMigration(
+  migration: ProtocolMigration,
+  record: Record<string, unknown>,
+  original: unknown,
+): MigrationPreviewResult {
+  const parsedLegacy = parseFieldFile("legacy-field-record.json", JSON.stringify(record));
+  if (parsedLegacy.issues.length > 0 || parsedLegacy.records.length !== 1) {
+    return {
+      original,
+      status: "failed",
+      reason: parsedLegacy.issues[0]?.message ?? "Legacy Capture did not validate.",
+    };
+  }
+  if (record.recordType !== "observation") {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: `Legacy ${String(record.recordType)} records require an explicit record-type mapping.`,
+    };
+  }
+
+  const observationKind = typeof record.observationKind === "string" ? record.observationKind : "";
+  const ambiguity = migration.ambiguousKinds.find((entry) => entry.kind === observationKind);
+  if (ambiguity) return { original, status: "needs_resolution", reason: ambiguity.reason };
+  if (migration.unsupportedKinds.includes(observationKind)) {
+    return {
+      original,
+      status: "failed",
+      reason: `Observation Kind ${observationKind} cannot be migrated without distortion.`,
+    };
+  }
+
+  const kindMapping = migration.kindMappings.find((entry) => entry.from === observationKind);
+  if (!kindMapping) {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: `Legacy Observation Kind ${observationKind || "(missing)"} has no governed mapping.`,
+    };
+  }
+
+  const legacySubjectId = typeof record.entityId === "string" ? record.entityId : "";
+  const subjectMapping = migration.subjectMappings.find((entry) => entry.from === legacySubjectId);
+  if (!subjectMapping) {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: `Legacy Subject ${legacySubjectId || "(missing)"} has no unambiguous governed mapping.`,
+    };
+  }
+
+  const legacyMethod = typeof record.method === "string" ? record.method : "";
+  const methodMapping = migration.methodMappings.find((entry) => entry.from === legacyMethod);
+  if (!methodMapping) {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: `Legacy method ${legacyMethod || "(missing)"} has no governed Method Profile.`,
+    };
+  }
+
+  const requiredStrings = [
+    "id",
+    "clientBatchId",
+    "capturedAt",
+    "localTimezone",
+    "visitId",
+    "observerKey",
+    "observedAt",
+    "reviewDueAt",
+  ] as const;
+  const missing = requiredStrings.find(
+    (key) => typeof record[key] !== "string" || record[key].length === 0,
+  );
+  if (missing) {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: `Legacy Capture is missing ${missing}, which is required for attributable migration.`,
+    };
+  }
+
+  const assignment = legacyAssignmentForSubject(subjectMapping.to);
+  if (!assignment) {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: `Governed Subject ${subjectMapping.to} has no deterministic baseline assignment.`,
+    };
+  }
+
+  const captureConfidence =
+    record.fieldConfidence === "high" ||
+    record.fieldConfidence === "medium" ||
+    record.fieldConfidence === "low"
+      ? record.fieldConfidence
+      : "low";
+  const migrated: Record<string, unknown> = {
+    schemaVersion: "field-observation.v1",
+    id: record.id,
+    protocolPackageId: migration.targetProtocolPackageId,
+    protocolPackageVersion: migration.toPackageVersion,
+    campaignId: migration.targetCampaignId,
+    assignmentId: assignment.assignmentId,
+    visitId: record.visitId,
+    objectiveId: assignment.objectiveId,
+    researcherId: record.observerKey,
+    deviceId: `legacy-batch-${record.clientBatchId}`,
+    recordedAt: record.capturedAt,
+    localTimezone: record.localTimezone,
+    captureState: record.status === "captured" ? "captured" : "draft",
+    subject: { kind: "governed", subjectId: subjectMapping.to },
+    observationKind: kindMapping.to,
+    valueSchemaVersion: "1.0.0",
+    directness: record.directness,
+    observedAt: record.observedAt,
+    utcOffsetMinutes: utcOffsetMinutes(String(record.observedAt)),
+    timeCorrected: false,
+    value: record.value,
+    methodProfileId: methodMapping.to,
+    conditions: Array.isArray(record.conditionTags) ? record.conditionTags : [],
+    captureConfidence,
+    reviewDueAt: record.reviewDueAt,
+    permissions: {
+      llmUse: record.llmUseAllowed === true,
+      articleUse: record.articleUseAllowed === true,
+      quotationUse: false,
+      publicUse: record.publicRepublishAllowed === true,
+    },
+    assetIds: [],
+    contradictsObservationIds: [],
+  };
+  if (captureConfidence !== "high") {
+    migrated.captureConfidenceReason =
+      "Preserved from Legacy Capture without a structured confidence reason.";
+  }
+
+  const validation = validateFieldProtocolRecord("fieldObservation", migrated);
+  if (!validation.success) {
+    return {
+      original,
+      status: "failed",
+      reason: validation.issues[0]?.message ?? "Migrated record did not validate.",
+    };
+  }
+  return { original, status: "migrated", migrated: validation.data };
+}
+
+function legacyAssignmentForSubject(subjectId: string) {
+  if (subjectId === "subject_area_del_carmen") {
+    return {
+      assignmentId: "assignment_del_carmen_essentials",
+      objectiveId: "objective_del_carmen_observe_services",
+    };
+  }
+  if (subjectId === "subject_area_general_luna") {
+    return {
+      assignmentId: "assignment_general_luna_journey",
+      objectiveId: "objective_general_luna_attempt_arrival",
+    };
+  }
+  return undefined;
+}
+
+function utcOffsetMinutes(value: string) {
+  const match = value.match(/([+-])(\d{2}):(\d{2})$/);
+  if (!match) return 0;
+  const minutes = Number(match[2]) * 60 + Number(match[3]);
+  return match[1] === "-" ? -minutes : minutes;
+}
+
 function recordKindForSchemaVersion(value: unknown): FieldProtocolRecordKind | undefined {
   const match = (
     Object.entries(recordSchemas) as Array<
@@ -492,35 +745,17 @@ function recordKindForSchemaVersion(value: unknown): FieldProtocolRecordKind | u
 function packageComponents(
   bundle: Record<string, unknown>,
 ): Record<string, Record<string, unknown> | undefined> {
-  return {
-    schemas: asObject(bundle.schemas),
-    distributionSchemas: asObject(bundle.distributionSchemas),
-    observationKinds: asObject(bundle.observationKinds),
-    methodProfiles: asObject(bundle.methodProfiles),
-    subjects: asObject(bundle.subjects),
-    geography: asObject(bundle.geography),
-    campaign: asObject(bundle.campaign),
-    help: asObject(bundle.help),
-    migration: asObject(bundle.migration),
-    examples: asObject(bundle.examples),
-  } satisfies Record<string, Record<string, unknown> | undefined>;
+  return Object.fromEntries(
+    fieldProtocolPackageComponents.map(({ key }) => [key, asObject(bundle[key])]),
+  );
 }
 
 function artifactForManifestPath(bundle: Record<string, unknown>, path: string) {
   const filename = path.split("/").at(-1);
-  const keyByFilename: Record<string, string> = {
-    "campaign-island-baseline.v1.json": "campaign",
-    "distribution-schemas.v1.json": "distributionSchemas",
-    "examples.v1.json": "examples",
-    "geography.v1.json": "geography",
-    "help.v1.json": "help",
-    "method-profiles.v1.json": "methodProfiles",
-    "migration-legacy-0.9.0.v1.json": "migration",
-    "observation-kinds.v1.json": "observationKinds",
-    "schemas.v1.json": "schemas",
-    "subjects.v1.json": "subjects",
-  };
-  return filename ? bundle[keyByFilename[filename] ?? ""] : undefined;
+  const component = fieldProtocolPackageComponents.find(
+    (candidate) => candidate.filename === filename,
+  );
+  return component ? bundle[component.key] : undefined;
 }
 
 async function verifyEd25519(publicKeyBase64: string, signatureBase64: string, message: string) {
@@ -563,17 +798,6 @@ function parseVersion(value: string) {
   return value.split(".").map(Number);
 }
 
-function canonicalStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
-  if (typeof value === "object" && value !== null) {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalStringify(nested)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -596,29 +820,6 @@ function invalidPackage(message: string): ProtocolVerificationFailure {
 function schemaFromArtifact(value: unknown) {
   return z.fromJSONSchema(structuredClone(value) as Parameters<typeof z.fromJSONSchema>[0]);
 }
-
-type Manifest = {
-  packageId: string;
-  packageVersion: string;
-  signerKeyId: string;
-  componentVersions: Record<string, string>;
-  compatibility: {
-    minimumApplicationVersion: string;
-    maximumApplicationVersionExclusive: string;
-  };
-  files: Array<{ path: string; sha256: string }>;
-  signature: { algorithm: "Ed25519"; value: string };
-};
-
-type ProtocolMigration = {
-  migrationId: string;
-  fromPackageVersion: string;
-  toPackageVersion: string;
-  kindMappings: Array<{ from: string; to: string }>;
-  subjectMappings: Array<{ from: string; to: string }>;
-  ambiguousKinds: Array<{ kind: string; reason: string }>;
-  unsupportedKinds: string[];
-};
 
 type ObservationRegistryEntry = {
   kind: string;

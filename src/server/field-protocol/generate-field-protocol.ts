@@ -3,11 +3,14 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { compile, type JSONSchema } from "json-schema-to-typescript";
 
+import { canonicalStringify } from "@/features/field-protocol/canonical-json";
+import { fieldProtocolPackageComponents } from "@/features/field-protocol/package-components";
+
 const repositoryRoot = resolve(import.meta.dir, "../../..");
 const canonicalDirectory = join(repositoryRoot, "field-protocol/canonical/v1");
 const trustFile = join(repositoryRoot, "field-protocol/trust/trusted-signers.v1.json");
 const manifestFile = join(canonicalDirectory, "manifest.v1.json");
-const generatedDirectory = join(import.meta.dir, "generated");
+const generatedDirectory = join(repositoryRoot, "src/features/field-protocol/generated");
 const checkOnly = process.argv.includes("--check");
 const privateKeyArgument = process.argv.find((argument) =>
   argument.startsWith("--sign-private-key="),
@@ -83,17 +86,13 @@ async function main() {
   );
 
   const packageData = {
-    campaign: artifacts["campaign-island-baseline.v1.json"],
-    distributionSchemas: artifacts["distribution-schemas.v1.json"],
-    examples: artifacts["examples.v1.json"],
-    geography: artifacts["geography.v1.json"],
-    help: artifacts["help.v1.json"],
+    ...Object.fromEntries(
+      fieldProtocolPackageComponents.map((component) => [
+        component.key,
+        artifacts[component.filename],
+      ]),
+    ),
     manifest,
-    methodProfiles: artifacts["method-profiles.v1.json"],
-    migration: artifacts["migration-legacy-0.9.0.v1.json"],
-    observationKinds: artifacts["observation-kinds.v1.json"],
-    schemas: artifacts["schemas.v1.json"],
-    subjects: artifacts["subjects.v1.json"],
   };
   const embedded = [
     "// Generated from field-protocol/canonical/v1. Do not edit by hand.",
@@ -138,18 +137,15 @@ async function signManifest(privateKeyPath: string) {
     packageVersion: "1.0.0",
     createdAt: "2026-08-22T00:00:00.000Z",
     signerKeyId: "ask-siargao-field-protocol-2026-01",
-    componentVersions: {
-      schemas: "1.0.0",
-      distributionSchemas: "1.0.0",
-      observationKinds: "1.0.0",
-      methodProfiles: "1.0.0",
-      subjects: "1.0.0",
-      geography: "1.0.0",
-      campaign: "1.0.0",
-      help: "1.0.0",
-      migration: "1.0.0",
-      examples: "1.0.0",
-    },
+    componentVersions: Object.fromEntries(
+      fieldProtocolPackageComponents.map((component) => [
+        component.key,
+        requiredString(
+          requiredJsonObject(artifacts[component.filename], component.filename).componentVersion,
+          `${component.filename} componentVersion`,
+        ),
+      ]),
+    ),
     compatibility: {
       minimumApplicationVersion: "0.1.0",
       maximumApplicationVersionExclusive: "1.0.0",
@@ -191,6 +187,20 @@ async function readCanonicalArtifacts(options: { includeManifest?: boolean } = {
 async function assertManifestHashes(manifestValue: unknown, artifacts: Record<string, unknown>) {
   const manifest = requiredJsonObject(manifestValue, "manifest");
   const files = requiredArray(manifest, "files");
+  const expectedFilenames = fieldProtocolPackageComponents.map(({ filename }) => filename).sort();
+  const actualFilenames = files
+    .map((fileValue) =>
+      basename(
+        requiredString(requiredJsonObject(fileValue, "manifest file").path, "manifest file path"),
+      ),
+    )
+    .sort();
+  if (
+    expectedFilenames.length !== actualFilenames.length ||
+    expectedFilenames.some((filename, index) => filename !== actualFilenames[index])
+  ) {
+    throw new Error("Manifest does not contain the complete canonical artifact set.");
+  }
   for (const fileValue of files) {
     const file = requiredJsonObject(fileValue, "manifest file");
     const path = requiredString(file.path, "manifest file path");
@@ -261,17 +271,6 @@ function requiredArray(value: unknown, key: string): unknown[] {
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== "string" || !value) throw new Error(`${label} must be a string.`);
   return value;
-}
-
-function canonicalStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
-  if (typeof value === "object" && value !== null) {
-    return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalStringify(nested)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function pascalCase(value: string) {

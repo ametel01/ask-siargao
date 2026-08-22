@@ -329,10 +329,10 @@
           "additionalProperties": false,
           "required": ["llmUse", "articleUse", "quotationUse", "publicUse"],
           "properties": {
-            "llmUse": { "const": false },
-            "articleUse": { "const": false },
-            "quotationUse": { "const": false },
-            "publicUse": { "const": false }
+            "llmUse": { "type": "boolean", "default": false },
+            "articleUse": { "type": "boolean", "default": false },
+            "quotationUse": { "type": "boolean", "default": false },
+            "publicUse": { "type": "boolean", "default": false }
           }
         },
         "assetIds": {
@@ -485,8 +485,6 @@
         "attribution",
         "captureContext",
         "consents",
-        "consentMethod",
-        "consentRecordedAt",
         "withdrawalRoute",
         "translationIds",
         "assetIds"
@@ -542,17 +540,12 @@
           "additionalProperties": false,
           "required": ["participation", "llmUse", "articleUse", "quotationUse", "publicUse"],
           "properties": {
-            "participation": { "type": "boolean" },
-            "llmUse": { "type": "boolean" },
-            "articleUse": { "type": "boolean" },
-            "quotationUse": { "type": "boolean" },
-            "publicUse": { "type": "boolean" }
+            "participation": { "$ref": "#/$defs/consentDecision" },
+            "llmUse": { "$ref": "#/$defs/consentDecision" },
+            "articleUse": { "$ref": "#/$defs/consentDecision" },
+            "quotationUse": { "$ref": "#/$defs/consentDecision" },
+            "publicUse": { "$ref": "#/$defs/consentDecision" }
           }
-        },
-        "consentMethod": { "enum": ["verbal", "written", "recorded_form"] },
-        "consentRecordedAt": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
         },
         "validUntil": {
           "type": "string",
@@ -573,6 +566,64 @@
           "items": { "type": "string", "format": "uuid" },
           "uniqueItems": true
         }
+      },
+      "$defs": {
+        "consentDecision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision", "method", "recordedAt"],
+          "properties": {
+            "decision": { "enum": ["granted", "denied", "withdrawn"] },
+            "method": { "enum": ["verbal", "written", "recorded_form"] },
+            "recordedAt": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+            }
+          }
+        }
+      }
+    },
+    "statementTranslation": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://asksiargao.com/schemas/statement-translation.v1.json",
+      "title": "StatementTranslation",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "protocolPackageId",
+        "protocolPackageVersion",
+        "sourceStatementId",
+        "originalLanguage",
+        "targetLanguage",
+        "translatedText",
+        "translator",
+        "recordedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "statement-translation.v1" },
+        "id": { "type": "string", "format": "uuid" },
+        "protocolPackageId": { "type": "string", "pattern": "^field-protocol-[a-z0-9-]+$" },
+        "protocolPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "sourceStatementId": { "type": "string", "format": "uuid" },
+        "originalLanguage": { "type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$" },
+        "targetLanguage": { "type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$" },
+        "translatedText": { "type": "string", "minLength": 1 },
+        "translator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "identityOrMethod"],
+          "properties": {
+            "kind": { "enum": ["human", "machine"] },
+            "identityOrMethod": { "type": "string", "minLength": 1 }
+          }
+        },
+        "recordedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "supersedesId": { "type": "string", "format": "uuid" }
       }
     },
     "evidenceAsset": {
@@ -883,8 +934,10 @@
         "batchId",
         "protocolPackages",
         "createdAt",
-        "recordIds",
-        "reviewIds",
+        "recordCounts",
+        "files",
+        "reviewerSummary",
+        "lineage",
         "assetReferences",
         "referentialClosureSha256",
         "payloadSha256",
@@ -902,10 +955,41 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["packageId", "version"],
+            "required": ["packageId", "version", "componentVersions"],
             "properties": {
               "packageId": { "type": "string", "pattern": "^field-protocol-[a-z0-9-]+$" },
-              "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+              "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+              "componentVersions": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "schemas",
+                  "distributionSchemas",
+                  "observationKinds",
+                  "methodProfiles",
+                  "subjects",
+                  "geography",
+                  "campaign",
+                  "help",
+                  "migration",
+                  "examples"
+                ],
+                "properties": {
+                  "schemas": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+                  "distributionSchemas": {
+                    "type": "string",
+                    "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+                  },
+                  "observationKinds": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+                  "methodProfiles": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+                  "subjects": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+                  "geography": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+                  "campaign": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+                  "help": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+                  "migration": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+                  "examples": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+                }
+              }
             }
           },
           "minItems": 1,
@@ -915,17 +999,124 @@
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
         },
-        "recordIds": {
+        "recordCounts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fieldVisit",
+            "fieldObservation",
+            "routeRun",
+            "sourceStatement",
+            "statementTranslation",
+            "evidenceAsset",
+            "fieldReview"
+          ],
+          "properties": {
+            "fieldVisit": { "type": "integer", "minimum": 0 },
+            "fieldObservation": { "type": "integer", "minimum": 0 },
+            "routeRun": { "type": "integer", "minimum": 0 },
+            "sourceStatement": { "type": "integer", "minimum": 0 },
+            "statementTranslation": { "type": "integer", "minimum": 0 },
+            "evidenceAsset": { "type": "integer", "minimum": 0 },
+            "fieldReview": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "files": {
           "type": "array",
-          "items": { "type": "string", "format": "uuid" },
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["recordType", "filename", "byteSize", "sha256", "recordCount"],
+            "properties": {
+              "recordType": {
+                "enum": [
+                  "fieldVisit",
+                  "fieldObservation",
+                  "routeRun",
+                  "sourceStatement",
+                  "statementTranslation",
+                  "evidenceAsset",
+                  "fieldReview"
+                ]
+              },
+              "filename": { "type": "string", "pattern": "^[a-z][a-z0-9-]*\\.jsonl$" },
+              "byteSize": { "type": "integer", "minimum": 1 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "recordCount": { "type": "integer", "minimum": 1 }
+            }
+          },
           "minItems": 1,
           "uniqueItems": true
         },
-        "reviewIds": {
-          "type": "array",
-          "items": { "type": "string", "format": "uuid" },
-          "minItems": 1,
-          "uniqueItems": true
+        "reviewerSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reviewerIds", "includesSelfReview", "independentReviewCount"],
+          "properties": {
+            "reviewerIds": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "includesSelfReview": { "type": "boolean" },
+            "independentReviewCount": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "lineage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "campaignIds",
+            "assignmentIds",
+            "visitIds",
+            "researcherIds",
+            "supersessionRecordIds",
+            "conflictRecordIds",
+            "reviewIds"
+          ],
+          "properties": {
+            "campaignIds": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "assignmentIds": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "visitIds": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "researcherIds": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "supersessionRecordIds": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "uniqueItems": true
+            },
+            "conflictRecordIds": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "uniqueItems": true
+            },
+            "reviewIds": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          }
         },
         "assetReferences": {
           "type": "array",

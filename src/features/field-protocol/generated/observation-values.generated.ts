@@ -58,7 +58,10 @@ export interface FacilityObservationValue {
     | "cash_machine"
     | "clinic"
     | "pharmacy"
-    | "fuel";
+    | "fuel"
+    | "drinking_water"
+    | "waste_disposal"
+    | "food";
   state: "present" | "absent" | "available" | "unavailable" | "inaccessible" | "unknown";
   accessConditions: string;
 }

@@ -4,6 +4,9 @@
   "migrationId": "migration_legacy_0_9_0_to_baseline_1_0_0",
   "fromPackageVersion": "0.9.0",
   "toPackageVersion": "1.0.0",
+  "sourceSchemaVersions": ["field-record.v1"],
+  "targetProtocolPackageId": "field-protocol-siargao-baseline",
+  "targetCampaignId": "campaign_island_baseline",
   "kindMappings": [
     { "from": "opening_hours", "to": "opening_signal" },
     { "from": "internet_speed", "to": "connectivity" }
@@ -11,6 +14,13 @@
   "subjectMappings": [
     { "from": "legacy_del_carmen", "to": "subject_area_del_carmen" },
     { "from": "legacy_general_luna", "to": "subject_area_general_luna" }
+  ],
+  "methodMappings": [
+    {
+      "from": "structured_visual_check",
+      "to": "method_structured_visual_check@1.0.0"
+    },
+    { "from": "network_test", "to": "method_connectivity_test@1.0.0" }
   ],
   "ambiguousKinds": [
     {

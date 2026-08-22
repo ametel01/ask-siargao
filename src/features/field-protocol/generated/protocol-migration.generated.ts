@@ -6,11 +6,21 @@ export interface ProtocolMigration {
   migrationId: string;
   fromPackageVersion: string;
   toPackageVersion: string;
+  /**
+   * @minItems 1
+   */
+  sourceSchemaVersions: [string, ...string[]];
+  targetProtocolPackageId: string;
+  targetCampaignId: string;
   kindMappings: {
     from: string;
     to: string;
   }[];
   subjectMappings: {
+    from: string;
+    to: string;
+  }[];
+  methodMappings: {
     from: string;
     to: string;
   }[];

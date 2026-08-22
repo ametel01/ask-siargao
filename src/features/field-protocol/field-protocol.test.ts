@@ -27,6 +27,7 @@ describe("canonical field protocol records", () => {
       "routeRun",
       "schemaGap",
       "sourceStatement",
+      "statementTranslation",
     ]);
 
     for (const [kind, example] of examples) {
@@ -100,7 +101,7 @@ describe("canonical field protocol records", () => {
       },
       normalizedMeasurement: {
         value: 2700,
-        unit: "s",
+        unit: "minutes",
         sourceRawMeasurementId: "0192f060-4f41-7aa1-b322-4aa9fc9f1593",
         conversionVersion: "1.0.0",
       },
@@ -109,6 +110,7 @@ describe("canonical field protocol records", () => {
     expect(validation.success).toBe(false);
     if (!validation.success) {
       expect(validation.issues.map((issue) => issue.code)).toContain("conversion_lineage_mismatch");
+      expect(validation.issues.map((issue) => issue.code)).toContain("unit_not_allowed");
     }
   });
 
@@ -125,9 +127,25 @@ describe("canonical field protocol records", () => {
 
     const independentConsent = {
       ...example,
-      consents: { ...example.consents, participation: true, quotationUse: false, publicUse: true },
+      consents: {
+        ...example.consents,
+        publicUse: {
+          decision: "granted",
+          method: "written",
+          recordedAt: "2026-08-22T09:15:00+08:00",
+        },
+      },
     };
     expect(validateFieldProtocolRecord("sourceStatement", independentConsent).success).toBe(true);
+
+    const translation = baselineFieldProtocolPackage.examples.examples.statementTranslation;
+    expect(validateFieldProtocolRecord("statementTranslation", translation).success).toBe(true);
+    expect(
+      validateFieldProtocolRecord("statementTranslation", {
+        ...translation,
+        sourceStatementId: undefined,
+      }).success,
+    ).toBe(false);
   });
 
   test("cannot confuse a Field Recovery Export with a Field Batch", () => {
@@ -140,6 +158,18 @@ describe("canonical field protocol records", () => {
       validateFieldProtocolRecord("fieldRecoveryExport", {
         ...recovery,
         filename: batch.filename,
+      }).success,
+    ).toBe(false);
+    expect(
+      validateFieldProtocolRecord("fieldBatch", {
+        ...batch,
+        files: batch.files.map(({ sha256: _sha256, ...file }) => file),
+      }).success,
+    ).toBe(false);
+    expect(
+      validateFieldProtocolRecord("fieldBatch", {
+        ...batch,
+        recordCounts: { ...batch.recordCounts, fieldObservation: 2 },
       }).success,
     ).toBe(false);
   });
@@ -180,6 +210,27 @@ describe("baseline Field Protocol Package", () => {
         ),
       ].sort(),
     ).toEqual(["ask", "attempt", "document", "measure", "observe", "repeat", "traverse"]);
+
+    const home = baselineFieldProtocolPackage.campaign.assignments.find(
+      (assignment) => assignment.id === "assignment_home_base_readiness",
+    );
+    expect(JSON.stringify(home)).toContain("offline_field_readiness");
+    expect(JSON.stringify(home)).toContain("drinking_water");
+    expect(JSON.stringify(home)).toContain("waste_disposal");
+    expect(JSON.stringify(home)).toContain("food");
+
+    const airport = baselineFieldProtocolPackage.campaign.assignments.find(
+      (assignment) => assignment.id === "assignment_airport_arrival",
+    );
+    for (const requiredKind of [
+      "route_wait",
+      "price",
+      "accessibility",
+      "connectivity",
+      "payment_method",
+    ]) {
+      expect(JSON.stringify(airport)).toContain(requiredKind);
+    }
   });
 
   test("verifies signature, integrity, compatibility, and migration declaration before activation", async () => {
@@ -205,6 +256,16 @@ describe("baseline Field Protocol Package", () => {
       trustedSigners: { signers: [] },
     });
     expect(unknownSigner).toMatchObject({ success: false, code: "unknown_signer" });
+
+    const incomplete = structuredClone(baselineFieldProtocolPackage) as unknown as {
+      manifest: { files: Array<{ path: string; sha256: string }> };
+    };
+    incomplete.manifest.files.pop();
+    const incompleteIntegrity = await verifyFieldProtocolPackage({
+      applicationVersion: "0.1.0",
+      bundle: incomplete,
+    });
+    expect(incompleteIntegrity).toMatchObject({ success: false, code: "integrity_mismatch" });
 
     const incompatible = await verifyFieldProtocolPackage({ applicationVersion: "1.0.0" });
     expect(incompatible).toMatchObject({ success: false, code: "incompatible_application" });
@@ -276,15 +337,30 @@ describe("baseline Field Protocol Package", () => {
 });
 
 describe("Protocol Migration preview", () => {
-  test("preserves originals and distinguishes success, ambiguity, and failure", () => {
-    const example = baselineFieldProtocolPackage.examples.examples.fieldObservation;
+  test("migrates actual Legacy Capture shape and distinguishes ambiguity and failure", () => {
     const source = {
-      ...example,
-      protocolPackageVersion: "0.9.0",
+      schemaVersion: "field-record.v1",
+      recordType: "observation",
+      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1520",
+      clientBatchId: "0192f060-4f41-7aa1-b322-4aa9fc9f1521",
+      campaignSlug: "island-baseline-2026",
+      capturedAt: "2026-08-22T09:32:00+08:00",
+      localTimezone: "Asia/Manila",
+      visitId: "0192f060-4f41-7aa1-b322-4aa9fc9f1522",
+      observerKey: "legacy-researcher",
+      entityId: "legacy_del_carmen",
       observationKind: "opening_hours",
-      subject: { kind: "governed", subjectId: "legacy_del_carmen" },
+      directness: "direct_observation",
+      observedAt: "2026-08-22T09:32:00+08:00",
       value: { state: "open", basis: "observed", postedHoursSeparatelyEvidenced: false },
-      methodProfileId: "method_structured_visual_check@1.0.0",
+      method: "structured_visual_check",
+      conditionTags: ["weather_cloudy", "road_dry"],
+      fieldConfidence: "high",
+      reviewDueAt: "2026-08-29T09:32:00+08:00",
+      status: "captured",
+      llmUseAllowed: false,
+      articleUseAllowed: false,
+      publicRepublishAllowed: false,
     };
     const ambiguous = { ...source, observationKind: "free_text_observation" };
     const unsupported = { ...source, observationKind: "legacy_arbitrary_json" };
@@ -300,8 +376,9 @@ describe("Protocol Migration preview", () => {
       protocolPackageVersion: "1.0.0",
       observationKind: "opening_signal",
       subject: { kind: "governed", subjectId: "subject_area_del_carmen" },
+      methodProfileId: "method_structured_visual_check@1.0.0",
     });
-    expect(source.protocolPackageVersion).toBe("0.9.0");
+    expect(source.schemaVersion).toBe("field-record.v1");
     expect(source.observationKind).toBe("opening_hours");
   });
 });

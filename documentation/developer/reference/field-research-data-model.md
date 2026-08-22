@@ -195,7 +195,8 @@ was not tested. Duration is derived from timestamps.
 
 A Source Statement requires Source role and basis of knowledge, the question asked, original language,
 exact quotation or labelled paraphrase, attribution choice, capture context, each consent scope,
-consent method/time, validity or recontact window, withdrawal route, and linked assets.
+its independently recorded decision/method/time, validity or recontact window, withdrawal route, and
+linked assets.
 
 A Statement Translation is a separate derivative with translator identity or method. Participation,
 public location, or one permission never implies another permission.
@@ -409,8 +410,9 @@ Implemented by issue #238:
 
 - signed `field-protocol-siargao-baseline@1.0.0` manifest with component hashes, application
   compatibility, and explicit migration declaration;
-- canonical schemas for Field Visit, Field Observation, Route Run, Source Statement, Evidence Asset,
-  Capture Exception, Schema Gap, Field Review, Field Recovery Export, and Field Batch;
+- canonical schemas for Field Visit, Field Observation, Route Run, Source Statement, Statement
+  Translation, Evidence Asset, Capture Exception, Schema Gap, Field Review, Field Recovery Export,
+  and Field Batch;
 - all 19 controlled Observation Kinds with typed value schemas, units, required context, Method
   Profiles, and freshness defaults;
 - the former itinerary as 13 unscheduled baseline Assignments with Research Objectives, Coverage

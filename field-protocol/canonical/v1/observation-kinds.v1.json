@@ -168,7 +168,10 @@
               "cash_machine",
               "clinic",
               "pharmacy",
-              "fuel"
+              "fuel",
+              "drinking_water",
+              "waste_disposal",
+              "food"
             ]
           },
           "state": {
