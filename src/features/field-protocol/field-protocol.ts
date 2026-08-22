@@ -349,11 +349,27 @@ export async function resolveProtocolForWork(
   );
 }
 
-export function previewProtocolMigration(input: {
-  migration?: unknown;
+export async function previewProtocolMigration(input: {
+  applicationVersion?: string;
+  bundle?: unknown;
   records: readonly unknown[];
-}): { migrationId: string; results: MigrationPreviewResult[] } {
-  const migrationValue = input.migration ?? baselineFieldProtocolPackageData.migration;
+  trustedSigners?: unknown;
+}): Promise<{ migrationId: string; results: MigrationPreviewResult[] }> {
+  if (Object.hasOwn(input, "migration")) {
+    throw new Error(
+      "Raw Protocol Migration artifacts cannot be previewed; provide a signed Field Protocol Package.",
+    );
+  }
+  const bundleValue = input.bundle ?? baselineFieldProtocolPackageData;
+  const verification = await verifyFieldProtocolPackage({
+    applicationVersion: input.applicationVersion ?? "0.1.0",
+    bundle: bundleValue,
+    trustedSigners: input.trustedSigners,
+  });
+  if (!verification.success) {
+    throw new Error(`Field Protocol Package is not verified: ${verification.message}`);
+  }
+  const migrationValue = asObject(bundleValue)?.migration;
   const parsed = schemaFromArtifact(distributionSchemas.protocolMigration).safeParse(
     migrationValue,
   );
@@ -1002,21 +1018,37 @@ function verifyMigrationDeclaration(
       "The pinned migration target campaign does not match the package campaign.",
     );
   }
-  const routeFailure = verifyLegacyObservationRoutes(migration, components.campaign);
+  const routeFailure = verifyLegacyObservationRoutes(
+    migration,
+    components.campaign,
+    components.subjects,
+  );
   if (routeFailure) return invalidPackage(routeFailure);
 }
 
 function verifyLegacyObservationRoutes(
   migration: ProtocolMigration,
   campaign: Record<string, unknown> | undefined,
+  subjects: Record<string, unknown> | undefined,
 ): string | undefined {
   const assignments = Array.isArray(campaign?.assignments) ? campaign.assignments : [];
+  const governedSubjectsById = new Map(
+    (Array.isArray(subjects?.subjects) ? subjects.subjects : [])
+      .map((candidate) => asObject(candidate))
+      .filter((candidate): candidate is Record<string, unknown> => Boolean(candidate))
+      .filter((candidate) => typeof candidate.id === "string")
+      .map((candidate) => [candidate.id as string, candidate] as const),
+  );
   const subjectTargets = new Set(migration.subjectMappings.map((mapping) => mapping.to));
   const kindTargets = new Set(migration.kindMappings.map((mapping) => mapping.to));
   const routeKeys = new Set<string>();
 
   for (const route of migration.legacyObservationRoutes) {
-    if (!subjectTargets.has(route.subjectId) || !kindTargets.has(route.observationKind)) {
+    if (
+      !subjectTargets.has(route.subjectId) ||
+      !governedSubjectsById.has(route.subjectId) ||
+      !kindTargets.has(route.observationKind)
+    ) {
       return "A legacy observation route does not match the migration's governed mapping targets.";
     }
     const routeKey = `${route.subjectId}\u0000${route.observationKind}`;
@@ -1028,10 +1060,19 @@ function verifyLegacyObservationRoutes(
     const assignment = assignments
       .map((candidate) => asObject(candidate))
       .find((candidate) => candidate?.id === route.assignmentId);
+    const subject = governedSubjectsById.get(route.subjectId);
+    const assignmentGeography = asObject(assignment?.geography);
+    const geographyIsCompatible =
+      assignmentGeography?.form === "governed_area" &&
+      typeof subject?.governedAreaId === "string" &&
+      assignmentGeography.areaId === subject.governedAreaId;
     const objectives = Array.isArray(assignment?.objectives) ? assignment.objectives : [];
     const objective = objectives
       .map((candidate) => asObject(candidate))
       .find((candidate) => candidate?.id === route.objectiveId);
+    const objectiveObservationKinds = Array.isArray(objective?.observationKinds)
+      ? objective.observationKinds
+      : [];
     const coverageRequirements = Array.isArray(assignment?.coverageRequirements)
       ? assignment.coverageRequirements
       : [];
@@ -1048,7 +1089,9 @@ function verifyLegacyObservationRoutes(
       : [];
     if (
       !assignment ||
+      !geographyIsCompatible ||
       !objective ||
+      !objectiveObservationKinds.includes(route.observationKind) ||
       !coverageRequirement ||
       coverageRequirement.objectiveId !== route.objectiveId ||
       !admissibleRecordKinds.includes("field-observation.v1") ||

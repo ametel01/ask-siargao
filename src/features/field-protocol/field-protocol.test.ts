@@ -17,9 +17,16 @@ import type {
 } from "@/features/field-protocol/generated";
 
 type TestFieldProtocolBundle = {
-  campaign: { campaignId: string };
+  campaign: {
+    campaignId: string;
+    assignments: Array<{
+      id: string;
+      objectives: Array<{ id: string; observationKinds?: string[] }>;
+    }>;
+  };
   manifest: FieldProtocolPackageManifest;
   migration: ProtocolMigration;
+  subjects: { subjects: Array<{ id: string }> };
 };
 
 const testSignerPrivateKey = createPrivateKey({
@@ -36,13 +43,14 @@ const testSignerPublicKey = createPublicKey(testSignerPrivateKey)
   .toString("base64");
 
 function authenticateTestBundle(bundle: TestFieldProtocolBundle) {
-  const migrationFile = bundle.manifest.files.find((file) =>
-    file.path.endsWith("migration-legacy-0.9.0.v1.json"),
-  );
-  if (!migrationFile) throw new Error("Test bundle is missing its migration artifact entry.");
-  migrationFile.sha256 = createHash("sha256")
-    .update(canonicalStringify(bundle.migration))
-    .digest("hex");
+  const rehash = (filename: string, component: unknown) => {
+    const file = bundle.manifest.files.find((entry) => entry.path.endsWith(filename));
+    if (!file) throw new Error(`Test bundle is missing its ${filename} artifact entry.`);
+    file.sha256 = createHash("sha256").update(canonicalStringify(component)).digest("hex");
+  };
+  rehash("migration-legacy-0.9.0.v1.json", bundle.migration);
+  rehash("campaign-island-baseline.v1.json", bundle.campaign);
+  rehash("subjects.v1.json", bundle.subjects);
   bundle.manifest.signerKeyId = testSignerKeyId;
   const unsignedManifest: Record<string, unknown> = { ...bundle.manifest };
   delete unsignedManifest.signature;
@@ -734,6 +742,40 @@ describe("baseline Field Protocol Package", () => {
           bundle.migration.legacyObservationRoutes[0].assignmentId = "assignment_missing";
         },
       },
+      {
+        name: "route objective observation kind",
+        mutate: (bundle) => {
+          const assignment = bundle.campaign.assignments.find(
+            (candidate) => candidate.id === "assignment_del_carmen_essentials",
+          );
+          const objective = assignment?.objectives.find(
+            (candidate) => candidate.id === "objective_del_carmen_observe_services",
+          );
+          if (!objective?.observationKinds) throw new Error("Test objective is missing.");
+          objective.observationKinds = objective.observationKinds.filter(
+            (kind) => kind !== "opening_signal",
+          );
+        },
+      },
+      {
+        name: "route governed subject",
+        mutate: (bundle) => {
+          bundle.migration.subjectMappings[0].to = "subject_missing";
+          bundle.migration.legacyObservationRoutes[0].subjectId = "subject_missing";
+        },
+      },
+      {
+        name: "route assignment geography",
+        mutate: (bundle) => {
+          bundle.migration.legacyObservationRoutes[1] = {
+            subjectId: "subject_area_del_carmen",
+            observationKind: "connectivity",
+            assignmentId: "assignment_general_luna_journey",
+            objectiveId: "objective_general_luna_repeat_crowd",
+            coverageRequirementId: "coverage_connectivity",
+          };
+        },
+      },
     ];
 
     for (const mismatch of mismatches) {
@@ -758,7 +800,7 @@ describe("baseline Field Protocol Package", () => {
 });
 
 describe("Protocol Migration preview", () => {
-  test("migrates actual Legacy Capture shape and distinguishes ambiguity and failure", () => {
+  test("migrates actual Legacy Capture shape and distinguishes ambiguity and failure", async () => {
     const visit = {
       schemaVersion: "field-record.v1",
       recordType: "visit",
@@ -812,7 +854,7 @@ describe("Protocol Migration preview", () => {
         ],
       },
     };
-    const preview = previewProtocolMigration({
+    const preview = await previewProtocolMigration({
       records: [visit, source, connectivity, ambiguous, unsupported],
     });
 
@@ -841,7 +883,7 @@ describe("Protocol Migration preview", () => {
     expect(source.observationKind).toBe("opening_hours");
   });
 
-  test("takes legacy assignment, objective, and coverage routing from the migration artifact", () => {
+  test("refuses to execute a raw unsigned migration artifact", async () => {
     const migration = structuredClone(
       baselineFieldProtocolPackage.migration,
     ) as unknown as ProtocolMigration;
@@ -854,44 +896,12 @@ describe("Protocol Migration preview", () => {
         coverageRequirementId: "coverage_connectivity",
       },
     ];
-    const visit = {
-      schemaVersion: "field-record.v1",
-      recordType: "visit",
-      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1522",
-      clientBatchId: "0192f060-4f41-7aa1-b322-4aa9fc9f1521",
-      campaignSlug: "island-baseline-2026",
-      capturedAt: "2026-08-22T09:30:00+08:00",
-      localTimezone: "Asia/Manila",
-      observerKey: "legacy-researcher",
-      entityId: "legacy_del_carmen",
-      purposeCodes: ["guide_fact_check"],
-      startedAt: "2026-08-22T09:30:00+08:00",
-    };
-    const source = {
-      schemaVersion: "field-record.v1",
-      recordType: "observation",
-      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1520",
-      clientBatchId: "0192f060-4f41-7aa1-b322-4aa9fc9f1521",
-      campaignSlug: "island-baseline-2026",
-      capturedAt: "2026-08-22T09:32:00+08:00",
-      localTimezone: "Asia/Manila",
-      visitId: visit.id,
-      observationKind: "opening_hours",
-      directness: "direct_observation",
-      observedAt: "2026-08-22T09:32:00+08:00",
-      value: { state: "open", basis: "observed", postedHoursSeparatelyEvidenced: false },
-      method: "structured_visual_check",
-      conditionTags: ["weather_cloudy", "road_dry"],
-      fieldConfidence: "high",
-      reviewDueAt: "2026-08-29T09:32:00+08:00",
-      status: "captured",
-      llmUseAllowed: false,
-      articleUseAllowed: false,
-      publicRepublishAllowed: false,
-    };
+    const input = { migration, records: [] } as unknown as Parameters<
+      typeof previewProtocolMigration
+    >[0];
 
-    const preview = previewProtocolMigration({ migration, records: [visit, source] });
-
-    expect(preview.results[1]).toMatchObject({ status: "failed" });
+    await expect(previewProtocolMigration(input)).rejects.toThrow(
+      "Raw Protocol Migration artifacts cannot be previewed",
+    );
   });
 });
