@@ -480,17 +480,12 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
       destinationSubjectId: string;
     };
     issues.push(
-      ...validateAssignmentSubjectReference(
+      ...validateAssignmentEndpointReferences(
         observation.assignmentId,
         routeDuration.originSubjectId,
-        "value.originSubjectId",
-        "origin",
-      ),
-      ...validateAssignmentSubjectReference(
-        observation.assignmentId,
         routeDuration.destinationSubjectId,
+        "value.originSubjectId",
         "value.destinationSubjectId",
-        "destination",
       ),
     );
   }
@@ -631,17 +626,12 @@ function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue
 
 function validateRouteRunSemantics(routeRun: RouteRun): ProtocolValidationIssue[] {
   const issues = [
-    ...validateAssignmentSubjectReference(
+    ...validateAssignmentEndpointReferences(
       routeRun.assignmentId,
       routeRun.originSubjectId,
-      "originSubjectId",
-      "origin",
-    ),
-    ...validateAssignmentSubjectReference(
-      routeRun.assignmentId,
       routeRun.destinationSubjectId,
+      "originSubjectId",
       "destinationSubjectId",
-      "destination",
     ),
   ];
   const method = methodProfileRegistry.get(routeRun.methodProfileId);
@@ -713,7 +703,7 @@ function validateAssignmentSubjectReference(
     compatible =
       subjectId === geography.originSubjectId ||
       subjectId === geography.destinationSubjectId ||
-      Boolean(route?.areaIds.includes(subject.governedAreaId));
+      subjectId === route?.subjectId;
   } else if (geography.form === "access_point" && !endpoint) {
     compatible = subjectId === geography.subjectId;
   } else if (geography.form === "route_corridor") {
@@ -733,6 +723,41 @@ function validateAssignmentSubjectReference(
       ];
 }
 
+function validateAssignmentEndpointReferences(
+  assignmentId: string,
+  originSubjectId: string,
+  destinationSubjectId: string,
+  originPath: string,
+  destinationPath: string,
+): ProtocolValidationIssue[] {
+  const geography = assignmentGeographyById.get(assignmentId);
+  if (geography?.form === "access_point") {
+    const membershipIssues = [
+      ...validateGovernedSubjectReference(originSubjectId, originPath),
+      ...validateGovernedSubjectReference(destinationSubjectId, destinationPath),
+    ];
+    if (membershipIssues.length > 0) return membershipIssues;
+    return originSubjectId === geography.subjectId || destinationSubjectId === geography.subjectId
+      ? []
+      : [
+          issue(
+            "assignment_geography_mismatch",
+            `Route endpoints must include Assignment ${assignmentId}'s principal access-point Subject.`,
+            originPath,
+          ),
+        ];
+  }
+  return [
+    ...validateAssignmentSubjectReference(assignmentId, originSubjectId, originPath, "origin"),
+    ...validateAssignmentSubjectReference(
+      assignmentId,
+      destinationSubjectId,
+      destinationPath,
+      "destination",
+    ),
+  ];
+}
+
 function validateAssignmentAreaReference(
   assignmentId: string,
   areaId: string,
@@ -750,6 +775,8 @@ function validateAssignmentAreaReference(
     compatible = Boolean(governedRoutesById.get(geography.routeId)?.areaIds.includes(areaId));
   } else if (geography.form === "route_corridor") {
     compatible = geography.areaIds.includes(areaId);
+  } else if (geography.form === "access_point") {
+    compatible = false;
   } else {
     compatible = geography.areaId === areaId;
   }
@@ -780,6 +807,8 @@ function validateAssignmentRouteReference(
     compatible = geography.routeId === routeId;
   } else if (geography.form === "route_corridor") {
     compatible = route.areaIds.every((areaId) => geography.areaIds.includes(areaId));
+  } else if (geography.form === "access_point") {
+    compatible = false;
   } else {
     compatible = route.areaIds.every((areaId) => areaId === geography.areaId);
   }
@@ -1576,6 +1605,7 @@ type GovernedSubjectConstraint = {
 };
 
 type GovernedRouteConstraint = {
+  subjectId: string;
   areaIds: readonly string[];
 };
 

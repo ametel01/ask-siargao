@@ -3076,12 +3076,14 @@ export const baselineFieldProtocolPackageData = {
     routes: [
       {
         id: "route_airport_del_carmen",
+        subjectId: "subject_route_airport_del_carmen",
         originSubjectId: "subject_sayak_airport",
         destinationSubjectId: "subject_area_del_carmen",
         areaIds: ["area_del_carmen"],
       },
       {
         id: "route_santa_monica_alegria",
+        subjectId: "subject_route_santa_monica_alegria",
         originSubjectId: "subject_route_northbound",
         destinationSubjectId: "subject_route_santa_monica_alegria",
         areaIds: ["area_north"],
@@ -6043,7 +6045,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/geography.v1.json",
-        sha256: "8dac76ca1cfb9963d8e4df6f1463e3555b6e24b98aa95e97a4c8f48bc4d8c0c1",
+        sha256: "14581ee2cea2bbec9a7c2b921243c0db8f639d7f8e4df3a9852ee45d434b31fc",
       },
       {
         path: "canonical/v1/help.v1.json",
@@ -6073,7 +6075,7 @@ export const baselineFieldProtocolPackageData = {
     signature: {
       algorithm: "Ed25519",
       value:
-        "5Tg6BOS9yAA5PHmzgTzKw2eL2dwMe76WpdVuLjW3GNab1Un2cJQsmDvQvVGUV2pzHZEzf+nejZZvkXAd0pkpAQ==",
+        "aOwWPuNBMsvonTuWOOgONcxvYFmMls/zpDsBDAk/Vd5+Xi1f68hFkk/x/TxvFTje7r+DfiEde6iltT9J1Lq4BA==",
     },
   },
 } as const;
@@ -6083,7 +6085,7 @@ export const trustedFieldProtocolSignersData = {
     {
       keyId: "ask-siargao-field-protocol-2026-01",
       algorithm: "Ed25519",
-      publicKeySpkiBase64: "MCowBQYDK2VwAyEAZtuh4WfOr/LMcWecD0c8hzHKadAqfIbyzK8o2xUAgp4=",
+      publicKeySpkiBase64: "MCowBQYDK2VwAyEAHz50PLHM25xqjJvMus5IfgdveJKGCsQbRCQp7s5d1IA=",
       status: "trusted",
     },
   ],

@@ -40,7 +40,7 @@
     },
     {
       "path": "canonical/v1/geography.v1.json",
-      "sha256": "8dac76ca1cfb9963d8e4df6f1463e3555b6e24b98aa95e97a4c8f48bc4d8c0c1"
+      "sha256": "14581ee2cea2bbec9a7c2b921243c0db8f639d7f8e4df3a9852ee45d434b31fc"
     },
     {
       "path": "canonical/v1/help.v1.json",
@@ -69,6 +69,6 @@
   ],
   "signature": {
     "algorithm": "Ed25519",
-    "value": "5Tg6BOS9yAA5PHmzgTzKw2eL2dwMe76WpdVuLjW3GNab1Un2cJQsmDvQvVGUV2pzHZEzf+nejZZvkXAd0pkpAQ=="
+    "value": "aOwWPuNBMsvonTuWOOgONcxvYFmMls/zpDsBDAk/Vd5+Xi1f68hFkk/x/TxvFTje7r+DfiEde6iltT9J1Lq4BA=="
   }
 }

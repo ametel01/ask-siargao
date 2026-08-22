@@ -244,6 +244,58 @@ describe("canonical field protocol records", () => {
         kind: "fieldVisit",
         candidate: {
           ...examples.fieldVisit,
+          assignmentId: "assignment_airport_arrival",
+          objectiveIds: ["objective_airport_traverse_arrival"],
+          target: {
+            kind: "governed_subject",
+            subjectId: "subject_del_carmen_departure_points",
+          },
+        },
+        path: "target.subjectId",
+      },
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
+          assignmentId: "assignment_del_carmen_boat",
+          objectiveIds: ["objective_boat_attempt_booking"],
+          target: { kind: "governed_area", areaId: "area_del_carmen" },
+        },
+        path: "target.areaId",
+      },
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
+          assignmentId: "assignment_del_carmen_boat",
+          objectiveIds: ["objective_boat_attempt_booking"],
+          target: { kind: "governed_route", routeId: "route_airport_del_carmen" },
+        },
+        path: "target.routeId",
+      },
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
+          assignmentId: "assignment_del_carmen_boat",
+          objectiveIds: ["objective_boat_attempt_booking"],
+          target: {
+            kind: "provisional_subject",
+            provisionalSubject: {
+              id: "0192f060-4f41-7aa1-b322-4aa9fc9f1597",
+              displayedName: "Unresolved departure point",
+              category: "place",
+              governedAreaId: "area_del_carmen",
+              distinguishingDetails: "A same-area place that omits the principal access point.",
+            },
+          },
+        },
+        path: "target.provisionalSubject.governedAreaId",
+      },
+      {
+        kind: "fieldVisit",
+        candidate: {
+          ...examples.fieldVisit,
           target: { kind: "governed_area", areaId: "area_general_luna" },
         },
         path: "target.areaId",
@@ -282,8 +334,33 @@ describe("canonical field protocol records", () => {
         path: "subject.subjectId",
       },
       {
+        kind: "fieldObservation",
+        candidate: {
+          ...examples.fieldObservation,
+          assignmentId: "assignment_airport_arrival",
+          objectiveId: "objective_airport_observe_arrival_conditions",
+          coverageRequirementId: "coverage_fare_basis",
+          subject: {
+            kind: "governed",
+            subjectId: "subject_del_carmen_departure_points",
+          },
+        },
+        path: "subject.subjectId",
+      },
+      {
         kind: "sourceStatement",
         candidate: { ...examples.sourceStatement, subjectId: "subject_area_general_luna" },
+        path: "subjectId",
+      },
+      {
+        kind: "sourceStatement",
+        candidate: {
+          ...examples.sourceStatement,
+          assignmentId: "assignment_del_carmen_boat",
+          objectiveId: "objective_boat_ask_policy",
+          coverageRequirementId: "coverage_operating_policy_statement",
+          subjectId: "subject_area_del_carmen",
+        },
         path: "subjectId",
       },
       {
@@ -291,6 +368,20 @@ describe("canonical field protocol records", () => {
         candidate: {
           ...examples.schemaGap,
           subject: { kind: "governed", subjectId: "subject_area_general_luna" },
+        },
+        path: "subject.subjectId",
+      },
+      {
+        kind: "schemaGap",
+        candidate: {
+          ...examples.schemaGap,
+          assignmentId: "assignment_airport_arrival",
+          objectiveId: "objective_airport_observe_arrival_conditions",
+          coverageRequirementId: "coverage_access",
+          subject: {
+            kind: "governed",
+            subjectId: "subject_del_carmen_departure_points",
+          },
         },
         path: "subject.subjectId",
       },
@@ -303,6 +394,18 @@ describe("canonical field protocol records", () => {
         kind: "routeRun",
         candidate: { ...examples.routeRun, destinationSubjectId: "subject_area_pilar" },
         path: "destinationSubjectId",
+      },
+      {
+        kind: "routeRun",
+        candidate: {
+          ...examples.routeRun,
+          assignmentId: "assignment_del_carmen_boat",
+          objectiveId: "objective_boat_traverse_journey",
+          coverageRequirementId: "coverage_boarding",
+          originSubjectId: "subject_sayak_airport",
+          destinationSubjectId: "subject_area_del_carmen",
+        },
+        path: "originSubjectId",
       },
     ];
 
@@ -356,6 +459,31 @@ describe("canonical field protocol records", () => {
       if (!validation.success) {
         expect(validation.issues).toContainEqual(expect.objectContaining({ code, path }));
       }
+    }
+
+    const missingAccessPoint = validateFieldProtocolRecord("fieldObservation", {
+      ...routeDurationObservation,
+      assignmentId: "assignment_del_carmen_boat",
+      objectiveId: "objective_boat_traverse_journey",
+      coverageRequirementId: "coverage_boarding",
+      subject: {
+        kind: "governed",
+        subjectId: "subject_del_carmen_departure_points",
+      },
+      value: {
+        ...routeDurationObservation.value,
+        originSubjectId: "subject_sayak_airport",
+        destinationSubjectId: "subject_area_del_carmen",
+      },
+    });
+    expect(missingAccessPoint.success).toBe(false);
+    if (!missingAccessPoint.success) {
+      expect(missingAccessPoint.issues).toContainEqual(
+        expect.objectContaining({
+          code: "assignment_geography_mismatch",
+          path: "value.originSubjectId",
+        }),
+      );
     }
   });
 
@@ -974,6 +1102,7 @@ describe("baseline Field Protocol Package", () => {
       }
     }
     for (const route of baselineFieldProtocolPackage.geography.routes) {
+      expect(subjectIds.has(route.subjectId)).toBe(true);
       expect(subjectIds.has(route.originSubjectId)).toBe(true);
       expect(subjectIds.has(route.destinationSubjectId)).toBe(true);
       expect(route.areaIds.every((areaId) => areaIds.has(areaId))).toBe(true);
