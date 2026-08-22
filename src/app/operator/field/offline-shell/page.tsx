@@ -1,10 +1,11 @@
 import { loadRecorderProtocol } from "@/features/field-recorder/load-recorder-protocol";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
+import { FieldMain } from "@/features/field-workspace/FieldMain";
 import { FieldOfflineAreas } from "@/features/field-workspace/FieldOfflineAreas";
 
 function FieldOfflineShell(props: { children?: React.ReactNode }) {
   return (
-    <main className="mx-auto min-h-screen max-w-3xl bg-stone-50 px-6 py-12 text-stone-950">
+    <FieldMain className="mx-auto min-h-screen max-w-3xl bg-stone-50 px-6 py-12 text-stone-950">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800">
         Field Workspace · Offline
       </p>
@@ -14,7 +15,7 @@ function FieldOfflineShell(props: { children?: React.ReactNode }) {
         requires an unexpired device-bound Offline Field Grant and local user verification.
       </p>
       <OfflineFieldUnlock>{props.children}</OfflineFieldUnlock>
-    </main>
+    </FieldMain>
   );
 }
 

@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { baselineFieldProtocolPackage } from "@/features/field-protocol/field-protocol";
+import { FieldSecuritySessionProvider } from "@/features/field-security/FieldSecuritySessionProvider";
 
 import { FieldRecorder } from "./FieldRecorder";
+import { FieldRecorderController } from "./FieldRecorderController";
 import { createHarnessWork, FieldRecorderShell } from "./FieldRecorderShell";
 import { ObservationForm, observationKinds } from "./forms/ObservationForm";
 
@@ -46,6 +48,28 @@ describe("FieldRecorder", () => {
     expect(html).toContain("Close Visit");
     expect(html).toContain("Outcome");
     expect(html).not.toContain("JSON");
+  });
+
+  test("keeps the locked Recorder branch reachable from the global skip link", () => {
+    const html = renderToStaticMarkup(
+      <FieldRecorderShell actions={actions} protocol={baselineFieldProtocolPackage} />,
+    );
+
+    expect(html).toContain('id="main-content"');
+    expect(html).toContain('tabindex="-1"');
+    expect(html).toContain("Recorder locked");
+  });
+
+  test("keeps the controller lock branch reachable from the global skip link", () => {
+    const html = renderToStaticMarkup(
+      <FieldSecuritySessionProvider>
+        <FieldRecorderController protocol={baselineFieldProtocolPackage} />
+      </FieldSecuritySessionProvider>,
+    );
+
+    expect(html).toContain('id="main-content"');
+    expect(html).toContain('tabindex="-1"');
+    expect(html).toContain("Offline shell loaded");
   });
 
   test("announces durable, offline, location, vault, grant, update, and storage state", () => {

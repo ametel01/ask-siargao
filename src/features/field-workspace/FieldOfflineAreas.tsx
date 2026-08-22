@@ -19,7 +19,7 @@ export function FieldOfflineAreas(props: { protocol: RecorderProtocol }) {
       <p className="sr-only">
         Prepared offline areas: Recorder, Review, Exports, and Diagnostics and Recovery.
       </p>
-      <FieldRecorderShell protocol={props.protocol} />
+      <FieldRecorderShell embedded protocol={props.protocol} />
       <section
         aria-labelledby="offline-legacy-import-heading"
         className="mt-8"

@@ -10,25 +10,28 @@ import type {
   RecorderWork,
 } from "@/features/field-recorder/field-recorder-types";
 import type { RecorderProtocol } from "@/features/field-recorder/load-recorder-protocol";
+import { FieldMain } from "@/features/field-workspace/FieldMain";
 
 import { FieldRecorder, type FieldRecorderActions } from "./FieldRecorder";
 import { FieldRecorderController } from "./FieldRecorderController";
 
 export function FieldRecorderShell(props: {
   actions?: FieldRecorderActions;
+  embedded?: boolean;
   harness?: boolean;
   initialWork?: RecorderWork;
   protocol: RecorderProtocol;
   runtime?: RecorderRuntimeStatus;
 }) {
   if (!props.harness && !props.initialWork && !props.actions) {
-    return <FieldRecorderController protocol={props.protocol} />;
+    return <FieldRecorderController landmark={!props.embedded} protocol={props.protocol} />;
   }
   return <ControlledFieldRecorderShell {...props} />;
 }
 
 function ControlledFieldRecorderShell(props: {
   actions?: FieldRecorderActions;
+  embedded?: boolean;
   harness?: boolean;
   initialWork?: RecorderWork;
   protocol: RecorderProtocol;
@@ -51,7 +54,10 @@ function ControlledFieldRecorderShell(props: {
 
   if (!localWork) {
     return (
-      <main className="min-h-dvh bg-[var(--surface-soft)] px-4 py-10 text-[var(--text-default)] sm:px-8">
+      <FieldMain
+        className="min-h-dvh bg-[var(--surface-soft)] px-4 py-10 text-[var(--text-default)] sm:px-8"
+        landmark={!props.embedded}
+      >
         <Card className="mx-auto max-w-2xl bg-[var(--surface-default)] shadow-[var(--shadow-panel)]">
           <CardHeader>
             <CardDescription>Island Field Desk · Protected local workspace</CardDescription>
@@ -81,7 +87,7 @@ function ControlledFieldRecorderShell(props: {
             </div>
           </CardContent>
         </Card>
-      </main>
+      </FieldMain>
     );
   }
 
@@ -97,6 +103,7 @@ function ControlledFieldRecorderShell(props: {
   return (
     <FieldRecorder
       actions={actions}
+      landmark={!props.embedded}
       protocol={displayProtocol}
       runtime={props.runtime ?? localRuntime}
       work={props.initialWork ?? localWork}

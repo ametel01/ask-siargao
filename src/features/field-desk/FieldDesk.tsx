@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { FieldMain } from "@/features/field-workspace/FieldMain";
+
 const decisions = [
   ["include", "Include", "Keep this immutable record in the reviewed selection."],
   ["exclude", "Exclude", "Keep it in custody, with a recorded reason for exclusion."],
@@ -31,7 +33,7 @@ export function FieldDesk(props: { harness?: boolean }) {
       : reason.trim().length > 0);
 
   return (
-    <main className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6" id="main-content">
+    <FieldMain className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6">
       <a
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:p-3"
         href="#review-record"
@@ -216,6 +218,6 @@ export function FieldDesk(props: { harness?: boolean }) {
           </div>
         )}
       </div>
-    </main>
+    </FieldMain>
   );
 }

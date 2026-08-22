@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { FieldMain } from "@/features/field-workspace/FieldMain";
+
 export function FieldExports(props: { harness?: boolean }) {
   const [recoveryState, setRecoveryState] = useState("Not created");
   const [batchState, setBatchState] = useState(
@@ -11,7 +13,7 @@ export function FieldExports(props: { harness?: boolean }) {
   );
   const unavailableClass = " disabled:cursor-not-allowed disabled:opacity-50";
   return (
-    <main className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6" id="main-content">
+    <FieldMain className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6">
       <a
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:p-3"
         href="#export-workflows"
@@ -121,6 +123,6 @@ export function FieldExports(props: { harness?: boolean }) {
           verification.
         </footer>
       </div>
-    </main>
+    </FieldMain>
   );
 }

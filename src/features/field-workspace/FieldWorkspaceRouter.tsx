@@ -6,6 +6,8 @@ import { useEffect } from "react";
 import { discoverPreparedFieldDevice } from "@/features/field-security/prepared-device";
 import { IndexedDbFieldVault } from "@/features/field-security/vault";
 
+import { FieldMain } from "./FieldMain";
+
 export type FieldWorkspaceDestination =
   | "/operator/field/capture"
   | "/operator/field/review"
@@ -48,7 +50,7 @@ export function FieldWorkspaceRouter() {
   }, [router]);
 
   return (
-    <main className="mx-auto min-h-screen max-w-3xl bg-stone-50 px-6 py-12 text-stone-950">
+    <FieldMain className="mx-auto min-h-screen max-w-3xl bg-stone-50 px-6 py-12 text-stone-950">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800">
         Field Workspace
       </p>
@@ -57,7 +59,7 @@ export function FieldWorkspaceRouter() {
         Checking this device for prepared offline state. No Field Researcher identity or protected
         field data is being displayed.
       </p>
-    </main>
+    </FieldMain>
   );
 }
 
