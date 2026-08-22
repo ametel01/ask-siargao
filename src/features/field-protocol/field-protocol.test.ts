@@ -5,7 +5,10 @@ import { canonicalStringify } from "@/features/field-protocol/canonical-json";
 import {
   activateFieldProtocolPackage,
   baselineFieldProtocolPackage,
+  captureWindowIdsForRecord,
+  coverageWindowIdentityForRequirement,
   type FieldProtocolRecordKind,
+  observationCoverageDisposition,
   previewProtocolMigration,
   resolveProtocolForWork,
   validateFieldProtocolRecord,
@@ -82,13 +85,17 @@ describe("canonical field protocol records", () => {
     >;
 
     expect(examples.map(([kind]) => kind).sort()).toEqual([
+      "assignmentOutcome",
       "captureException",
       "evidenceAsset",
       "fieldBatch",
+      "fieldDayClose",
       "fieldObservation",
       "fieldRecoveryExport",
       "fieldReview",
       "fieldVisit",
+      "followUpAssignment",
+      "objectiveCoverage",
       "routeRun",
       "schemaGap",
       "sourceStatement",
@@ -100,6 +107,145 @@ describe("canonical field protocol records", () => {
       expect(validation.success).toBe(true);
       if (validation.success) expect(validation.data).toEqual(example as typeof validation.data);
     }
+  });
+
+  test("governs local-hour windows and dispositions for all 19 Observation Kinds", () => {
+    const kinds = baselineFieldProtocolPackage.observationKinds.kinds;
+    expect(kinds).toHaveLength(19);
+    expect(baselineFieldProtocolPackage.observationKinds.coverageSemantics).toEqual({
+      windowIdentity: "local_hour",
+      negativeEvidenceCountsTowardMinimumRecords: true,
+    });
+
+    for (const entry of kinds) {
+      const rule = entry.coverageDisposition;
+      if (rule.strategy === "constant") {
+        expect(observationCoverageDisposition(entry.kind, {}), entry.kind).toBe(rule.value);
+        continue;
+      }
+      for (const value of rule.positiveValues) {
+        expect(
+          observationCoverageDisposition(entry.kind, { [rule.path]: value }),
+          `${entry.kind}:${value}`,
+        ).toBe("positive");
+      }
+      for (const value of rule.negativeValues) {
+        expect(
+          observationCoverageDisposition(entry.kind, { [rule.path]: value }),
+          `${entry.kind}:${value}`,
+        ).toBe("negative");
+      }
+      for (const value of rule.unknownValues) {
+        expect(
+          observationCoverageDisposition(entry.kind, { [rule.path]: value }),
+          `${entry.kind}:${value}`,
+        ).toBe("unknown");
+      }
+      expect(observationCoverageDisposition(entry.kind, { [rule.path]: "not_governed" })).toBe(
+        "unknown",
+      );
+      const dispositionProperty = (
+        entry.valueSchema as unknown as {
+          properties: Record<string, { enum?: readonly string[] }>;
+        }
+      ).properties[rule.path];
+      const governedValues: string[] = [
+        ...rule.positiveValues,
+        ...rule.negativeValues,
+        ...rule.unknownValues,
+      ];
+      expect(governedValues.sort(), `${entry.kind}:${rule.path}`).toEqual(
+        [...(dispositionProperty?.enum ?? [])].sort(),
+      );
+    }
+
+    for (const assignment of baselineFieldProtocolPackage.campaign.assignments) {
+      for (const requirement of assignment.coverageRequirements) {
+        expect(coverageWindowIdentityForRequirement(requirement)).toBe("local_hour");
+      }
+    }
+    const examples = baselineFieldProtocolPackage.examples.examples;
+    expect(examples.fieldVisit.captureWindows).toHaveLength(2);
+    for (const record of [
+      examples.fieldObservation,
+      examples.routeRun,
+      examples.sourceStatement,
+      examples.evidenceAsset,
+    ]) {
+      expect(captureWindowIdsForRecord(record).length).toBeGreaterThan(0);
+    }
+    expect(
+      validateFieldProtocolRecord("fieldObservation", {
+        ...examples.fieldObservation,
+        captureWindowIds: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      validateFieldProtocolRecord("fieldVisit", {
+        ...examples.fieldVisit,
+        captureWindows: [],
+      }).success,
+    ).toBe(false);
+  });
+
+  test("validates canonical Recorder lifecycle records and recovery handoff states", () => {
+    const examples = baselineFieldProtocolPackage.examples.examples;
+    for (const kind of [
+      "objectiveCoverage",
+      "assignmentOutcome",
+      "followUpAssignment",
+      "fieldDayClose",
+    ] as const) {
+      expect(validateFieldProtocolRecord(kind, examples[kind]).success, kind).toBe(true);
+    }
+    expect(
+      validateFieldProtocolRecord("fieldDayClose", {
+        ...examples.fieldDayClose,
+        recoveryStatus: "verified",
+      }).success,
+    ).toBe(true);
+    expect(
+      validateFieldProtocolRecord("fieldDayClose", {
+        ...examples.fieldDayClose,
+        recoveryStatus: "export_skipped",
+      }).success,
+    ).toBe(false);
+    for (const reasonCode of [
+      "invalid_capture_window_link",
+      "invalid_permission_link",
+      "invalid_asset_link",
+    ] as const) {
+      expect(
+        validateFieldProtocolRecord("objectiveCoverage", {
+          ...examples.objectiveCoverage,
+          status: "needs_resolution",
+          requirements: examples.objectiveCoverage.requirements.map((requirement) => ({
+            ...requirement,
+            status: "needs_resolution",
+            reasonCodes: [reasonCode],
+          })),
+        }).success,
+        reasonCode,
+      ).toBe(true);
+    }
+  });
+
+  test("validates active records against their exact pinned package instead of the baseline", () => {
+    const pinnedPackage = structuredClone(baselineFieldProtocolPackage) as unknown as {
+      manifest: { packageVersion: string };
+    };
+    pinnedPackage.manifest.packageVersion = "1.0.2";
+    const record = {
+      ...baselineFieldProtocolPackage.examples.examples.fieldObservation,
+      protocolPackageVersion: "1.0.2",
+    };
+
+    expect(validateFieldProtocolRecord("fieldObservation", record).success).toBe(false);
+    expect(
+      validateFieldProtocolRecord("fieldObservation", record, {
+        protocolPackage: pinnedPackage,
+      }).success,
+    ).toBe(true);
   });
 
   test("rejects Field Visit references outside the signed package and Assignment", () => {
@@ -676,6 +822,19 @@ describe("canonical field protocol records", () => {
     for (const candidate of invalidCases) {
       expect(validateFieldProtocolRecord("fieldObservation", candidate).success).toBe(false);
     }
+
+    expect(
+      validateFieldProtocolRecord("routeRun", {
+        ...baselineFieldProtocolPackage.examples.examples.routeRun,
+        conditions: ["whatever_the_researcher_types"],
+      }).success,
+    ).toBe(false);
+    expect(
+      baselineFieldProtocolPackage.schemas.records.routeRun.properties.conditions.items.enum,
+    ).toEqual(
+      baselineFieldProtocolPackage.schemas.records.fieldObservation.properties.conditions.items
+        .enum,
+    );
   });
 
   test("requires exactly one governed or Provisional Subject and conversion lineage", () => {
@@ -813,6 +972,22 @@ describe("canonical field protocol records", () => {
         sourceStatementId: undefined,
       }).success,
     ).toBe(false);
+    expect(
+      validateFieldProtocolRecord("statementTranslation", {
+        ...translation,
+        captureState: undefined,
+      }).success,
+    ).toBe(false);
+
+    for (const kind of ["captureException", "schemaGap", "statementTranslation"] as const) {
+      const original = baselineFieldProtocolPackage.examples.examples[kind];
+      const correction = {
+        ...original,
+        id: "0192f060-4f41-7aa1-b322-4aa9fc9f1598",
+        supersedesId: original.id,
+      };
+      expect(validateFieldProtocolRecord(kind, correction).success, kind).toBe(true);
+    }
   });
 
   test("cannot confuse a Field Recovery Export with a Field Batch", () => {
@@ -1129,8 +1304,8 @@ describe("baseline Field Protocol Package", () => {
     await expect(verifyFieldProtocolPackage({ applicationVersion: "0.1.0" })).resolves.toEqual({
       success: true,
       packageId: "field-protocol-siargao-baseline",
-      packageVersion: "1.0.0",
-      signerKeyId: "ask-siargao-field-protocol-2026-02",
+      packageVersion: "1.0.1",
+      signerKeyId: "ask-siargao-field-protocol-2026-04",
     });
 
     const tampered = structuredClone(baselineFieldProtocolPackage) as unknown as {
@@ -1177,7 +1352,7 @@ describe("baseline Field Protocol Package", () => {
       activeWork: [
         {
           protocolPackageId: "field-protocol-siargao-baseline",
-          protocolPackageVersion: "1.0.0",
+          protocolPackageVersion: "1.0.1",
         },
       ],
       installedBundles: [baselineFieldProtocolPackage],
@@ -1186,12 +1361,12 @@ describe("baseline Field Protocol Package", () => {
       success: true,
       activePackage: {
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
       },
       pinnedWork: [
         {
           protocolPackageId: "field-protocol-siargao-baseline",
-          protocolPackageVersion: "1.0.0",
+          protocolPackageVersion: "1.0.1",
         },
       ],
     });
@@ -1211,7 +1386,7 @@ describe("baseline Field Protocol Package", () => {
     const resolved = await resolveProtocolForWork(
       {
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
       },
       [laterPackage, baselineFieldProtocolPackage],
     );
@@ -1231,7 +1406,7 @@ describe("baseline Field Protocol Package", () => {
       resolveProtocolForWork(
         {
           protocolPackageId: "field-protocol-siargao-baseline",
-          protocolPackageVersion: "1.0.0",
+          protocolPackageVersion: "1.0.1",
         },
         [manifestOnly],
       ),
@@ -1410,7 +1585,7 @@ describe("Protocol Migration preview", () => {
     ]);
     expect(preview.results[1]?.original).toEqual(source);
     expect(preview.results[1]?.migrated).toMatchObject({
-      protocolPackageVersion: "1.0.0",
+      protocolPackageVersion: "1.0.1",
       assignmentId: "assignment_del_carmen_essentials",
       objectiveId: "objective_del_carmen_observe_services",
       coverageRequirementId: "coverage_opening",

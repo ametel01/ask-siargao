@@ -15,6 +15,7 @@ export interface CaptureException {
   recordedAt: string;
   localTimezone: "Asia/Manila";
   captureState: "draft" | "captured";
+  supersedesId?: string;
   reason:
     | "access_denied"
     | "unsafe_conditions"

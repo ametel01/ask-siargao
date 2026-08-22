@@ -1,5 +1,6 @@
 import { canonicalStringify } from "@/features/field-protocol/canonical-json";
 
+import { applyFieldPlanAdjustment } from "./field-plan-adjustments";
 import { proposeFieldDayPlan } from "./field-planner";
 import type {
   FieldCoverageSnapshot,
@@ -11,7 +12,7 @@ import type {
   PlannerProtocol,
 } from "./field-planning-types";
 
-export async function confirmFieldPlanSnapshot(input: {
+export type ConfirmFieldPlanSnapshotInput = Readonly<{
   protocol: PlannerProtocol;
   coverageSnapshot: FieldCoverageSnapshot;
   plannerInputs: PlannerInputs;
@@ -19,17 +20,32 @@ export async function confirmFieldPlanSnapshot(input: {
   metadata: FieldPlanRevisionMetadata;
   adjustments?: readonly FieldPlanAdjustment[];
   priorSnapshot?: FieldPlanSnapshot;
-}): Promise<FieldPlanSnapshot> {
+}>;
+
+export async function confirmFieldPlanSnapshot(
+  input: ConfirmFieldPlanSnapshotInput,
+): Promise<FieldPlanSnapshot> {
   if (!Number.isFinite(Date.parse(input.metadata.confirmedAt))) {
     throw new Error("Snapshot confirmation requires an explicit timestamp.");
   }
   if (input.priorSnapshot && input.priorSnapshot.snapshotId === input.metadata.snapshotId) {
     throw new Error("A revision requires a new immutable snapshot ID.");
   }
-  const regeneratedProposal = proposeFieldDayPlan(
+  const baseProposal = proposeFieldDayPlan(
     input.protocol,
     input.coverageSnapshot,
     input.plannerInputs,
+  );
+  const regeneratedProposal = (input.adjustments ?? []).reduce(
+    (current, adjustment) =>
+      applyFieldPlanAdjustment(
+        input.protocol,
+        input.coverageSnapshot,
+        input.plannerInputs,
+        current,
+        adjustment,
+      ).proposal,
+    baseProposal,
   );
   if (canonicalStringify(regeneratedProposal) !== canonicalStringify(input.proposal)) {
     throw new Error("Snapshot proposal does not match current hard-gated planning inputs.");
@@ -37,7 +53,7 @@ export async function confirmFieldPlanSnapshot(input: {
   const invalidatedEvidenceIds = input.priorSnapshot
     ? changedEvidenceIds(input.priorSnapshot.inputs, input.plannerInputs)
     : [];
-  const payload = {
+  const payload = structuredClone({
     schemaVersion: "field-plan-snapshot.v1" as const,
     snapshotId: input.metadata.snapshotId,
     revision: (input.priorSnapshot?.revision ?? 0) + 1,
@@ -59,9 +75,18 @@ export async function confirmFieldPlanSnapshot(input: {
     adjustments: [...(input.adjustments ?? [])],
     invalidatedEvidenceIds,
     priorContentHash: input.priorSnapshot?.contentHash,
-  };
+  });
   const contentHash = await sha256(canonicalStringify(payload));
-  return deepFreeze(structuredClone({ ...payload, contentHash }));
+  return deepFreeze({ ...payload, contentHash });
+}
+
+export async function confirmFieldPlanSnapshotAndHandoff(
+  input: ConfirmFieldPlanSnapshotInput,
+  onConfirm: (snapshot: FieldPlanSnapshot) => Promise<void>,
+): Promise<FieldPlanSnapshot> {
+  const snapshot = await confirmFieldPlanSnapshot(input);
+  await onConfirm(snapshot);
+  return snapshot;
 }
 
 function changedEvidenceIds(previous: PlannerInputs, current: PlannerInputs): string[] {

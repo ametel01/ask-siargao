@@ -15,6 +15,15 @@ self.addEventListener("message", (event) => {
     return;
   }
   if (
+    data.type === "FIELD_VISIT_STATE" &&
+    typeof data.activeVisit === "boolean" &&
+    typeof data.buildId === "string" &&
+    /^[A-Za-z0-9._-]{1,200}$/.test(data.buildId)
+  ) {
+    activeVisit = data.activeVisit;
+    return;
+  }
+  if (
     data.type !== "PREPARE_FIELD_OFFLINE" ||
     data.shellPath !== FIELD_SHELL_PATH ||
     typeof data.buildId !== "string" ||

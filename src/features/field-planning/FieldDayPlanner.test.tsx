@@ -21,6 +21,10 @@ describe("FieldDayPlanner", () => {
     expect(html).toContain("Selected Field Assignments");
     expect(html).toContain("Coverage consequence:");
     expect(html).toContain('role="status"');
+    expect(html).toContain("Confirm Plan");
+    expect(html).toContain("Unlock protected offline storage before confirming this plan.");
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('disabled=""');
     expect(html).toContain("No map, live routing, date assignment, or LLM is used.");
   });
 });

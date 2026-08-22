@@ -83,6 +83,13 @@ export const clerkRoutePolicyEntries = [
     "protected Field Workspace authorization remains required by its parent shell",
   ),
   page(
+    "src/app/operator/field/capture/page.tsx",
+    "/operator/field/capture",
+    "protected",
+    "guided offline Field Recorder",
+    "Field Researcher authorization and device-bound local unlock remain required",
+  ),
+  page(
     "src/app/audits/[auditRequestId]/status/page.tsx",
     "/audits/audit_123/status",
     "protected",

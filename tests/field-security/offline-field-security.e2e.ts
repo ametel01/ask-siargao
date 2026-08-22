@@ -61,6 +61,7 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
       session: JSON.stringify(sessionStorage),
     };
   });
+  expect(browserStorage.cacheBodies.join("\n")).toContain("Evidence station");
   expect(JSON.stringify(browserStorage)).not.toContain(protectedSentinel);
   expect(requests.join("\n")).not.toContain(protectedSentinel);
 
@@ -79,6 +80,9 @@ test("worker bypasses unrelated routes, APIs, RSC and blobs", async ({ page }) =
   expect(script).not.toContain("periodicsync");
   expect(script.match(/self\.skipWaiting\(\)/g)).toHaveLength(1);
   expect(script).toContain('data.type === "ACTIVATE_SAFE_FIELD_UPDATE" && activeVisit === false');
+  expect(script).toContain('data.type === "FIELD_VISIT_STATE"');
+  expect(script).toContain("activeVisit = data.activeVisit");
+  expect(script).toContain("let activeVisit = true");
   expect(script.match(/self\.addEventListener\("install",[\s\S]*?\}\);/)?.[0]).not.toContain(
     "skipWaiting",
   );

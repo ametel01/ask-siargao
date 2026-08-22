@@ -13,6 +13,10 @@ export interface EvidenceAsset {
   recordedAt: string;
   localTimezone: "Asia/Manila";
   captureState: "draft" | "captured";
+  /**
+   * @minItems 1
+   */
+  captureWindowIds: [string, ...string[]];
   supersedesId?: string;
   assetKind: "photo" | "receipt_scan" | "document_scan";
   byteSize: number;

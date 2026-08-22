@@ -1,6 +1,6 @@
 {
   "schemaVersion": "field-campaign.v1",
-  "componentVersion": "1.0.0",
+  "componentVersion": "1.0.1",
   "campaignId": "campaign_island_baseline",
   "name": "Siargao island baseline",
   "purpose": "Build reviewed first-hand visitor-planning evidence without binding fieldwork to predetermined dates.",
@@ -156,7 +156,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity", "power"]
@@ -169,7 +170,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -182,7 +184,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["power"]
@@ -195,7 +198,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -208,7 +212,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["noise_snapshot"]
@@ -221,7 +226,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -234,7 +240,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -321,7 +328,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["identity"]
@@ -334,7 +342,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
           "admissibleObservationKinds": ["identity", "local_caveat"]
@@ -347,7 +356,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility", "payment_method"]
@@ -360,7 +370,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
           "admissibleObservationKinds": ["payment_method", "price"]
@@ -373,7 +384,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -386,7 +398,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -399,7 +412,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -412,7 +426,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -425,7 +440,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -438,7 +454,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -451,7 +468,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -464,7 +482,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["opening_signal"]
@@ -563,7 +582,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -576,7 +596,8 @@
           "required": true,
           "supportingAsset": "required",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
           "admissibleObservationKinds": ["identity", "local_caveat"]
@@ -589,7 +610,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_wait"]
@@ -602,7 +624,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -615,7 +638,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["price", "payment_method"]
@@ -628,7 +652,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -641,7 +666,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -654,7 +680,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -738,7 +765,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -751,7 +779,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["accessibility", "facility"]
@@ -764,7 +793,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
           "admissibleObservationKinds": ["identity", "local_caveat"]
@@ -777,7 +807,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["price"]
@@ -790,7 +821,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -803,7 +835,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -816,7 +849,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["crowd_snapshot"]
@@ -829,7 +863,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -885,7 +920,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -898,7 +934,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -911,7 +948,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["power"]
@@ -924,7 +962,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["power"]
@@ -937,7 +976,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["noise_snapshot"]
@@ -950,7 +990,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1035,7 +1076,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -1048,7 +1090,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -1061,7 +1104,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
           "admissibleObservationKinds": ["identity", "local_caveat"]
@@ -1074,7 +1118,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["payment_method", "price"]
@@ -1087,7 +1132,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility", "payment_method"]
@@ -1100,7 +1146,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1113,7 +1160,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1126,7 +1174,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1139,7 +1188,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1152,7 +1202,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1165,7 +1216,8 @@
           "required": true,
           "supportingAsset": "required_for_posted_information",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -1232,7 +1284,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["road_condition", "route_duration"]
@@ -1245,7 +1298,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["road_condition", "route_duration"]
@@ -1258,7 +1312,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -1271,7 +1326,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -1284,7 +1340,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["price"]
@@ -1297,7 +1354,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1310,7 +1368,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -1323,7 +1382,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
           "admissibleObservationKinds": ["identity", "local_caveat"]
@@ -1395,7 +1455,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -1408,7 +1469,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["road_condition", "route_duration"]
@@ -1421,7 +1483,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1434,7 +1497,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1447,7 +1511,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility", "payment_method"]
@@ -1460,7 +1525,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1473,7 +1539,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -1486,7 +1553,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
@@ -1499,7 +1567,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -1585,7 +1654,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -1598,7 +1668,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
@@ -1611,7 +1682,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
@@ -1624,7 +1696,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1637,7 +1710,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility", "payment_method"]
@@ -1650,7 +1724,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1663,7 +1738,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -1733,7 +1809,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["tide_context"]
@@ -1746,7 +1823,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -1759,7 +1837,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -1772,7 +1851,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["price"]
@@ -1785,7 +1865,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -1798,7 +1879,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["road_condition", "route_duration"]
@@ -1811,7 +1893,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -1909,7 +1992,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
@@ -1922,7 +2006,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
@@ -1935,7 +2020,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_wait"]
@@ -1948,7 +2034,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["price"]
@@ -1961,7 +2048,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -1974,7 +2062,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -1987,7 +2076,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -2000,7 +2090,8 @@
           "required": true,
           "supportingAsset": "not_required",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
@@ -2083,7 +2174,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
           "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
@@ -2096,7 +2188,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -2109,7 +2202,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["price"]
@@ -2122,7 +2216,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -2135,7 +2230,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -2148,7 +2244,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
@@ -2161,7 +2258,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -2174,7 +2272,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["facility"]
@@ -2187,7 +2286,8 @@
           "required": true,
           "supportingAsset": "optional",
           "repetition": {
-            "minimumDistinctWindows": 1
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["accessibility", "facility"]
@@ -2264,7 +2364,8 @@
           "required": true,
           "supportingAsset": "depends_on_original_requirement",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["price"]
@@ -2277,7 +2378,8 @@
           "required": true,
           "supportingAsset": "depends_on_original_requirement",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
           "admissibleObservationKinds": ["route_duration"]
@@ -2290,7 +2392,8 @@
           "required": true,
           "supportingAsset": "depends_on_original_requirement",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["opening_signal"]
@@ -2303,7 +2406,8 @@
           "required": true,
           "supportingAsset": "depends_on_original_requirement",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["connectivity"]
@@ -2316,7 +2420,8 @@
           "required": true,
           "supportingAsset": "depends_on_original_requirement",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": ["identity"]
@@ -2329,7 +2434,8 @@
           "required": true,
           "supportingAsset": "depends_on_original_requirement",
           "repetition": {
-            "minimumDistinctWindows": 2
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
           },
           "admissibleRecordKinds": ["field-observation.v1"],
           "admissibleObservationKinds": [

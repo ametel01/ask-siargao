@@ -3,15 +3,19 @@ import { z } from "zod";
 import { parseFieldFile } from "@/features/field-ingestion/field-capture";
 import { canonicalStringify } from "@/features/field-protocol/canonical-json";
 import {
+  type AssignmentOutcome,
   baselineFieldProtocolPackageData,
   type CaptureException,
   type EvidenceAsset,
   type FieldBatch,
+  type FieldDayClose,
   type FieldObservation,
   type FieldProtocolPackageManifest,
   type FieldRecoveryExport,
   type FieldReview,
   type FieldVisit,
+  type FollowUpAssignment,
+  type ObjectiveCoverage,
   type ObservationKind,
   type ObservationValueByKind,
   type ProtocolMigration,
@@ -24,6 +28,7 @@ import {
 import { fieldProtocolPackageComponents } from "@/features/field-protocol/package-components";
 
 export type FieldProtocolRecordByKind = {
+  assignmentOutcome: AssignmentOutcome;
   captureException: CaptureException;
   evidenceAsset: EvidenceAsset;
   fieldBatch: FieldBatch;
@@ -31,6 +36,9 @@ export type FieldProtocolRecordByKind = {
   fieldRecoveryExport: FieldRecoveryExport;
   fieldReview: FieldReview;
   fieldVisit: FieldVisit;
+  fieldDayClose: FieldDayClose;
+  followUpAssignment: FollowUpAssignment;
+  objectiveCoverage: ObjectiveCoverage;
   routeRun: RouteRun;
   schemaGap: SchemaGap;
   sourceStatement: SourceStatement;
@@ -83,66 +91,42 @@ export type ActiveProtocolReference = {
   protocolPackageVersion: string;
 };
 
+export type ProtocolValidationOptions = {
+  protocolPackage?: unknown;
+};
+
+export type ObservationCoverageDisposition = "positive" | "negative" | "unknown";
+
 export const baselineFieldProtocolPackage = baselineFieldProtocolPackageData;
 
 export const trustedFieldProtocolSigners = trustedFieldProtocolSignersData;
 
 const recordSchemas = baselineFieldProtocolPackageData.schemas.records;
 const distributionSchemas = baselineFieldProtocolPackageData.distributionSchemas.schemas;
-const observationKindRegistry = new Map<string, ObservationRegistryEntry>(
-  baselineFieldProtocolPackageData.observationKinds.kinds.map((entry) => [entry.kind, entry]),
-);
-const methodProfileRegistry = new Map<string, MethodProfileRegistryEntry>(
-  baselineFieldProtocolPackageData.methodProfiles.profiles.map((entry) => [entry.id, entry]),
-);
-const governedSubjectsById = new Map<string, GovernedSubjectConstraint>(
-  baselineFieldProtocolPackageData.subjects.subjects.map(
-    (subject) => [subject.id, subject] as const,
-  ),
-);
-const governedSubjectIds = new Set<string>(governedSubjectsById.keys());
-const governedAreaIds = new Set<string>(
-  baselineFieldProtocolPackageData.geography.areas.map((area) => area.id),
-);
-const governedRoutesById = new Map<string, GovernedRouteConstraint>(
-  baselineFieldProtocolPackageData.geography.routes.map((route) => [route.id, route] as const),
-);
-const assignmentGeographyById = new Map<string, AssignmentGeographyConstraint>(
-  baselineFieldProtocolPackageData.campaign.assignments.map(
-    (assignment) => [assignment.id, assignment.geography] as const,
-  ),
-);
-const coverageRequirementsByAssignment = new Map<
-  string,
-  ReadonlyMap<string, CoverageRequirementConstraint>
->(
-  baselineFieldProtocolPackageData.campaign.assignments.map((assignment) => [
-    assignment.id,
-    new Map<string, CoverageRequirementConstraint>(
-      assignment.coverageRequirements.map((requirement) => [requirement.id, requirement] as const),
-    ),
-  ]),
-);
-const objectiveConstraintsByAssignment = new Map<string, ReadonlyMap<string, ObjectiveConstraint>>(
-  baselineFieldProtocolPackageData.campaign.assignments.map((assignment) => [
-    assignment.id,
-    new Map<string, ObjectiveConstraint>(
-      assignment.objectives.map((objective) => [
-        objective.id,
-        {
-          observationKinds: "observationKinds" in objective ? objective.observationKinds : [],
-          recordKinds: "recordKinds" in objective ? objective.recordKinds : [],
-        },
-      ]),
-    ),
-  ]),
-);
+const baselineValidationContext = createProtocolValidationContext(baselineFieldProtocolPackageData);
 
 export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
   kind: K,
   value: unknown,
+  options: ProtocolValidationOptions = {},
 ): ProtocolValidationResult<FieldProtocolRecordByKind[K]> {
-  const schema = schemaFromArtifact(recordSchemas[kind]);
+  const context = options.protocolPackage
+    ? createProtocolValidationContext(options.protocolPackage)
+    : baselineValidationContext;
+  if (!context) {
+    return {
+      success: false,
+      issues: [issue("invalid_package", "The pinned Field Protocol Package is incomplete.", "")],
+    };
+  }
+  const schemaArtifact = context.recordSchemas[kind];
+  if (!schemaArtifact) {
+    return {
+      success: false,
+      issues: [issue("unknown_record_kind", `Record kind ${kind} is not in this package.`, "")],
+    };
+  }
+  const schema = schemaFromArtifact(schemaArtifact);
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     return {
@@ -155,21 +139,21 @@ export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
     };
   }
 
-  const packageIssues = validateRecordPackageReference(parsed.data);
+  const packageIssues = validateRecordPackageReference(parsed.data, context);
   if (packageIssues.length > 0) return { success: false, issues: packageIssues };
-  const campaignIssues = validateCampaignAssignmentReferences(parsed.data);
+  const campaignIssues = validateCampaignAssignmentReferences(parsed.data, context);
   if (campaignIssues.length > 0) return { success: false, issues: campaignIssues };
 
   if (kind === "fieldObservation") {
-    const issues = validateObservationSemantics(parsed.data as FieldObservation);
+    const issues = validateObservationSemantics(parsed.data as FieldObservation, context);
     if (issues.length > 0) return { success: false, issues };
   }
   if (kind === "fieldVisit") {
-    const issues = validateFieldVisitSemantics(parsed.data as FieldVisit);
+    const issues = validateFieldVisitSemantics(parsed.data as FieldVisit, context);
     if (issues.length > 0) return { success: false, issues };
   }
   if (kind === "routeRun") {
-    const issues = validateRouteRunSemantics(parsed.data as RouteRun);
+    const issues = validateRouteRunSemantics(parsed.data as RouteRun, context);
     if (issues.length > 0) return { success: false, issues };
   }
   if (kind === "sourceStatement") {
@@ -178,6 +162,7 @@ export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
       statement.assignmentId,
       statement.subjectId,
       "subjectId",
+      context,
     );
     if (issues.length > 0) return { success: false, issues };
   }
@@ -189,15 +174,28 @@ export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
             gap.assignmentId,
             gap.subject.subjectId,
             "subject.subjectId",
+            context,
           )
         : [];
     if (issues.length > 0) return { success: false, issues };
   }
   if (kind === "fieldBatch") {
-    const issues = validateFieldBatchSemantics(parsed.data as FieldBatch);
+    const issues = validateFieldBatchSemantics(parsed.data as FieldBatch, context);
     if (issues.length > 0) return { success: false, issues };
   }
-  const coverageIssues = validateCoverageRequirementLinks(parsed.data);
+  if (kind === "objectiveCoverage") {
+    const issues = validateObjectiveCoverageSemantics(parsed.data as ObjectiveCoverage, context);
+    if (issues.length > 0) return { success: false, issues };
+  }
+  if (kind === "assignmentOutcome") {
+    const issues = validateAssignmentOutcomeSemantics(parsed.data as AssignmentOutcome, context);
+    if (issues.length > 0) return { success: false, issues };
+  }
+  if (kind === "followUpAssignment") {
+    const issues = validateFollowUpAssignmentSemantics(parsed.data as FollowUpAssignment, context);
+    if (issues.length > 0) return { success: false, issues };
+  }
+  const coverageIssues = validateCoverageRequirementLinks(parsed.data, context);
   if (coverageIssues.length > 0) return { success: false, issues: coverageIssues };
 
   return { success: true, data: parsed.data as FieldProtocolRecordByKind[K] };
@@ -444,9 +442,46 @@ export function observationValue<K extends ObservationKind>(
   return { kind, value } as const;
 }
 
-function validateObservationSemantics(observation: FieldObservation): ProtocolValidationIssue[] {
+export function observationCoverageDisposition(
+  kind: ObservationKind,
+  value: unknown,
+  options: ProtocolValidationOptions = {},
+): ObservationCoverageDisposition {
+  const context = options.protocolPackage
+    ? createProtocolValidationContext(options.protocolPackage)
+    : baselineValidationContext;
+  const rule = context?.observationKindRegistry.get(kind)?.coverageDisposition;
+  if (!rule) return "unknown";
+  if (rule.strategy === "constant") return rule.value;
+  const candidate = asObject(value)?.[rule.path];
+  if (typeof candidate !== "string") return "unknown";
+  if (rule.positiveValues.includes(candidate)) return "positive";
+  if (rule.negativeValues.includes(candidate)) return "negative";
+  return "unknown";
+}
+
+export function captureWindowIdsForRecord(value: unknown): readonly string[] {
+  const record = asObject(value);
+  return Array.isArray(record?.captureWindowIds)
+    ? record.captureWindowIds.filter(
+        (candidate): candidate is string => typeof candidate === "string" && candidate.length > 0,
+      )
+    : [];
+}
+
+export function coverageWindowIdentityForRequirement(value: unknown): "local_hour" | undefined {
+  const repetition = asObject(asObject(value)?.repetition);
+  return repetition?.windowIdentity === "local_hour" ? "local_hour" : undefined;
+}
+
+function validateObservationSemantics(
+  observation: FieldObservation,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
   const issues: ProtocolValidationIssue[] = [];
-  const registryEntry = observationKindRegistry.get(observation.observationKind as ObservationKind);
+  const registryEntry = context.observationKindRegistry.get(
+    observation.observationKind as ObservationKind,
+  );
   if (!registryEntry) {
     issues.push(
       issue("unknown_observation_kind", "Observation Kind is not governed.", "observationKind"),
@@ -486,11 +521,12 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
         routeDuration.destinationSubjectId,
         "value.originSubjectId",
         "value.destinationSubjectId",
+        context,
       ),
     );
   }
 
-  const method = methodProfileRegistry.get(observation.methodProfileId);
+  const method = context.methodProfileRegistry.get(observation.methodProfileId);
   if (!method?.supportedKinds.includes(registryEntry.kind)) {
     issues.push(
       issue(
@@ -507,6 +543,7 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
         observation.assignmentId,
         observation.subject.subjectId,
         "subject.subjectId",
+        context,
       ),
     );
   }
@@ -589,7 +626,10 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
   return issues;
 }
 
-function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue[] {
+function validateFieldVisitSemantics(
+  visit: FieldVisit,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
   const issues: ProtocolValidationIssue[] = [];
   if (visit.target.kind === "governed_subject") {
     issues.push(
@@ -597,11 +637,17 @@ function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue
         visit.assignmentId,
         visit.target.subjectId,
         "target.subjectId",
+        context,
       ),
     );
   } else if (visit.target.kind === "governed_area") {
     issues.push(
-      ...validateAssignmentAreaReference(visit.assignmentId, visit.target.areaId, "target.areaId"),
+      ...validateAssignmentAreaReference(
+        visit.assignmentId,
+        visit.target.areaId,
+        "target.areaId",
+        context,
+      ),
     );
   } else if (visit.target.kind === "governed_route") {
     issues.push(
@@ -609,6 +655,7 @@ function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue
         visit.assignmentId,
         visit.target.routeId,
         "target.routeId",
+        context,
       ),
     );
   } else {
@@ -617,6 +664,7 @@ function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue
         visit.assignmentId,
         visit.target.provisionalSubject.governedAreaId,
         "target.provisionalSubject.governedAreaId",
+        context,
       ),
     );
   }
@@ -624,7 +672,10 @@ function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue
   return issues;
 }
 
-function validateRouteRunSemantics(routeRun: RouteRun): ProtocolValidationIssue[] {
+function validateRouteRunSemantics(
+  routeRun: RouteRun,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
   const issues = [
     ...validateAssignmentEndpointReferences(
       routeRun.assignmentId,
@@ -632,9 +683,10 @@ function validateRouteRunSemantics(routeRun: RouteRun): ProtocolValidationIssue[
       routeRun.destinationSubjectId,
       "originSubjectId",
       "destinationSubjectId",
+      context,
     ),
   ];
-  const method = methodProfileRegistry.get(routeRun.methodProfileId);
+  const method = context.methodProfileRegistry.get(routeRun.methodProfileId);
   if (!method) {
     issues.push(
       issue(
@@ -644,10 +696,10 @@ function validateRouteRunSemantics(routeRun: RouteRun): ProtocolValidationIssue[
       ),
     );
   } else {
-    const objective = objectiveConstraintsByAssignment
+    const objective = context.objectiveConstraintsByAssignment
       .get(routeRun.assignmentId)
       ?.get(routeRun.objectiveId);
-    const coverageRequirement = coverageRequirementsByAssignment
+    const coverageRequirement = context.coverageRequirementsByAssignment
       .get(routeRun.assignmentId)
       ?.get(routeRun.coverageRequirementId);
     const admissibleKinds = objective?.observationKinds.filter((kind) =>
@@ -673,8 +725,9 @@ function validateRouteRunSemantics(routeRun: RouteRun): ProtocolValidationIssue[
 function validateGovernedSubjectReference(
   subjectId: string,
   path: string,
+  context: ProtocolValidationContext,
 ): ProtocolValidationIssue[] {
-  return governedSubjectIds.has(subjectId)
+  return context.governedSubjectIds.has(subjectId)
     ? []
     : [issue("unknown_subject", "The governed Subject is not in this package.", path)];
 }
@@ -683,13 +736,14 @@ function validateAssignmentSubjectReference(
   assignmentId: string,
   subjectId: string,
   path: string,
+  context: ProtocolValidationContext,
   endpoint?: "origin" | "destination",
 ): ProtocolValidationIssue[] {
-  const membershipIssues = validateGovernedSubjectReference(subjectId, path);
+  const membershipIssues = validateGovernedSubjectReference(subjectId, path, context);
   if (membershipIssues.length > 0) return membershipIssues;
 
-  const geography = assignmentGeographyById.get(assignmentId);
-  const subject = governedSubjectsById.get(subjectId);
+  const geography = context.assignmentGeographyById.get(assignmentId);
+  const subject = context.governedSubjectsById.get(subjectId);
   if (!geography || !subject) return [];
   let compatible: boolean;
   if (geography.form === "governed_subject_subset") {
@@ -699,7 +753,7 @@ function validateAssignmentSubjectReference(
       subjectId ===
       (endpoint === "origin" ? geography.originSubjectId : geography.destinationSubjectId);
   } else if (geography.form === "origin_destination_route") {
-    const route = governedRoutesById.get(geography.routeId);
+    const route = context.governedRoutesById.get(geography.routeId);
     compatible =
       subjectId === geography.originSubjectId ||
       subjectId === geography.destinationSubjectId ||
@@ -729,12 +783,13 @@ function validateAssignmentEndpointReferences(
   destinationSubjectId: string,
   originPath: string,
   destinationPath: string,
+  context: ProtocolValidationContext,
 ): ProtocolValidationIssue[] {
-  const geography = assignmentGeographyById.get(assignmentId);
+  const geography = context.assignmentGeographyById.get(assignmentId);
   if (geography?.form === "access_point") {
     const membershipIssues = [
-      ...validateGovernedSubjectReference(originSubjectId, originPath),
-      ...validateGovernedSubjectReference(destinationSubjectId, destinationPath),
+      ...validateGovernedSubjectReference(originSubjectId, originPath, context),
+      ...validateGovernedSubjectReference(destinationSubjectId, destinationPath, context),
     ];
     if (membershipIssues.length > 0) return membershipIssues;
     return originSubjectId === geography.subjectId || destinationSubjectId === geography.subjectId
@@ -748,11 +803,18 @@ function validateAssignmentEndpointReferences(
         ];
   }
   return [
-    ...validateAssignmentSubjectReference(assignmentId, originSubjectId, originPath, "origin"),
+    ...validateAssignmentSubjectReference(
+      assignmentId,
+      originSubjectId,
+      originPath,
+      context,
+      "origin",
+    ),
     ...validateAssignmentSubjectReference(
       assignmentId,
       destinationSubjectId,
       destinationPath,
+      context,
       "destination",
     ),
   ];
@@ -762,17 +824,20 @@ function validateAssignmentAreaReference(
   assignmentId: string,
   areaId: string,
   path: string,
+  context: ProtocolValidationContext,
 ): ProtocolValidationIssue[] {
-  if (!governedAreaIds.has(areaId)) {
+  if (!context.governedAreaIds.has(areaId)) {
     return [issue("unknown_area", "The governed area is not in this package.", path)];
   }
-  const geography = assignmentGeographyById.get(assignmentId);
+  const geography = context.assignmentGeographyById.get(assignmentId);
   if (!geography) return [];
   let compatible: boolean;
   if (geography.form === "governed_subject_subset") {
     compatible = true;
   } else if (geography.form === "origin_destination_route") {
-    compatible = Boolean(governedRoutesById.get(geography.routeId)?.areaIds.includes(areaId));
+    compatible = Boolean(
+      context.governedRoutesById.get(geography.routeId)?.areaIds.includes(areaId),
+    );
   } else if (geography.form === "route_corridor") {
     compatible = geography.areaIds.includes(areaId);
   } else if (geography.form === "access_point") {
@@ -795,10 +860,11 @@ function validateAssignmentRouteReference(
   assignmentId: string,
   routeId: string,
   path: string,
+  context: ProtocolValidationContext,
 ): ProtocolValidationIssue[] {
-  const route = governedRoutesById.get(routeId);
+  const route = context.governedRoutesById.get(routeId);
   if (!route) return [issue("unknown_route", "The governed route is not in this package.", path)];
-  const geography = assignmentGeographyById.get(assignmentId);
+  const geography = context.assignmentGeographyById.get(assignmentId);
   if (!geography) return [];
   let compatible: boolean;
   if (geography.form === "governed_subject_subset") {
@@ -823,9 +889,12 @@ function validateAssignmentRouteReference(
       ];
 }
 
-function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue[] {
+function validateFieldBatchSemantics(
+  batch: FieldBatch,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
   const issues: ProtocolValidationIssue[] = [];
-  const manifest = baselineFieldProtocolPackageData.manifest;
+  const manifest = context.manifest;
   for (const [packageIndex, protocolPackage] of batch.protocolPackages.entries()) {
     if (protocolPackage.packageId !== manifest.packageId) {
       issues.push(
@@ -863,7 +932,7 @@ function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue
     }
   }
   for (const [campaignIndex, campaignId] of batch.lineage.campaignIds.entries()) {
-    if (campaignId !== baselineFieldProtocolPackageData.campaign.campaignId) {
+    if (campaignId !== context.campaignId) {
       issues.push(
         issue(
           "unknown_campaign",
@@ -874,7 +943,7 @@ function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue
     }
   }
   for (const [assignmentIndex, assignmentId] of batch.lineage.assignmentIds.entries()) {
-    if (!objectiveConstraintsByAssignment.has(assignmentId)) {
+    if (!context.objectiveConstraintsByAssignment.has(assignmentId)) {
       issues.push(
         issue(
           "unknown_assignment",
@@ -914,11 +983,107 @@ function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue
   return issues;
 }
 
-function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIssue[] {
+function validateObjectiveCoverageSemantics(
+  coverage: ObjectiveCoverage,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
+  const requirements = context.coverageRequirementsByAssignment.get(coverage.assignmentId);
+  if (!requirements) return [];
+  const issues: ProtocolValidationIssue[] = [];
+  for (const [index, result] of coverage.requirements.entries()) {
+    const requirement = requirements.get(result.coverageRequirementId);
+    const path = `requirements.${index}.coverageRequirementId`;
+    if (!requirement) {
+      issues.push(
+        issue(
+          "unknown_coverage_requirement",
+          `Coverage Requirement ${result.coverageRequirementId} does not belong to Assignment ${coverage.assignmentId}.`,
+          path,
+        ),
+      );
+      continue;
+    }
+    if (requirement.objectiveId !== coverage.objectiveId) {
+      issues.push(
+        issue(
+          "coverage_objective_mismatch",
+          `Coverage Requirement ${result.coverageRequirementId} belongs to Objective ${requirement.objectiveId}.`,
+          path,
+        ),
+      );
+    }
+    if (
+      result.requiredRecords !== requirement.minimumRecords ||
+      result.requiredDistinctWindows !== requirement.repetition.minimumDistinctWindows
+    ) {
+      issues.push(
+        issue(
+          "coverage_threshold_mismatch",
+          "Derived coverage thresholds must match the pinned Coverage Requirement.",
+          `requirements.${index}`,
+        ),
+      );
+    }
+  }
+  return issues;
+}
+
+function validateAssignmentOutcomeSemantics(
+  outcome: AssignmentOutcome,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
+  const requirements = context.coverageRequirementsByAssignment.get(outcome.assignmentId);
+  if (!requirements) return [];
+  return outcome.unresolvedRequirementIds.flatMap((requirementId, index) =>
+    requirements.has(requirementId)
+      ? []
+      : [
+          issue(
+            "unknown_coverage_requirement",
+            `Coverage Requirement ${requirementId} does not belong to Assignment ${outcome.assignmentId}.`,
+            `unresolvedRequirementIds.${index}`,
+          ),
+        ],
+  );
+}
+
+function validateFollowUpAssignmentSemantics(
+  followUp: FollowUpAssignment,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
+  const requirements = context.coverageRequirementsByAssignment.get(
+    followUp.originatingAssignmentId,
+  );
+  if (!requirements) {
+    return [
+      issue(
+        "unknown_assignment",
+        `Assignment ${followUp.originatingAssignmentId} is not governed by this Campaign.`,
+        "originatingAssignmentId",
+      ),
+    ];
+  }
+  return followUp.coverageRequirementIds.flatMap((requirementId, index) =>
+    requirements.has(requirementId)
+      ? []
+      : [
+          issue(
+            "unknown_coverage_requirement",
+            `Coverage Requirement ${requirementId} does not belong to Assignment ${followUp.originatingAssignmentId}.`,
+            `coverageRequirementIds.${index}`,
+          ),
+        ],
+  );
+}
+
+function validateCoverageRequirementLinks(
+  value: unknown,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
   const record = asObject(value);
   if (!record || typeof record.assignmentId !== "string") return [];
-  const requirements = coverageRequirementsByAssignment.get(record.assignmentId);
-  const objectives = objectiveConstraintsByAssignment.get(record.assignmentId);
+  const requirements = context.coverageRequirementsByAssignment.get(record.assignmentId);
+  const objectives = context.objectiveConstraintsByAssignment.get(record.assignmentId);
   if (!requirements || !objectives) {
     return [
       issue(
@@ -987,6 +1152,7 @@ function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIss
       record.schemaVersion !== "field-observation.v1" &&
       record.schemaVersion !== "capture-exception.v1" &&
       record.schemaVersion !== "schema-gap.v1" &&
+      record.schemaVersion !== "statement-translation.v1" &&
       typeof record.schemaVersion === "string" &&
       !objectives.get(requirement.objectiveId)?.recordKinds.includes(record.schemaVersion)
     ) {
@@ -1000,6 +1166,7 @@ function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIss
     } else if (
       record.schemaVersion !== "capture-exception.v1" &&
       record.schemaVersion !== "schema-gap.v1" &&
+      record.schemaVersion !== "statement-translation.v1" &&
       typeof record.schemaVersion === "string" &&
       !requirement.admissibleRecordKinds.includes(record.schemaVersion)
     ) {
@@ -1027,14 +1194,14 @@ function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIss
   return issues;
 }
 
-function validateCampaignAssignmentReferences(value: unknown): ProtocolValidationIssue[] {
+function validateCampaignAssignmentReferences(
+  value: unknown,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
   const record = asObject(value);
   if (!record) return [];
   const issues: ProtocolValidationIssue[] = [];
-  if (
-    typeof record.campaignId === "string" &&
-    record.campaignId !== baselineFieldProtocolPackageData.campaign.campaignId
-  ) {
+  if (typeof record.campaignId === "string" && record.campaignId !== context.campaignId) {
     issues.push(
       issue(
         "unknown_campaign",
@@ -1045,7 +1212,7 @@ function validateCampaignAssignmentReferences(value: unknown): ProtocolValidatio
   }
   if (typeof record.assignmentId !== "string") return issues;
 
-  const objectives = objectiveConstraintsByAssignment.get(record.assignmentId);
+  const objectives = context.objectiveConstraintsByAssignment.get(record.assignmentId);
   if (!objectives) {
     issues.push(
       issue(
@@ -1083,10 +1250,13 @@ function validateCampaignAssignmentReferences(value: unknown): ProtocolValidatio
   return issues;
 }
 
-function validateRecordPackageReference(value: unknown): ProtocolValidationIssue[] {
+function validateRecordPackageReference(
+  value: unknown,
+  context: ProtocolValidationContext,
+): ProtocolValidationIssue[] {
   const record = asObject(value);
   if (!record) return [];
-  const manifest = baselineFieldProtocolPackageData.manifest;
+  const manifest = context.manifest;
   if (
     typeof record.protocolPackageId === "string" &&
     record.protocolPackageId !== manifest.packageId
@@ -1300,6 +1470,7 @@ function previewLegacyCaptureMigration(
     recordedAt: record.capturedAt,
     localTimezone: record.localTimezone,
     captureState: record.status === "captured" ? "captured" : "draft",
+    captureWindowIds: [record.visitId],
     subject: { kind: "governed", subjectId: subjectMapping.to },
     observationKind: kindMapping.to,
     valueSchemaVersion: "1.0.0",
@@ -1582,6 +1753,105 @@ function schemaFromArtifact(value: unknown) {
   return z.fromJSONSchema(structuredClone(value) as Parameters<typeof z.fromJSONSchema>[0]);
 }
 
+function createProtocolValidationContext(value: unknown): ProtocolValidationContext | undefined {
+  const bundle = asObject(value);
+  const manifest = asObject(bundle?.manifest);
+  const schemas = asObject(bundle?.schemas);
+  const records = asObject(schemas?.records);
+  const observationKinds = asObject(bundle?.observationKinds);
+  const methodProfiles = asObject(bundle?.methodProfiles);
+  const subjects = asObject(bundle?.subjects);
+  const geography = asObject(bundle?.geography);
+  const campaign = asObject(bundle?.campaign);
+  if (
+    !bundle ||
+    !manifest ||
+    typeof manifest.packageId !== "string" ||
+    typeof manifest.packageVersion !== "string" ||
+    !records ||
+    !Array.isArray(observationKinds?.kinds) ||
+    !Array.isArray(methodProfiles?.profiles) ||
+    !Array.isArray(subjects?.subjects) ||
+    !Array.isArray(geography?.areas) ||
+    !Array.isArray(geography?.routes) ||
+    typeof campaign?.campaignId !== "string" ||
+    !Array.isArray(campaign.assignments)
+  ) {
+    return undefined;
+  }
+
+  const typedSubjects = subjects.subjects as GovernedSubjectRegistryEntry[];
+  const governedSubjectsById = new Map<string, GovernedSubjectConstraint>(
+    typedSubjects.map((subject) => [subject.id, subject]),
+  );
+  const assignments = campaign.assignments as AssignmentConstraint[];
+  return {
+    assignmentGeographyById: new Map(
+      assignments.map((assignment) => [assignment.id, assignment.geography]),
+    ),
+    campaignId: campaign.campaignId,
+    coverageRequirementsByAssignment: new Map(
+      assignments.map((assignment) => [
+        assignment.id,
+        new Map(
+          assignment.coverageRequirements.map((requirement) => [requirement.id, requirement]),
+        ),
+      ]),
+    ),
+    governedAreaIds: new Set(
+      (geography.areas as GovernedAreaRegistryEntry[]).map((area) => area.id),
+    ),
+    governedRoutesById: new Map(
+      (geography.routes as GovernedRouteRegistryEntry[]).map((route) => [route.id, route]),
+    ),
+    governedSubjectIds: new Set(governedSubjectsById.keys()),
+    governedSubjectsById,
+    manifest: manifest as unknown as FieldProtocolPackageManifest,
+    methodProfileRegistry: new Map(
+      (methodProfiles.profiles as MethodProfileRegistryEntry[]).map((profile) => [
+        profile.id,
+        profile,
+      ]),
+    ),
+    objectiveConstraintsByAssignment: new Map(
+      assignments.map((assignment) => [
+        assignment.id,
+        new Map(
+          assignment.objectives.map((objective) => [
+            objective.id,
+            {
+              observationKinds: objective.observationKinds ?? [],
+              recordKinds: objective.recordKinds ?? [],
+            },
+          ]),
+        ),
+      ]),
+    ),
+    observationKindRegistry: new Map(
+      (observationKinds.kinds as ObservationRegistryEntry[]).map((entry) => [entry.kind, entry]),
+    ),
+    recordSchemas: records,
+  };
+}
+
+type ProtocolValidationContext = {
+  assignmentGeographyById: ReadonlyMap<string, AssignmentGeographyConstraint>;
+  campaignId: string;
+  coverageRequirementsByAssignment: ReadonlyMap<
+    string,
+    ReadonlyMap<string, CoverageRequirementConstraint>
+  >;
+  governedAreaIds: ReadonlySet<string>;
+  governedRoutesById: ReadonlyMap<string, GovernedRouteConstraint>;
+  governedSubjectIds: ReadonlySet<string>;
+  governedSubjectsById: ReadonlyMap<string, GovernedSubjectConstraint>;
+  manifest: FieldProtocolPackageManifest;
+  methodProfileRegistry: ReadonlyMap<string, MethodProfileRegistryEntry>;
+  objectiveConstraintsByAssignment: ReadonlyMap<string, ReadonlyMap<string, ObjectiveConstraint>>;
+  observationKindRegistry: ReadonlyMap<string, ObservationRegistryEntry>;
+  recordSchemas: Record<string, unknown>;
+};
+
 type ObservationRegistryEntry = {
   kind: string;
   valueSchemaVersion: string;
@@ -1591,6 +1861,15 @@ type ObservationRegistryEntry = {
     defaultReviewMinutes: number;
     maximumReviewMinutes: number;
   };
+  coverageDisposition:
+    | { strategy: "constant"; value: ObservationCoverageDisposition }
+    | {
+        strategy: "value";
+        path: string;
+        positiveValues: readonly string[];
+        negativeValues: readonly string[];
+        unknownValues: readonly string[];
+      };
   valueSchema: unknown;
 };
 
@@ -1603,6 +1882,12 @@ type MethodProfileRegistryEntry = {
 type GovernedSubjectConstraint = {
   governedAreaId: string;
 };
+
+type GovernedSubjectRegistryEntry = GovernedSubjectConstraint & { id: string };
+
+type GovernedAreaRegistryEntry = { id: string };
+
+type GovernedRouteRegistryEntry = GovernedRouteConstraint & { id: string };
 
 type GovernedRouteConstraint = {
   subjectId: string;
@@ -1622,7 +1907,10 @@ type AssignmentGeographyConstraint =
   | { form: "governed_subject_subset" };
 
 type CoverageRequirementConstraint = {
+  id: string;
   objectiveId: string;
+  minimumRecords: number;
+  repetition: { minimumDistinctWindows: number; windowIdentity: "local_hour" };
   admissibleRecordKinds: readonly string[];
   admissibleObservationKinds: readonly string[];
 };
@@ -1630,4 +1918,15 @@ type CoverageRequirementConstraint = {
 type ObjectiveConstraint = {
   observationKinds: readonly string[];
   recordKinds: readonly string[];
+};
+
+type AssignmentConstraint = {
+  id: string;
+  geography: AssignmentGeographyConstraint;
+  coverageRequirements: CoverageRequirementConstraint[];
+  objectives: Array<{
+    id: string;
+    observationKinds?: readonly string[];
+    recordKinds?: readonly string[];
+  }>;
 };

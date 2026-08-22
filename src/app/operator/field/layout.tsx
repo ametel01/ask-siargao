@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+import { FieldSecuritySessionProvider } from "@/features/field-security/FieldSecuritySessionProvider";
 import { isProtectedUiHarnessRequest } from "@/server/auth/protected-ui-harness";
 import { readFieldResearcherAccountAllowlist } from "@/server/field-security/authorization";
 import { isFieldSecurityProductionHarnessRequest } from "@/server/field-security/test-harness";
@@ -20,11 +21,12 @@ export default async function FieldWorkspaceLayout(props: { children: React.Reac
     pathname: requestHeaders.get("x-invoke-path") ?? "/operator/field",
   });
   const protectedUiHarness = isProtectedUiHarnessRequest({ headers: requestHeaders });
-  if (fieldSecurityHarness || protectedUiHarness) return props.children;
-
-  const snapshot = await auth();
-  if (!snapshot.userId || !readFieldResearcherAccountAllowlist().has(snapshot.userId)) {
-    notFound();
+  if (!fieldSecurityHarness && !protectedUiHarness) {
+    const snapshot = await auth();
+    if (!snapshot.userId || !readFieldResearcherAccountAllowlist().has(snapshot.userId)) {
+      notFound();
+    }
   }
-  return props.children;
+
+  return <FieldSecuritySessionProvider>{props.children}</FieldSecuritySessionProvider>;
 }

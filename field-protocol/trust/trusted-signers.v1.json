@@ -12,6 +12,12 @@
       "algorithm": "Ed25519",
       "publicKeySpkiBase64": "MCowBQYDK2VwAyEAMnIejrkV/CCZHZpQiXE+ZW5x/l1dRspg+oHU1+W1lcg=",
       "status": "trusted"
+    },
+    {
+      "keyId": "ask-siargao-field-protocol-2026-04",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA8bsFBs3TOI6KD+etL5AP28qXEb5S1SYc96YsmfdRkEE=",
+      "status": "trusted"
     }
   ]
 }

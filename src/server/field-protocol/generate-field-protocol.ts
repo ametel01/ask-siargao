@@ -108,14 +108,23 @@ async function main() {
     await formatTypeScript(embedded, "baseline-field-protocol.generated.ts"),
   );
 
-  const indexLines = [
-    'export { baselineFieldProtocolPackageData, trustedFieldProtocolSignersData } from "./baseline-field-protocol.generated";',
-    ...[...generatedFiles.keys()]
-      .filter((path) => !path.endsWith("baseline-field-protocol.generated.ts"))
-      .sort()
-      .map((path) => `export * from "./${basename(path, ".ts")}";`),
-    "",
+  const indexEntries = [
+    {
+      path: "baseline-field-protocol.generated.ts",
+      line: 'export { baselineFieldProtocolPackageData, trustedFieldProtocolSignersData } from "./baseline-field-protocol.generated";',
+    },
   ];
+  for (const path of generatedFiles.keys()) {
+    if (!path.endsWith("baseline-field-protocol.generated.ts")) {
+      indexEntries.push({
+        path: basename(path),
+        line: `export * from "./${basename(path, ".ts")}";`,
+      });
+    }
+  }
+  indexEntries.sort((left, right) => left.path.localeCompare(right.path));
+  const indexLines = indexEntries.map(({ line }) => line);
+  indexLines.push("");
   generatedFiles.set(
     join(generatedDirectory, "index.ts"),
     await formatTypeScript(indexLines.join("\n"), "index.ts"),
@@ -137,9 +146,9 @@ async function signManifest(privateKeyPath: string) {
   const unsignedManifest = {
     schemaVersion: "field-protocol-package-manifest.v1",
     packageId: "field-protocol-siargao-baseline",
-    packageVersion: "1.0.0",
-    createdAt: "2026-08-22T00:00:00.000Z",
-    signerKeyId: "ask-siargao-field-protocol-2026-02",
+    packageVersion: "1.0.1",
+    createdAt: "2026-08-23T00:00:00.000Z",
+    signerKeyId: "ask-siargao-field-protocol-2026-04",
     componentVersions: Object.fromEntries(
       fieldProtocolPackageComponents.map((component) => [
         component.key,
@@ -156,7 +165,7 @@ async function signManifest(privateKeyPath: string) {
     migrationDeclaration: {
       strategy: "explicit_preview_required",
       supportedFromVersions: ["0.9.0"],
-      migrationIds: ["migration_legacy_0_9_0_to_baseline_1_0_0"],
+      migrationIds: ["migration_legacy_0_9_0_to_baseline_1_0_1"],
     },
     files,
   };

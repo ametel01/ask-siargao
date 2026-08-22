@@ -431,6 +431,16 @@ Implemented by issue #238:
 - fail-closed record validation, package verification, exact-version work resolution, and explicit
   Protocol Migration previews that preserve originals and quarantine ambiguity.
 
+Extended by issue #241 in `field-protocol-siargao-baseline@1.0.1`:
+
+- Visit-governed local-hour Capture Windows and non-empty window lineage on countable evidence;
+- signed positive, satisfying-negative, and unknown coverage dispositions for all 19 Observation
+  Kinds, with negative evidence counting toward record minimums;
+- canonical Objective Coverage, Assignment Outcome, Follow-up Assignment, and Field Day Close
+  records, including the `recovery_required` handoff to issue #242;
+- correction lineage for Capture Exception, Schema Gap, and Statement Translation;
+- exact pinned-package record validation and the shared Route Run condition vocabulary.
+
 Not implemented:
 
 - `/operator/field` Field Workspace;

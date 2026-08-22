@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { FieldWorkspaceRouter } from "@/features/field-workspace/FieldWorkspaceRouter";
 
 export default function FieldWorkspacePage() {
-  redirect("/operator/field/security-workspace");
+  return <FieldWorkspaceRouter />;
 }

@@ -15,6 +15,10 @@ export interface SourceStatement {
   recordedAt: string;
   localTimezone: "Asia/Manila";
   captureState: "draft" | "captured";
+  /**
+   * @minItems 1
+   */
+  captureWindowIds: [string, ...string[]];
   supersedesId?: string;
   subjectId: string;
   sourceRole:

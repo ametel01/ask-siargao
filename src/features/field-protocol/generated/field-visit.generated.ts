@@ -33,6 +33,10 @@ export interface FieldVisit {
   captureState: "draft" | "captured";
   startedAt: string;
   endedAt?: string;
+  /**
+   * @minItems 1
+   */
+  captureWindows: [CaptureWindow, ...CaptureWindow[]];
   target: VisitTarget;
   locationPermissionState: "denied" | "coarse" | "precise_active_visit";
   publicLocationPrecision: "withheld" | "governed_area" | "route_corridor" | "approximate_100m";
@@ -43,6 +47,12 @@ export interface FieldVisit {
   objectiveIds: [string, ...string[]];
   assetIds: string[];
   privateContextNote?: string;
+}
+export interface CaptureWindow {
+  id: string;
+  windowIdentity: "local_hour";
+  localHourStartedAt: string;
+  utcOffsetMinutes: number;
 }
 export interface ProvisionalSubject {
   id: string;
