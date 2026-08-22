@@ -4,8 +4,11 @@ This reference defines the accepted contract for deterministic offline field pla
 review, recovery, and batch export. The implementation programme is
 [issue #237](https://github.com/ametel01/ask-siargao/issues/237).
 
-The accepted contract is not fully implemented. PR #226's `field-record.v1` and embedded-record
-`field-batch.v1` shapes are Legacy Capture and are not authoritative for new work.
+The accepted contract is only partly implemented. Issue #238 provides the signed canonical Field
+Protocol Package, generated bindings, baseline Campaign, record validators, and migration preview.
+The Field Workspace product, encrypted local custody, and server boundary remain separate work.
+PR #226's `field-record.v1` and embedded-record `field-batch.v1` shapes are Legacy Capture and are not
+authoritative for new work.
 
 ## Authority and scope
 
@@ -71,6 +74,22 @@ signature, hash mismatch, incompatible application, or missing migration declara
 Active Field Plans and Visits remain pinned to their original package. Protocol Migration previews
 every change, preserves originals, and sends ambiguous conversions to Needs resolution or Legacy
 Capture.
+
+### Canonical artifacts and generated bindings
+
+The repository-owned source is under `field-protocol/canonical/v1/`. The signed manifest pins the
+schema catalog, controlled Observation Kind registry, Method Profiles, governed Subjects, Travel
+Compatibility Graph, baseline Campaign, help text, examples, and the explicit legacy migration. The
+trusted signer registry under `field-protocol/trust/` contains only an Ed25519 public key.
+
+Generated TypeScript under `src/features/field-protocol/generated/` includes one binding per record
+schema and a typed value interface for every controlled Observation Kind. Runtime validation in
+`src/features/field-protocol/field-protocol.ts` is constructed from the same canonical schemas and
+registries; it does not maintain a second handwritten value validator.
+
+Use `bun run field-protocol:generate` after a repository-reviewed package update. A changed signed
+package requires the release private key through `--sign-private-key=<path>`; never commit that key.
+Use `bun run field-protocol:check` to verify that generated output and content hashes remain stable.
 
 ## Planning contract
 
@@ -386,16 +405,31 @@ Implemented by PR #226:
 - deterministic embedded-record envelope hash;
 - synthetic offline browser test.
 
+Implemented by issue #238:
+
+- signed `field-protocol-siargao-baseline@1.0.0` manifest with component hashes, application
+  compatibility, and explicit migration declaration;
+- canonical schemas for Field Visit, Field Observation, Route Run, Source Statement, Evidence Asset,
+  Capture Exception, Schema Gap, Field Review, Field Recovery Export, and Field Batch;
+- all 19 controlled Observation Kinds with typed value schemas, units, required context, Method
+  Profiles, and freshness defaults;
+- the former itinerary as 13 unscheduled baseline Assignments with Research Objectives, Coverage
+  Requirements, Eligibility Windows, Partial Coverage Sets, geographic forms, and safe fallbacks;
+- governed Subject subsets, Provisional Subject rules, Travel Compatibility Graph, permission
+  defaults, branching guidance, and human-readable help;
+- generated TypeScript bindings and validated examples checked by `bun run field-protocol:check`;
+- fail-closed record validation, package verification, exact-version work resolution, and explicit
+  Protocol Migration previews that preserve originals and quarantine ambiguity.
+
 Not implemented:
 
 - `/operator/field` Field Workspace;
-- signed Field Protocol Package or canonical generated schemas;
 - flexible deterministic planner;
 - guided Recorder and typed Observation Kind forms;
 - encrypted local protected store, Offline Field Grant, recovery secret, or authorized device keys;
 - derived Objective Coverage and Assignment outcomes;
 - immutable Field Review workflow;
-- authoritative Field Recovery Export or Field Batch;
+- Field Recovery Export creation/restoration or Field Batch creation beyond their canonical schemas;
 - physical iPad/Mac acceptance;
 - server Field Ingestion, PostgreSQL capture tables, Fact Admission, or publication.
 

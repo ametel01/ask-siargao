@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "field-protocol-package-manifest.v1",
+  "packageId": "field-protocol-siargao-baseline",
+  "packageVersion": "1.0.0",
+  "createdAt": "2026-08-22T00:00:00.000Z",
+  "signerKeyId": "ask-siargao-field-protocol-2026-01",
+  "componentVersions": {
+    "schemas": "1.0.0",
+    "distributionSchemas": "1.0.0",
+    "observationKinds": "1.0.0",
+    "methodProfiles": "1.0.0",
+    "subjects": "1.0.0",
+    "geography": "1.0.0",
+    "campaign": "1.0.0",
+    "help": "1.0.0",
+    "migration": "1.0.0",
+    "examples": "1.0.0"
+  },
+  "compatibility": {
+    "minimumApplicationVersion": "0.1.0",
+    "maximumApplicationVersionExclusive": "1.0.0"
+  },
+  "migrationDeclaration": {
+    "strategy": "explicit_preview_required",
+    "supportedFromVersions": ["0.9.0"],
+    "migrationIds": ["migration_legacy_0_9_0_to_baseline_1_0_0"]
+  },
+  "files": [
+    {
+      "path": "canonical/v1/campaign-island-baseline.v1.json",
+      "sha256": "5f5710d977a8373559ff8681b7613681cf75150038ad19118d530eaa9970281b"
+    },
+    {
+      "path": "canonical/v1/distribution-schemas.v1.json",
+      "sha256": "e197bd0fca5a9c18be2cfb3b7d2cab1a436dd494fa8a9364edf566a2c045e5e5"
+    },
+    {
+      "path": "canonical/v1/examples.v1.json",
+      "sha256": "eec7bfde731ef55655c867c91ac97c2ca6bd848a1a25443d377aec3e56c221f1"
+    },
+    {
+      "path": "canonical/v1/geography.v1.json",
+      "sha256": "c2575f96996f2a966b5227bef05a26e7055c66289f89e7a92155bfe857b051e0"
+    },
+    {
+      "path": "canonical/v1/help.v1.json",
+      "sha256": "a8ae4351d831e922c7329be2482001d83b289e5a76d93b2fe009b02bf27f1d76"
+    },
+    {
+      "path": "canonical/v1/method-profiles.v1.json",
+      "sha256": "45271502a94c39b1432b17d370cc2695556e41ef3591e0f70aa8bb6fac18f22f"
+    },
+    {
+      "path": "canonical/v1/migration-legacy-0.9.0.v1.json",
+      "sha256": "65aae9c90166df9bd127e7b0cb45ee021faa08d475bdc788b142cbb8cff1176c"
+    },
+    {
+      "path": "canonical/v1/observation-kinds.v1.json",
+      "sha256": "7d0560f35f202bc445e1ff1ea696f26a6f50007ffcce242c15a9b2da3a5ec2c3"
+    },
+    {
+      "path": "canonical/v1/schemas.v1.json",
+      "sha256": "75130663fe91caa03d4fceaa0f16760d1e9ee26396fb3cbaa251721d7267c229"
+    },
+    {
+      "path": "canonical/v1/subjects.v1.json",
+      "sha256": "0e907f8f2ab1c1066be81d9d972025a1fa5ca30b88d797f31fa6200588b4cd60"
+    }
+  ],
+  "signature": {
+    "algorithm": "Ed25519",
+    "value": "XRv1goo00ySRuapFzUk+QchYNtS+RadZYRKQSffN/DCjbJHeCWr2dN+XWmbdkXf3whDiv5c52DIsXwYGJDm5BQ=="
+  }
+}

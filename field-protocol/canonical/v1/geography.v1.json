@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "travel-compatibility-graph.v1",
+  "componentVersion": "1.0.0",
+  "areas": [
+    { "id": "area_del_carmen", "classification": "town_and_airport_cluster" },
+    { "id": "area_general_luna", "classification": "visitor_service_cluster" },
+    { "id": "area_dapa", "classification": "port_and_service_cluster" },
+    { "id": "area_central_corridor", "classification": "transfer_corridor" },
+    { "id": "area_south_central", "classification": "route_corridor" },
+    { "id": "area_north", "classification": "remote_route_corridor" },
+    { "id": "area_pilar", "classification": "condition_dependent_access" }
+  ],
+  "transportModes": ["walk", "bicycle", "motorbike", "tricycle", "car", "van", "boat"],
+  "edges": [
+    {
+      "from": "area_del_carmen",
+      "to": "area_central_corridor",
+      "modes": ["motorbike", "tricycle", "car", "van"],
+      "durationBandMinutes": [25, 50],
+      "transferBoundary": false
+    },
+    {
+      "from": "area_central_corridor",
+      "to": "area_general_luna",
+      "modes": ["motorbike", "tricycle", "car", "van"],
+      "durationBandMinutes": [30, 60],
+      "transferBoundary": false
+    },
+    {
+      "from": "area_central_corridor",
+      "to": "area_dapa",
+      "modes": ["motorbike", "tricycle", "car", "van"],
+      "durationBandMinutes": [20, 45],
+      "transferBoundary": false
+    },
+    {
+      "from": "area_general_luna",
+      "to": "area_south_central",
+      "modes": ["motorbike", "tricycle", "car"],
+      "durationBandMinutes": [20, 55],
+      "transferBoundary": false
+    },
+    {
+      "from": "area_del_carmen",
+      "to": "area_north",
+      "modes": ["motorbike", "tricycle", "car", "van"],
+      "durationBandMinutes": [45, 105],
+      "transferBoundary": false
+    },
+    {
+      "from": "area_central_corridor",
+      "to": "area_pilar",
+      "modes": ["motorbike", "tricycle", "car"],
+      "durationBandMinutes": [30, 75],
+      "transferBoundary": false
+    },
+    {
+      "from": "area_del_carmen",
+      "to": "area_del_carmen",
+      "modes": ["boat"],
+      "durationBandMinutes": [15, 180],
+      "transferBoundary": true
+    }
+  ]
+}

@@ -1,0 +1,609 @@
+{
+  "schemaVersion": "field-campaign.v1",
+  "componentVersion": "1.0.0",
+  "campaignId": "campaign_island_baseline",
+  "name": "Siargao island baseline",
+  "purpose": "Build reviewed first-hand visitor-planning evidence without binding fieldwork to predetermined dates.",
+  "methodologyVersion": "1.0.0",
+  "baselineOrigin": {
+    "replaces": "former-14-day-itinerary",
+    "representation": "unscheduled-coverage-and-eligibility"
+  },
+  "objectiveActions": ["observe", "measure", "attempt", "ask", "traverse", "document", "repeat"],
+  "permissionDefaults": {
+    "llmUse": false,
+    "articleUse": false,
+    "quotationUse": false,
+    "publicUse": false,
+    "preciseLocation": "denied"
+  },
+  "branchingRules": [
+    {
+      "when": "hard_gate_unsafe_or_ineligible",
+      "action": "record_capture_exception_and_offer_safe_fallback"
+    },
+    {
+      "when": "schema_cannot_represent_reality",
+      "action": "record_schema_gap_without_best_fit_value"
+    },
+    {
+      "when": "partial_coverage_set_selected",
+      "action": "preserve_unselected_objectives_as_outstanding"
+    },
+    {
+      "when": "required_coverage_blocked",
+      "action": "close_with_gaps_and_create_unscheduled_follow_up"
+    },
+    { "when": "captured_record_needs_correction", "action": "supersede_without_rewriting_original" }
+  ],
+  "assignments": [
+    {
+      "id": "assignment_home_base_readiness",
+      "state": "unscheduled",
+      "title": "Home-base readiness and practicalities",
+      "geography": {
+        "form": "governed_area",
+        "areaId": "area_del_carmen",
+        "privateLocation": true
+      },
+      "estimatedMinutes": 150,
+      "eligibilityWindows": [
+        { "kind": "daypart", "values": ["morning", "evening"] },
+        { "kind": "changed_conditions", "values": ["power", "weather", "crowd"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_home_observe_utilities",
+          "action": "observe",
+          "observationKinds": ["power", "facility"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 2,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        },
+        {
+          "id": "objective_home_measure_environment",
+          "action": "measure",
+          "observationKinds": ["connectivity", "noise_snapshot"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 2,
+            "supportingAsset": "not_required",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_home_connectivity",
+          "objectiveIds": ["objective_home_measure_environment"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_del_carmen_essentials",
+      "state": "unscheduled",
+      "title": "Del Carmen visitor essentials",
+      "geography": {
+        "form": "governed_area",
+        "areaId": "area_del_carmen",
+        "privateLocation": false
+      },
+      "estimatedMinutes": 210,
+      "eligibilityWindows": [
+        { "kind": "weekday_class", "values": ["weekday", "weekend"] },
+        { "kind": "operating_state", "values": ["open"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_home_base_readiness",
+      "objectives": [
+        {
+          "id": "objective_del_carmen_observe_services",
+          "action": "observe",
+          "observationKinds": ["identity", "facility", "payment_method", "connectivity"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 4,
+            "supportingAsset": "required_for_posted_information",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
+          "id": "objective_del_carmen_ask_service_leads",
+          "action": "ask",
+          "recordKinds": ["source-statement.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "not_required",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_del_carmen_wayfinding",
+          "objectiveIds": ["objective_del_carmen_observe_services"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_airport_arrival",
+      "state": "unscheduled",
+      "title": "Sayak Airport arrival journey",
+      "geography": {
+        "form": "origin_destination_route",
+        "routeId": "route_airport_del_carmen",
+        "originSubjectId": "subject_sayak_airport",
+        "destinationSubjectId": "subject_area_del_carmen"
+      },
+      "estimatedMinutes": 180,
+      "eligibilityWindows": [
+        { "kind": "arrival_window", "values": ["genuine_arrival"] },
+        { "kind": "transport_state", "values": ["operating"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_airport_traverse_arrival",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
+          "id": "objective_airport_document_signage",
+          "action": "document",
+          "recordKinds": ["evidence-asset.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "required",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        { "id": "partial_airport_signage", "objectiveIds": ["objective_airport_document_signage"] }
+      ]
+    },
+    {
+      "id": "assignment_general_luna_journey",
+      "state": "unscheduled",
+      "title": "General Luna and Catangnan visitor journey",
+      "geography": {
+        "form": "governed_area",
+        "areaId": "area_general_luna",
+        "privateLocation": false
+      },
+      "estimatedMinutes": 240,
+      "eligibilityWindows": [
+        { "kind": "weekday_class", "values": ["weekday", "weekend"] },
+        { "kind": "daypart", "values": ["daytime", "evening"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_connectivity_transect",
+      "objectives": [
+        {
+          "id": "objective_general_luna_attempt_arrival",
+          "action": "attempt",
+          "observationKinds": ["payment_method", "facility", "accessibility"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 3,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        },
+        {
+          "id": "objective_general_luna_repeat_crowd",
+          "action": "repeat",
+          "observationKinds": ["crowd_snapshot", "connectivity"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 4,
+            "supportingAsset": "not_required",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_general_luna_access",
+          "objectiveIds": ["objective_general_luna_attempt_arrival"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_connectivity_transect",
+      "state": "unscheduled",
+      "title": "Connectivity transect",
+      "geography": {
+        "form": "route_corridor",
+        "areaIds": ["area_del_carmen", "area_general_luna"]
+      },
+      "estimatedMinutes": 180,
+      "eligibilityWindows": [
+        { "kind": "changed_conditions", "values": ["crowd", "weather", "zone"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_home_base_readiness",
+      "objectives": [
+        {
+          "id": "objective_connectivity_measure_sets",
+          "action": "measure",
+          "observationKinds": ["connectivity", "power", "noise_snapshot"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 6,
+            "supportingAsset": "not_required",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_connectivity_one_zone",
+          "objectiveIds": ["objective_connectivity_measure_sets"],
+          "coverageLimit": "one_governed_zone_only"
+        }
+      ]
+    },
+    {
+      "id": "assignment_dapa_hub",
+      "state": "unscheduled",
+      "title": "Dapa port and service hub",
+      "geography": { "form": "route_corridor", "areaIds": ["area_dapa", "area_central_corridor"] },
+      "estimatedMinutes": 300,
+      "eligibilityWindows": [
+        { "kind": "transport_window", "values": ["arrival", "departure"] },
+        { "kind": "operating_state", "values": ["open"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_dapa_traverse_port",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
+          "id": "objective_dapa_observe_services",
+          "action": "observe",
+          "observationKinds": [
+            "price",
+            "payment_method",
+            "facility",
+            "accessibility",
+            "service_status"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 5,
+            "supportingAsset": "required_for_posted_information",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        { "id": "partial_dapa_service_hub", "objectiveIds": ["objective_dapa_observe_services"] }
+      ]
+    },
+    {
+      "id": "assignment_south_central_corridor",
+      "state": "unscheduled",
+      "title": "South and central corridor",
+      "geography": { "form": "route_corridor", "areaIds": ["area_south_central"] },
+      "estimatedMinutes": 360,
+      "eligibilityWindows": [{ "kind": "safe_route_state", "values": ["daylight", "passable"] }],
+      "safeFallbackAssignmentId": "assignment_general_luna_journey",
+      "objectives": [
+        {
+          "id": "objective_south_traverse_twice",
+          "action": "repeat",
+          "recordKinds": ["route-run.v1"],
+          "observationKinds": ["road_condition", "route_duration", "connectivity"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 6,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_south_one_route",
+          "objectiveIds": ["objective_south_traverse_twice"],
+          "coverageLimit": "one_run_does_not_complete_repetition"
+        }
+      ]
+    },
+    {
+      "id": "assignment_northbound_services",
+      "state": "unscheduled",
+      "title": "Northbound services and access",
+      "geography": { "form": "route_corridor", "areaIds": ["area_north"] },
+      "estimatedMinutes": 420,
+      "eligibilityWindows": [
+        { "kind": "weekday_class", "values": ["weekday", "weekend"] },
+        { "kind": "daypart", "values": ["daytime"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_north_observe_services",
+          "action": "observe",
+          "observationKinds": [
+            "route_duration",
+            "road_condition",
+            "price",
+            "facility",
+            "service_status",
+            "connectivity"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 6,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_north_services",
+          "objectiveIds": ["objective_north_observe_services"],
+          "coverageLimit": "one_governed_area"
+        }
+      ]
+    },
+    {
+      "id": "assignment_santa_monica_alegria",
+      "state": "unscheduled",
+      "title": "Santa Monica and Alegria route",
+      "geography": {
+        "form": "origin_destination_route",
+        "routeId": "route_santa_monica_alegria",
+        "originSubjectId": "subject_route_northbound",
+        "destinationSubjectId": "subject_route_santa_monica_alegria"
+      },
+      "estimatedMinutes": 360,
+      "eligibilityWindows": [
+        { "kind": "safe_route_state", "values": ["daylight", "return_transport_available"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_northbound_services",
+      "objectives": [
+        {
+          "id": "objective_north_route_traverse",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
+          "id": "objective_north_route_repeat_gap",
+          "action": "repeat",
+          "observationKinds": ["route_wait", "facility", "connectivity"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "not_required",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        { "id": "partial_north_route_repeat", "objectiveIds": ["objective_north_route_repeat_gap"] }
+      ]
+    },
+    {
+      "id": "assignment_pilar_access",
+      "state": "unscheduled",
+      "title": "Pilar and condition-dependent access",
+      "geography": {
+        "form": "access_point",
+        "areaId": "area_pilar",
+        "subjectId": "subject_area_pilar"
+      },
+      "estimatedMinutes": 300,
+      "eligibilityWindows": [
+        { "kind": "tide_context", "values": ["safe_for_declared_access"] },
+        { "kind": "access_state", "values": ["open", "permitted"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_south_central_corridor",
+      "objectives": [
+        {
+          "id": "objective_pilar_observe_conditions",
+          "action": "observe",
+          "observationKinds": [
+            "tide_context",
+            "road_condition",
+            "price",
+            "facility",
+            "accessibility",
+            "service_status"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 6,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_pilar_non_access",
+          "objectiveIds": ["objective_pilar_observe_conditions"],
+          "coverageLimit": "no_destination_access_claim"
+        }
+      ]
+    },
+    {
+      "id": "assignment_del_carmen_boat",
+      "state": "unscheduled",
+      "title": "Del Carmen departure and boat journey",
+      "geography": {
+        "form": "access_point",
+        "areaId": "area_del_carmen",
+        "subjectId": "subject_del_carmen_departure_points"
+      },
+      "estimatedMinutes": 360,
+      "eligibilityWindows": [
+        { "kind": "provider_state", "values": ["authorized", "operating"] },
+        { "kind": "safe_marine_state", "values": ["suitable"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_boat_attempt_booking",
+          "action": "attempt",
+          "observationKinds": [
+            "price",
+            "payment_method",
+            "route_wait",
+            "facility",
+            "service_status"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 5,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
+          "id": "objective_boat_traverse_journey",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
+          "id": "objective_boat_ask_policy",
+          "action": "ask",
+          "recordKinds": ["source-statement.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "not_required",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_boat_booking",
+          "objectiveIds": ["objective_boat_attempt_booking", "objective_boat_ask_policy"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_no_scooter_accessibility",
+      "state": "unscheduled",
+      "title": "No-scooter accessibility journey",
+      "geography": {
+        "form": "route_corridor",
+        "areaIds": ["area_del_carmen", "area_dapa", "area_general_luna"]
+      },
+      "estimatedMinutes": 300,
+      "eligibilityWindows": [
+        { "kind": "transport_state", "values": ["realistic_no_scooter_option"] },
+        { "kind": "safety_state", "values": ["no_created_health_or_safety_risk"] }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_accessibility_attempt_journey",
+          "action": "attempt",
+          "observationKinds": ["accessibility", "price", "facility", "route_wait"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 4,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        },
+        {
+          "id": "objective_accessibility_traverse_journey",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": { "minimumDistinctWindows": 1 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_accessibility_booking",
+          "objectiveIds": ["objective_accessibility_attempt_journey"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_conflict_follow_up",
+      "state": "unscheduled",
+      "title": "Conflict and freshness follow-up",
+      "geography": {
+        "form": "governed_subject_subset",
+        "selectionRule": "nearest_travel_compatible_unresolved_subject"
+      },
+      "estimatedMinutes": 180,
+      "eligibilityWindows": [
+        {
+          "kind": "source_coverage",
+          "values": ["original_requirement_window", "changed_condition"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_connectivity_transect",
+      "objectives": [
+        {
+          "id": "objective_follow_up_repeat_evidence",
+          "action": "repeat",
+          "observationKinds": [
+            "price",
+            "route_duration",
+            "opening_signal",
+            "connectivity",
+            "identity",
+            "local_caveat"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "depends_on_original_requirement",
+            "repetition": { "minimumDistinctWindows": 2 }
+          }
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_follow_up_one_conflict",
+          "objectiveIds": ["objective_follow_up_repeat_evidence"],
+          "coverageLimit": "one_original_requirement"
+        }
+      ]
+    }
+  ]
+}
