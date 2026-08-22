@@ -18,6 +18,10 @@ test("generates and safely adjusts an accessible offline Field Day Plan", async 
   await expect(page.getByLabel("Transport mode")).toBeVisible();
   await expect(page.getByRole("list", { name: "Selected Field Assignments" })).toBeVisible();
   await expect(page.getByText("Coverage consequence:").first()).toBeVisible();
+  await expect(page.locator("[data-field-planner-ready]")).toHaveAttribute(
+    "data-field-planner-ready",
+    "true",
+  );
 
   await context.setOffline(true);
   await page.getByRole("button", { name: "Generate deterministic proposal" }).click();

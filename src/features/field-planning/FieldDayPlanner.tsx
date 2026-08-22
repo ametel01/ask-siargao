@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FieldPlanExplanation, formatConsequences } from "./FieldPlanExplanation";
 import { applyFieldPlanAdjustment } from "./field-plan-adjustments";
 import { proposeFieldDayPlan } from "./field-planner";
@@ -20,12 +20,17 @@ export function FieldDayPlanner({
   coverageSnapshot: FieldCoverageSnapshot;
   initialInputs: PlannerInputs;
 }) {
+  const plannerRoot = useRef<HTMLDivElement>(null);
   const [inputs, setInputs] = useState(initialInputs);
   const [proposal, setProposal] = useState<FieldPlanProposal>(() =>
     proposeFieldDayPlan(protocol, coverageSnapshot, initialInputs),
   );
   const [status, setStatus] = useState("Proposal generated from the verified offline package.");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    plannerRoot.current?.setAttribute("data-field-planner-ready", "true");
+  }, []);
 
   function generate() {
     setError("");
@@ -59,7 +64,11 @@ export function FieldDayPlanner({
   }
 
   return (
-    <div className="min-h-screen bg-[var(--surface-soft)] px-4 py-8 sm:px-8">
+    <div
+      ref={plannerRoot}
+      className="min-h-screen bg-[var(--surface-soft)] px-4 py-8 sm:px-8"
+      data-field-planner-ready="false"
+    >
       <main className="mx-auto max-w-5xl space-y-8">
         <header className="rounded-2xl bg-[var(--brand-navy-950)] p-6 text-[var(--text-on-dark)] shadow-[var(--shadow-panel)]">
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-lagoon-300)]">

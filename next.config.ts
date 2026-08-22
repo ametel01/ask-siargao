@@ -17,21 +17,26 @@ export const contentSecurityPolicyReportOnly = [
   "media-src 'self'",
 ].join("; ");
 
-export const fieldWorkspaceContentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "worker-src 'self'",
-  "manifest-src 'self'",
-  "media-src 'self' blob:",
-].join("; ");
+export function createFieldWorkspaceContentSecurityPolicy(nodeEnv = process.env.NODE_ENV) {
+  const developmentScriptSource = nodeEnv === "development" ? " 'unsafe-eval'" : "";
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    `script-src 'self' 'unsafe-inline'${developmentScriptSource}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "media-src 'self' blob:",
+  ].join("; ");
+}
+
+export const fieldWorkspaceContentSecurityPolicy = createFieldWorkspaceContentSecurityPolicy();
 
 const nextConfig: NextConfig = {
   devIndicators: false,

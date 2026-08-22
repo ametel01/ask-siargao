@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+import { isProtectedUiHarnessRequest } from "@/server/auth/protected-ui-harness";
 import { readFieldResearcherAccountAllowlist } from "@/server/field-security/authorization";
 import { isFieldSecurityProductionHarnessRequest } from "@/server/field-security/test-harness";
 
@@ -14,11 +15,12 @@ export const metadata: Metadata = {
 
 export default async function FieldWorkspaceLayout(props: { children: React.ReactNode }) {
   const requestHeaders = await headers();
-  const harness = isFieldSecurityProductionHarnessRequest({
+  const fieldSecurityHarness = isFieldSecurityProductionHarnessRequest({
     headers: requestHeaders,
     pathname: requestHeaders.get("x-invoke-path") ?? "/operator/field",
   });
-  if (harness) return props.children;
+  const protectedUiHarness = isProtectedUiHarnessRequest({ headers: requestHeaders });
+  if (fieldSecurityHarness || protectedUiHarness) return props.children;
 
   const snapshot = await auth();
   if (!snapshot.userId || !readFieldResearcherAccountAllowlist().has(snapshot.userId)) {

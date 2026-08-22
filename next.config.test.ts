@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import nextConfig, {
   contentSecurityPolicyReportOnly,
+  createFieldWorkspaceContentSecurityPolicy,
   fieldWorkspaceContentSecurityPolicy,
 } from "./next.config";
 
@@ -56,6 +57,8 @@ describe("security response headers", () => {
     expect(fieldWorkspaceContentSecurityPolicy).not.toContain("posthog");
     expect(fieldWorkspaceContentSecurityPolicy).not.toContain("sentry");
     expect(fieldWorkspaceContentSecurityPolicy).not.toContain("api.openai.com");
+    expect(createFieldWorkspaceContentSecurityPolicy("development")).toContain("'unsafe-eval'");
+    expect(createFieldWorkspaceContentSecurityPolicy("production")).not.toContain("'unsafe-eval'");
   });
 });
 
