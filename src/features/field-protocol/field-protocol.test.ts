@@ -102,6 +102,276 @@ describe("canonical field protocol records", () => {
     }
   });
 
+  test("rejects Field Visit references outside the signed package and Assignment", () => {
+    const example = baselineFieldProtocolPackage.examples.examples.fieldVisit;
+    const invalidCases = [
+      {
+        candidate: {
+          ...example,
+          target: { kind: "governed_subject", subjectId: "subject_missing" },
+        },
+        code: "unknown_subject",
+      },
+      {
+        candidate: {
+          ...example,
+          target: { kind: "governed_area", areaId: "area_missing" },
+        },
+        code: "unknown_area",
+      },
+      {
+        candidate: {
+          ...example,
+          target: { kind: "governed_route", routeId: "route_missing" },
+        },
+        code: "unknown_route",
+      },
+      {
+        candidate: {
+          ...example,
+          target: {
+            kind: "provisional_subject",
+            provisionalSubject: {
+              id: "0192f060-4f41-7aa1-b322-4aa9fc9f1599",
+              displayedName: "Unresolved place",
+              category: "place",
+              governedAreaId: "area_missing",
+              distinguishingDetails: "An unresolved place outside the governed area registry.",
+            },
+          },
+        },
+        code: "unknown_area",
+      },
+      {
+        candidate: {
+          ...example,
+          objectiveIds: ["objective_airport_traverse_arrival"],
+        },
+        code: "unknown_objective",
+      },
+    ];
+
+    for (const invalidCase of invalidCases) {
+      const validation = validateFieldProtocolRecord("fieldVisit", invalidCase.candidate);
+      expect(validation.success, invalidCase.code).toBe(false);
+      if (!validation.success) {
+        expect(validation.issues.map((validationIssue) => validationIssue.code)).toContain(
+          invalidCase.code,
+        );
+      }
+    }
+  });
+
+  test("rejects governed Subjects and Method Profiles outside the signed package", () => {
+    const examples = baselineFieldProtocolPackage.examples.examples;
+    const invalidCases: Array<{
+      kind: FieldProtocolRecordKind;
+      candidate: unknown;
+      code: string;
+    }> = [
+      {
+        kind: "routeRun",
+        candidate: { ...examples.routeRun, originSubjectId: "subject_missing" },
+        code: "unknown_subject",
+      },
+      {
+        kind: "routeRun",
+        candidate: { ...examples.routeRun, destinationSubjectId: "subject_missing" },
+        code: "unknown_subject",
+      },
+      {
+        kind: "routeRun",
+        candidate: { ...examples.routeRun, methodProfileId: "method_missing@1.0.0" },
+        code: "unknown_method_profile",
+      },
+      {
+        kind: "routeRun",
+        candidate: { ...examples.routeRun, methodProfileId: "method_sound_meter@1.0.0" },
+        code: "incompatible_method_profile",
+      },
+      {
+        kind: "sourceStatement",
+        candidate: { ...examples.sourceStatement, subjectId: "subject_missing" },
+        code: "unknown_subject",
+      },
+      {
+        kind: "schemaGap",
+        candidate: {
+          ...examples.schemaGap,
+          subject: { kind: "governed", subjectId: "subject_missing" },
+        },
+        code: "unknown_subject",
+      },
+    ];
+
+    for (const invalidCase of invalidCases) {
+      const validation = validateFieldProtocolRecord(invalidCase.kind, invalidCase.candidate);
+      expect(validation.success, `${invalidCase.kind}:${invalidCase.code}`).toBe(false);
+      if (!validation.success) {
+        expect(validation.issues.map((validationIssue) => validationIssue.code)).toContain(
+          invalidCase.code,
+        );
+      }
+    }
+  });
+
+  test("rejects Campaign and Objective references outside the signed Assignment graph", () => {
+    const examples = baselineFieldProtocolPackage.examples.examples;
+    const assignmentRecordKinds = [
+      "captureException",
+      "evidenceAsset",
+      "fieldObservation",
+      "fieldVisit",
+      "routeRun",
+      "schemaGap",
+      "sourceStatement",
+    ] as const;
+
+    for (const kind of assignmentRecordKinds) {
+      const example = examples[kind] as Record<string, unknown>;
+      const unknownCampaign = validateFieldProtocolRecord(kind, {
+        ...example,
+        campaignId: "campaign_missing",
+      });
+      expect(unknownCampaign.success, `${kind}:unknown_campaign`).toBe(false);
+      if (!unknownCampaign.success) {
+        expect(unknownCampaign.issues.map((validationIssue) => validationIssue.code)).toContain(
+          "unknown_campaign",
+        );
+      }
+
+      const unknownAssignment = validateFieldProtocolRecord(kind, {
+        ...example,
+        assignmentId: "assignment_missing",
+      });
+      expect(unknownAssignment.success, `${kind}:unknown_assignment`).toBe(false);
+      if (!unknownAssignment.success) {
+        expect(unknownAssignment.issues.map((validationIssue) => validationIssue.code)).toContain(
+          "unknown_assignment",
+        );
+      }
+    }
+
+    const singleObjectiveKinds = [
+      "captureException",
+      "fieldObservation",
+      "routeRun",
+      "schemaGap",
+      "sourceStatement",
+    ] as const;
+    for (const kind of singleObjectiveKinds) {
+      const validation = validateFieldProtocolRecord(kind, {
+        ...examples[kind],
+        objectiveId: "objective_missing",
+      });
+      expect(validation.success, `${kind}:unknown_objective`).toBe(false);
+      if (!validation.success) {
+        expect(validation.issues.map((validationIssue) => validationIssue.code)).toContain(
+          "unknown_objective",
+        );
+      }
+    }
+
+    const unknownAssetObjective = validateFieldProtocolRecord("evidenceAsset", {
+      ...examples.evidenceAsset,
+      objectiveIds: [...examples.evidenceAsset.objectiveIds, "objective_missing"],
+    });
+    expect(unknownAssetObjective.success).toBe(false);
+    if (!unknownAssetObjective.success) {
+      expect(unknownAssetObjective.issues.map((validationIssue) => validationIssue.code)).toContain(
+        "unknown_objective",
+      );
+    }
+  });
+
+  test("rejects Field Batch package and lineage references outside the signed package", () => {
+    const example = baselineFieldProtocolPackage.examples.examples.fieldBatch;
+    const declaredPackage = example.protocolPackages[0];
+    const invalidCases = [
+      {
+        candidate: {
+          ...example,
+          protocolPackages: [{ ...declaredPackage, packageId: "field-protocol-missing" }],
+        },
+        code: "unknown_protocol_package",
+      },
+      {
+        candidate: {
+          ...example,
+          protocolPackages: [{ ...declaredPackage, version: "9.9.9" }],
+        },
+        code: "protocol_package_mismatch",
+      },
+      {
+        candidate: {
+          ...example,
+          protocolPackages: [
+            {
+              ...declaredPackage,
+              componentVersions: { ...declaredPackage.componentVersions, subjects: "9.9.9" },
+            },
+          ],
+        },
+        code: "component_version_mismatch",
+      },
+      {
+        candidate: {
+          ...example,
+          lineage: { ...example.lineage, campaignIds: ["campaign_missing"] },
+        },
+        code: "unknown_campaign",
+      },
+      {
+        candidate: {
+          ...example,
+          lineage: { ...example.lineage, assignmentIds: ["assignment_missing"] },
+        },
+        code: "unknown_assignment",
+      },
+    ];
+
+    for (const invalidCase of invalidCases) {
+      const validation = validateFieldProtocolRecord("fieldBatch", invalidCase.candidate);
+      expect(validation.success, invalidCase.code).toBe(false);
+      if (!validation.success) {
+        expect(validation.issues.map((validationIssue) => validationIssue.code)).toContain(
+          invalidCase.code,
+        );
+      }
+    }
+  });
+
+  test("binds every package-bearing record kind to the signed package identity", () => {
+    const examples = baselineFieldProtocolPackage.examples.examples;
+    const packageBearingRecordKinds = [
+      "captureException",
+      "evidenceAsset",
+      "fieldObservation",
+      "fieldReview",
+      "fieldVisit",
+      "routeRun",
+      "schemaGap",
+      "sourceStatement",
+      "statementTranslation",
+    ] as const;
+
+    for (const kind of packageBearingRecordKinds) {
+      const example = examples[kind] as Record<string, unknown>;
+      for (const candidate of [
+        { ...example, protocolPackageId: "field-protocol-missing" },
+        { ...example, protocolPackageVersion: "9.9.9" },
+      ]) {
+        const validation = validateFieldProtocolRecord(kind, candidate);
+        expect(validation.success, kind).toBe(false);
+        if (!validation.success) {
+          expect(validation.issues.map((validationIssue) => validationIssue.code)).toContain(
+            "protocol_package_mismatch",
+          );
+        }
+      }
+    }
+  });
+
   test("rejects placeholder kinds, arbitrary values, units, and condition tags", () => {
     const example = baselineFieldProtocolPackage.examples.examples.fieldObservation;
     const invalidCases = [

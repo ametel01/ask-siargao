@@ -98,6 +98,12 @@ const methodProfileRegistry = new Map<string, MethodProfileRegistryEntry>(
 const governedSubjectIds = new Set<string>(
   baselineFieldProtocolPackageData.subjects.subjects.map((subject) => subject.id),
 );
+const governedAreaIds = new Set<string>(
+  baselineFieldProtocolPackageData.geography.areas.map((area) => area.id),
+);
+const governedRouteIds = new Set<string>(
+  baselineFieldProtocolPackageData.geography.routes.map((route) => route.id),
+);
 const coverageRequirementsByAssignment = new Map<
   string,
   ReadonlyMap<string, CoverageRequirementConstraint>
@@ -143,9 +149,32 @@ export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
 
   const packageIssues = validateRecordPackageReference(parsed.data);
   if (packageIssues.length > 0) return { success: false, issues: packageIssues };
+  const campaignIssues = validateCampaignAssignmentReferences(parsed.data);
+  if (campaignIssues.length > 0) return { success: false, issues: campaignIssues };
 
   if (kind === "fieldObservation") {
     const issues = validateObservationSemantics(parsed.data as FieldObservation);
+    if (issues.length > 0) return { success: false, issues };
+  }
+  if (kind === "fieldVisit") {
+    const issues = validateFieldVisitSemantics(parsed.data as FieldVisit);
+    if (issues.length > 0) return { success: false, issues };
+  }
+  if (kind === "routeRun") {
+    const issues = validateRouteRunSemantics(parsed.data as RouteRun);
+    if (issues.length > 0) return { success: false, issues };
+  }
+  if (kind === "sourceStatement") {
+    const statement = parsed.data as SourceStatement;
+    const issues = validateGovernedSubjectReference(statement.subjectId, "subjectId");
+    if (issues.length > 0) return { success: false, issues };
+  }
+  if (kind === "schemaGap") {
+    const gap = parsed.data as SchemaGap;
+    const issues =
+      gap.subject.kind === "governed"
+        ? validateGovernedSubjectReference(gap.subject.subjectId, "subject.subjectId")
+        : [];
     if (issues.length > 0) return { success: false, issues };
   }
   if (kind === "fieldBatch") {
@@ -442,12 +471,9 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
     );
   }
 
-  if (
-    observation.subject.kind === "governed" &&
-    !governedSubjectIds.has(observation.subject.subjectId)
-  ) {
+  if (observation.subject.kind === "governed") {
     issues.push(
-      issue("unknown_subject", "The governed Subject is not in this package.", "subject.subjectId"),
+      ...validateGovernedSubjectReference(observation.subject.subjectId, "subject.subjectId"),
     );
   }
 
@@ -529,8 +555,144 @@ function validateObservationSemantics(observation: FieldObservation): ProtocolVa
   return issues;
 }
 
+function validateFieldVisitSemantics(visit: FieldVisit): ProtocolValidationIssue[] {
+  const issues: ProtocolValidationIssue[] = [];
+  if (visit.target.kind === "governed_subject") {
+    issues.push(...validateGovernedSubjectReference(visit.target.subjectId, "target.subjectId"));
+  } else if (visit.target.kind === "governed_area") {
+    if (!governedAreaIds.has(visit.target.areaId)) {
+      issues.push(issue("unknown_area", "The Visit area is not in this package.", "target.areaId"));
+    }
+  } else if (visit.target.kind === "governed_route") {
+    if (!governedRouteIds.has(visit.target.routeId)) {
+      issues.push(
+        issue("unknown_route", "The Visit route is not in this package.", "target.routeId"),
+      );
+    }
+  } else if (!governedAreaIds.has(visit.target.provisionalSubject.governedAreaId)) {
+    issues.push(
+      issue(
+        "unknown_area",
+        "The Provisional Subject's governed area is not in this package.",
+        "target.provisionalSubject.governedAreaId",
+      ),
+    );
+  }
+
+  return issues;
+}
+
+function validateRouteRunSemantics(routeRun: RouteRun): ProtocolValidationIssue[] {
+  const issues = [
+    ...validateGovernedSubjectReference(routeRun.originSubjectId, "originSubjectId"),
+    ...validateGovernedSubjectReference(routeRun.destinationSubjectId, "destinationSubjectId"),
+  ];
+  const method = methodProfileRegistry.get(routeRun.methodProfileId);
+  if (!method) {
+    issues.push(
+      issue(
+        "unknown_method_profile",
+        `Method Profile ${routeRun.methodProfileId} is not in this package.`,
+        "methodProfileId",
+      ),
+    );
+  } else {
+    const objective = objectiveConstraintsByAssignment
+      .get(routeRun.assignmentId)
+      ?.get(routeRun.objectiveId);
+    const coverageRequirement = coverageRequirementsByAssignment
+      .get(routeRun.assignmentId)
+      ?.get(routeRun.coverageRequirementId);
+    const admissibleKinds = objective?.observationKinds.filter((kind) =>
+      coverageRequirement?.admissibleObservationKinds.includes(kind),
+    );
+    if (
+      objective &&
+      coverageRequirement &&
+      !admissibleKinds?.some((kind) => method.supportedKinds.includes(kind))
+    ) {
+      issues.push(
+        issue(
+          "incompatible_method_profile",
+          `Method Profile ${routeRun.methodProfileId} does not support this Route Run's Objective and Coverage Requirement.`,
+          "methodProfileId",
+        ),
+      );
+    }
+  }
+  return issues;
+}
+
+function validateGovernedSubjectReference(
+  subjectId: string,
+  path: string,
+): ProtocolValidationIssue[] {
+  return governedSubjectIds.has(subjectId)
+    ? []
+    : [issue("unknown_subject", "The governed Subject is not in this package.", path)];
+}
+
 function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue[] {
   const issues: ProtocolValidationIssue[] = [];
+  const manifest = baselineFieldProtocolPackageData.manifest;
+  for (const [packageIndex, protocolPackage] of batch.protocolPackages.entries()) {
+    if (protocolPackage.packageId !== manifest.packageId) {
+      issues.push(
+        issue(
+          "unknown_protocol_package",
+          `Field Protocol Package ${protocolPackage.packageId} is not installed for this validator.`,
+          `protocolPackages.${packageIndex}.packageId`,
+        ),
+      );
+      continue;
+    }
+    if (protocolPackage.version !== manifest.packageVersion) {
+      issues.push(
+        issue(
+          "protocol_package_mismatch",
+          `Field Protocol Package ${protocolPackage.packageId} must use version ${manifest.packageVersion}.`,
+          `protocolPackages.${packageIndex}.version`,
+        ),
+      );
+    }
+    for (const [component, expectedVersion] of Object.entries(manifest.componentVersions)) {
+      if (
+        protocolPackage.componentVersions[
+          component as keyof typeof protocolPackage.componentVersions
+        ] !== expectedVersion
+      ) {
+        issues.push(
+          issue(
+            "component_version_mismatch",
+            `Component ${component} must use pinned version ${expectedVersion}.`,
+            `protocolPackages.${packageIndex}.componentVersions.${component}`,
+          ),
+        );
+      }
+    }
+  }
+  for (const [campaignIndex, campaignId] of batch.lineage.campaignIds.entries()) {
+    if (campaignId !== baselineFieldProtocolPackageData.campaign.campaignId) {
+      issues.push(
+        issue(
+          "unknown_campaign",
+          `Campaign ${campaignId} is not governed by this package.`,
+          `lineage.campaignIds.${campaignIndex}`,
+        ),
+      );
+    }
+  }
+  for (const [assignmentIndex, assignmentId] of batch.lineage.assignmentIds.entries()) {
+    if (!objectiveConstraintsByAssignment.has(assignmentId)) {
+      issues.push(
+        issue(
+          "unknown_assignment",
+          `Assignment ${assignmentId} is not governed by the baseline Campaign.`,
+          `lineage.assignmentIds.${assignmentIndex}`,
+        ),
+      );
+    }
+  }
   const fileCounts = new Map<string, number>();
   for (const file of batch.files) {
     fileCounts.set(file.recordType, (fileCounts.get(file.recordType) ?? 0) + file.recordCount);
@@ -667,6 +829,62 @@ function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIss
           "coverage_observation_kind_mismatch",
           `Coverage Requirement ${requirementId} does not accept ${record.observationKind} observations.`,
           path,
+        ),
+      );
+    }
+  }
+  return issues;
+}
+
+function validateCampaignAssignmentReferences(value: unknown): ProtocolValidationIssue[] {
+  const record = asObject(value);
+  if (!record) return [];
+  const issues: ProtocolValidationIssue[] = [];
+  if (
+    typeof record.campaignId === "string" &&
+    record.campaignId !== baselineFieldProtocolPackageData.campaign.campaignId
+  ) {
+    issues.push(
+      issue(
+        "unknown_campaign",
+        `Campaign ${record.campaignId} is not governed by this package.`,
+        "campaignId",
+      ),
+    );
+  }
+  if (typeof record.assignmentId !== "string") return issues;
+
+  const objectives = objectiveConstraintsByAssignment.get(record.assignmentId);
+  if (!objectives) {
+    issues.push(
+      issue(
+        "unknown_assignment",
+        `Assignment ${record.assignmentId} is not governed by the baseline Campaign.`,
+        "assignmentId",
+      ),
+    );
+    return issues;
+  }
+
+  const objectiveIds =
+    typeof record.objectiveId === "string"
+      ? [{ id: record.objectiveId, path: "objectiveId" }]
+      : Array.isArray(record.objectiveIds)
+        ? record.objectiveIds
+            .map((candidate, index) =>
+              typeof candidate === "string"
+                ? { id: candidate, path: `objectiveIds.${index}` }
+                : undefined,
+            )
+            .filter((candidate): candidate is { id: string; path: string } => Boolean(candidate))
+        : [];
+  for (const objective of objectiveIds) {
+    if (!objectives.has(objective.id)) {
+      issues.push(
+        issue(
+          "unknown_objective",
+          `Objective ${objective.id} does not belong to Assignment ${record.assignmentId}.`,
+          objective.path,
         ),
       );
     }
