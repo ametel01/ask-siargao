@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { FieldSecuritySessionProvider } from "@/features/field-security/FieldSecuritySessionProvider";
+import { FieldWorkspaceNavigation } from "@/features/field-workspace/FieldWorkspaceNavigation";
 import { isProtectedUiHarnessRequest } from "@/server/auth/protected-ui-harness";
 import { readFieldResearcherAccountAllowlist } from "@/server/field-security/authorization";
 import { isFieldSecurityProductionHarnessRequest } from "@/server/field-security/test-harness";
@@ -28,5 +29,10 @@ export default async function FieldWorkspaceLayout(props: { children: React.Reac
     }
   }
 
-  return <FieldSecuritySessionProvider>{props.children}</FieldSecuritySessionProvider>;
+  return (
+    <FieldSecuritySessionProvider>
+      <FieldWorkspaceNavigation />
+      {props.children}
+    </FieldSecuritySessionProvider>
+  );
 }

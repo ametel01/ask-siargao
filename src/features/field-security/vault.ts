@@ -13,7 +13,7 @@ import type {
 import type { DeviceBoundCredentialEvidence } from "@/features/field-security/webauthn";
 
 const databaseName = "ask-siargao-protected-field-vault";
-const databaseVersion = 3;
+const databaseVersion = 4;
 const envelopeStore = "opaque-envelopes";
 const metadataStore = "crypto-metadata";
 const leaseStore = "writer-leases";
@@ -24,6 +24,21 @@ const mediaManifestStore = "encrypted-media-manifests";
 const deskArchiveStore = "desk-archive-index";
 const restoreQuarantineStore = "encrypted-restore-quarantine";
 const transferStateStore = "field-transfer-state";
+const legacyCaptureIndexStore = "legacy-capture-index";
+
+export type LegacyCaptureVaultHeader = {
+  decisionEnvelopeKeys: string[];
+  importedAt: string;
+  originalBytesAvailable: boolean;
+  previewEnvelopeKey: string;
+  previewSha256: string;
+  recordCount: number;
+  sourceEnvelopeKey: string;
+  sourceId: string;
+  sourceSha256: string;
+  state: "mappable_preview" | "needs_resolution" | "quarantined_conflict" | "rejected";
+  version: 1;
+};
 
 export type FieldRestoreQuarantineRow = {
   quarantineId: string;
@@ -191,22 +206,179 @@ export class IndexedDbFieldVault {
     return iterateObjectStore<FieldEncryptedMediaManifest>(mediaManifestStore);
   }
 
+  iterateLegacyCaptureHeaders(): AsyncIterable<LegacyCaptureVaultHeader> {
+    return iterateObjectStore<LegacyCaptureVaultHeader>(legacyCaptureIndexStore);
+  }
+
+  async listLegacyCaptureHeaders(): Promise<LegacyCaptureVaultHeader[]> {
+    return this.withTransaction([legacyCaptureIndexStore], "readonly", async (transaction) =>
+      requestResult<LegacyCaptureVaultHeader[]>(
+        transaction.objectStore(legacyCaptureIndexStore).getAll(),
+      ),
+    );
+  }
+
+  async getLegacyCaptureHeader(sourceId: string): Promise<LegacyCaptureVaultHeader | undefined> {
+    return this.withTransaction([legacyCaptureIndexStore], "readonly", async (transaction) =>
+      requestResult<LegacyCaptureVaultHeader | undefined>(
+        transaction.objectStore(legacyCaptureIndexStore).get(sourceId),
+      ),
+    );
+  }
+
+  async putLegacyCaptureCustody(input: {
+    header: LegacyCaptureVaultHeader;
+    previewEnvelope: FieldEncryptedEnvelope;
+    sourceEnvelope: FieldEncryptedEnvelope;
+  }): Promise<"exact_replay" | "preserved"> {
+    if (
+      input.header.sourceEnvelopeKey !== input.sourceEnvelope.opaqueRecordKey ||
+      input.header.previewEnvelopeKey !== input.previewEnvelope.opaqueRecordKey ||
+      input.header.decisionEnvelopeKeys.length !== 0
+    ) {
+      throw new FieldSecurityError("field_artifact_invalid");
+    }
+    return this.withTransaction(
+      [legacyCaptureIndexStore, envelopeStore],
+      "readwrite",
+      async (transaction) => {
+        const indexes = transaction.objectStore(legacyCaptureIndexStore);
+        const existing = await requestResult<LegacyCaptureVaultHeader | undefined>(
+          indexes.get(input.header.sourceId),
+        );
+        if (existing) {
+          if (
+            existing.sourceSha256 !== input.header.sourceSha256 ||
+            existing.previewSha256 !== input.header.previewSha256
+          ) {
+            throw new FieldSecurityError("field_artifact_invalid");
+          }
+          return "exact_replay" as const;
+        }
+        const envelopes = transaction.objectStore(envelopeStore);
+        envelopes.add(input.sourceEnvelope);
+        envelopes.add(input.previewEnvelope);
+        indexes.add(input.header);
+        return "preserved" as const;
+      },
+    );
+  }
+
+  async appendLegacyCaptureDecision(input: {
+    decisionEnvelope: FieldEncryptedEnvelope;
+    expectedPreviewSha256: string;
+    sourceId: string;
+  }): Promise<void> {
+    await this.withTransaction(
+      [legacyCaptureIndexStore, envelopeStore],
+      "readwrite",
+      async (transaction) => {
+        const indexes = transaction.objectStore(legacyCaptureIndexStore);
+        const header = await requestResult<LegacyCaptureVaultHeader | undefined>(
+          indexes.get(input.sourceId),
+        );
+        if (
+          !header ||
+          header.previewSha256 !== input.expectedPreviewSha256 ||
+          header.decisionEnvelopeKeys.includes(input.decisionEnvelope.opaqueRecordKey)
+        ) {
+          throw new FieldSecurityError("field_artifact_invalid");
+        }
+        transaction.objectStore(envelopeStore).add(input.decisionEnvelope);
+        indexes.put({
+          ...header,
+          decisionEnvelopeKeys: [
+            ...header.decisionEnvelopeKeys,
+            input.decisionEnvelope.opaqueRecordKey,
+          ],
+        });
+      },
+    );
+  }
+
+  async markLegacyCaptureConflicts(sourceIds: readonly string[]): Promise<void> {
+    if (sourceIds.length === 0) return;
+    await this.withTransaction([legacyCaptureIndexStore], "readwrite", async (transaction) => {
+      const indexes = transaction.objectStore(legacyCaptureIndexStore);
+      const headers = await Promise.all(
+        [...new Set(sourceIds)].map((sourceId) =>
+          requestResult<LegacyCaptureVaultHeader | undefined>(indexes.get(sourceId)),
+        ),
+      );
+      for (const header of headers) {
+        if (!header) throw new FieldSecurityError("field_artifact_invalid");
+        if (header.state !== "quarantined_conflict") {
+          indexes.put({ ...header, state: "quarantined_conflict" });
+        }
+      }
+    });
+  }
+
   async commitRestore(input: {
     additions: readonly FieldEncryptedEnvelope[];
     auditEnvelope: FieldEncryptedEnvelope;
+    legacyCaptureHeaders?: readonly LegacyCaptureVaultHeader[];
     quarantines: readonly FieldRestoreQuarantineRow[];
   }): Promise<void> {
     await this.withTransaction(
-      [envelopeStore, restoreQuarantineStore, auditStore],
+      [envelopeStore, restoreQuarantineStore, auditStore, legacyCaptureIndexStore],
       "readwrite",
       async (transaction) => {
         const envelopes = transaction.objectStore(envelopeStore);
-        for (const addition of input.additions) {
-          if (await requestResult(envelopes.getKey(addition.opaqueRecordKey))) {
+        const existingAdditionKeys = await Promise.all(
+          input.additions.map((addition) =>
+            requestResult(envelopes.getKey(addition.opaqueRecordKey)),
+          ),
+        );
+        for (const existingAdditionKey of existingAdditionKeys) {
+          if (existingAdditionKey) {
             throw new FieldSecurityError("field_artifact_invalid");
           }
         }
+        const additionKeys = new Set(input.additions.map((addition) => addition.opaqueRecordKey));
+        const referencedExistingKeys = await Promise.all(
+          (input.legacyCaptureHeaders ?? []).flatMap((header) =>
+            [header.sourceEnvelopeKey, header.previewEnvelopeKey, ...header.decisionEnvelopeKeys]
+              .filter((envelopeKey) => !additionKeys.has(envelopeKey))
+              .map((envelopeKey) => requestResult(envelopes.getKey(envelopeKey))),
+          ),
+        );
+        if (referencedExistingKeys.some((envelopeKey) => !envelopeKey)) {
+          throw new FieldSecurityError("field_artifact_invalid");
+        }
         for (const addition of input.additions) envelopes.put(addition);
+        const legacyIndexes = transaction.objectStore(legacyCaptureIndexStore);
+        const legacyCaptureHeaders = input.legacyCaptureHeaders ?? [];
+        const existingHeaders = await Promise.all(
+          legacyCaptureHeaders.map((header) =>
+            requestResult<LegacyCaptureVaultHeader | undefined>(legacyIndexes.get(header.sourceId)),
+          ),
+        );
+        for (const [index, header] of legacyCaptureHeaders.entries()) {
+          const existing = existingHeaders[index];
+          if (
+            existing &&
+            (existing.sourceSha256 !== header.sourceSha256 ||
+              existing.previewSha256 !== header.previewSha256)
+          ) {
+            throw new FieldSecurityError("field_artifact_invalid");
+          }
+          if (!existing) legacyIndexes.add(header);
+          else {
+            legacyIndexes.put({
+              ...existing,
+              decisionEnvelopeKeys: [
+                ...new Set([...existing.decisionEnvelopeKeys, ...header.decisionEnvelopeKeys]),
+              ],
+              originalBytesAvailable:
+                existing.originalBytesAvailable || header.originalBytesAvailable,
+              state:
+                existing.state === "quarantined_conflict" || header.state === "quarantined_conflict"
+                  ? "quarantined_conflict"
+                  : existing.state,
+            });
+          }
+        }
         const quarantines = transaction.objectStore(restoreQuarantineStore);
         for (const quarantine of input.quarantines) quarantines.add(quarantine);
         transaction.objectStore(auditStore).add(input.auditEnvelope);
@@ -573,6 +745,7 @@ function openFieldVaultDatabase(): Promise<IDBDatabase> {
         [deskArchiveStore, "archiveId"],
         [restoreQuarantineStore, "quarantineId"],
         [transferStateStore, "transferId"],
+        [legacyCaptureIndexStore, "sourceId"],
       ] as const) {
         if (!request.result.objectStoreNames.contains(store)) {
           request.result.createObjectStore(store, { keyPath });

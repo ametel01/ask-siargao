@@ -72,7 +72,9 @@ export function AdminDiagnosticsPage({
         <PageHeader
           actions={
             <Button asChild size="sm" variant="outline">
-              <Link href="/admin/field-ingestion">Open field desk</Link>
+              <Link href="/operator/field/diagnostics-recovery/legacy-import">
+                Open exceptional Legacy Capture recovery
+              </Link>
             </Button>
           }
           description={

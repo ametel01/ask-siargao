@@ -3,13 +3,13 @@
 ## Clerk Perimeter Inventory
 
 `src/server/auth/clerk-route-policy.ts` is the executable source of truth for the Clerk proxy
-perimeter. Its inventory is source-derived and currently covers all 75 live
+perimeter. Its inventory is source-derived and currently covers all 89 live
 `src/app/**/page.tsx` and `src/app/**/route.ts` runtime surfaces. Every entry has exactly one base
 classification:
 
 | Classification | Routes |
 | --- | --- |
-| `protected` | `/settings`, `/profile`, `/admin/diagnostics`, `/admin/field-ingestion`, `/audits/[auditRequestId]/status`, `/api/me/**`, `/api/chat/threads/**`, and `/api/chat/ratings` |
+| `protected` | `/settings`, `/profile`, `/admin/diagnostics`, `/admin/field-ingestion`, `/operator/field/**`, `/audits/[auditRequestId]/status`, `/api/me/**`, `/api/chat/threads/**`, and `/api/chat/ratings` |
 | `externally_verified` | `/api/clerk/webhooks`, `/api/stripe/webhook` (legacy evidence only), and `/api/payments/lemon-squeezy/webhook` (active Trip Pass authority) |
 | `public` | `/`, `/chat`, sign-in/sign-up, public knowledge pages, LLM/robots/sitemap routes, signed report/share delivery, retired audit intake/checkout tombstones, anonymous chat/save/share APIs, public JSON APIs, and `/audits/demo/report` in its non-production QA context |
 
@@ -31,7 +31,13 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | `/audits/[auditRequestId]/report?token=...` | Signed-token paid report delivery for published, paid, reviewer-approved audits | `x-robots-tag: noindex, nofollow` |
 | `/audits/demo/report` | Synthetic report fixture for local QA only | `x-robots-tag: noindex, nofollow` |
 | `/admin/diagnostics` | Operator diagnostics console | `x-robots-tag: noindex, nofollow` |
-| `/admin/field-ingestion` | Legacy JSON/JSONL field import compatibility; Diagnostics and Recovery only, not the Field Recorder | `x-robots-tag: noindex, nofollow` |
+| `/operator/field` | Protected Field Workspace entry and prepared-device routing | Private authenticated, `noindex` surface |
+| `/operator/field/plan` | Deterministic unscheduled Field Day planning | Private authenticated, `noindex` surface |
+| `/operator/field/capture` | Guided typed Field Recorder | Private authenticated, `noindex` surface |
+| `/operator/field/review` | Assignment-centred immutable Field Desk review | Private authenticated, `noindex` surface |
+| `/operator/field/exports` | Distinct Field Recovery Export and reviewed Field Batch workflows | Private authenticated, `noindex` surface |
+| `/operator/field/diagnostics-recovery/legacy-import` | Exact-version Legacy Capture preservation, signed migration preview, quarantine decisions, and old-browser discovery; exceptional compatibility only | Private authenticated, `noindex` surface |
+| `/admin/field-ingestion` | Temporary 307 redirect to canonical Legacy Capture recovery; controlled rollback renders the same Field Researcher/device-locked component | `x-robots-tag: noindex, nofollow` |
 
 ## Audit APIs
 

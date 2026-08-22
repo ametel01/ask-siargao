@@ -5,8 +5,7 @@ Use these pages when working on the Ask Siargao codebase.
 - [First local run](tutorials/first-local-run.md): install dependencies, prepare local env, seed the test database, and start the app.
 - [Build the data pipeline with local Postgres](how-to-guides/build-the-data-pipeline-with-local-postgres.md): use Docker Compose Postgres before cloud Postgres to validate migrations, seed data, ingestion, confidence, freshness, and audit gating.
 - [Run Siargao field research](how-to-guides/run-siargao-field-research.md): prepare flexible geographically grouped outings and capture deterministic typed evidence through the accepted Field Workspace contract.
-- [Legacy field import recovery](how-to-guides/use-offline-field-ingestion-desk.md): inspect PR #226-compatible JSON records without mistaking the permissive importer for the Field Recorder or authoritative Field Batch.
-- [Use the offline field ingestion desk](how-to-guides/use-offline-field-ingestion-desk.md): transfer iPad exports explicitly, validate them without internet access, resolve local conflicts and permission blocks, and export a record-only staging envelope without writing to PostgreSQL.
+- [Recover Legacy Capture](how-to-guides/recover-legacy-capture.md): preserve exact PR #226 artifacts in encrypted quarantine, inspect deterministic migration gaps, and verify recovery without promoting records into Desk or export custody.
 - [Operate the production database](how-to-guides/operate-the-production-database.md): provision, monitor, maintain, back up, and restore the production Postgres database.
 - [Run release-candidate QA](how-to-guides/run-release-candidate-qa.md): validate the release candidate across product, security, public, and operational surfaces.
 - [Launch the free product](how-to-guides/launch-free-product.md): authorize Free Controlled Beta and promote it to General Free Availability under explicit traffic, cost, monitoring, and rollback controls.

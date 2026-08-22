@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 
 const decisions = [
@@ -47,17 +46,6 @@ export function FieldDesk(props: { harness?: boolean }) {
               Assignment-centred, append-only Desk custody
             </p>
           </div>
-          <nav aria-label="Field Workspace areas" className="flex gap-2 text-sm font-bold">
-            <span aria-current="page" className="rounded-lg bg-[#ddfbf4] px-4 py-3 text-[#062f35]">
-              Review
-            </span>
-            <Link
-              className="rounded-lg border border-white/30 px-4 py-3"
-              href="/operator/field/exports"
-            >
-              Exports
-            </Link>
-          </nav>
         </header>
 
         {!props.harness ? (

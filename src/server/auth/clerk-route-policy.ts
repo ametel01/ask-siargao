@@ -72,8 +72,15 @@ export const clerkRoutePolicyEntries = [
     "src/app/admin/field-ingestion/page.tsx",
     "/admin/field-ingestion",
     "protected",
-    "operator field ingestion surface",
-    "operator allowlist or local admin token remains required by the page",
+    "temporary Legacy Capture compatibility alias",
+    "redirects to the Field Workspace compatibility route; rollback retains the Field Researcher allowlist",
+  ),
+  page(
+    "src/app/operator/field/diagnostics-recovery/legacy-import/page.tsx",
+    "/operator/field/diagnostics-recovery/legacy-import",
+    "protected",
+    "exceptional Legacy Capture diagnostics and recovery",
+    "Field Researcher authorization and device-bound local unlock remain required",
   ),
   page(
     "src/app/operator/field/plan/page.tsx",

@@ -35,6 +35,7 @@ describe("Clerk proxy perimeter", () => {
       "/profile",
       "/admin/diagnostics",
       "/admin/field-ingestion",
+      "/operator/field/diagnostics-recovery/legacy-import",
       "/operator/field/plan",
       "/operator/field/capture",
       "/operator/field/review",
