@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import nextConfig, { contentSecurityPolicyReportOnly } from "./next.config";
+import nextConfig, {
+  contentSecurityPolicyReportOnly,
+  createFieldWorkspaceContentSecurityPolicy,
+  fieldWorkspaceContentSecurityPolicy,
+} from "./next.config";
 
 describe("mobile rendering performance", () => {
   test("inlines the small Tailwind bundle to remove first-load CSS round trips", () => {
@@ -37,6 +41,24 @@ describe("security response headers", () => {
       expect(source).toMatch(/^https:\/\/\*\.[^*/]+$/);
     }
     expect(csp?.value).not.toContain("unsafe-eval");
+  });
+
+  test("enforces an isolated no-store policy on the Field Workspace", async () => {
+    const headerRules = await nextConfig.headers?.();
+    const fieldRule = headerRules?.find((rule) => rule.source === "/operator/field/:path*");
+    const values = Object.fromEntries(
+      fieldRule?.headers.map((header) => [header.key.toLowerCase(), header.value]) ?? [],
+    );
+
+    expect(values["cache-control"]).toBe("private, no-store");
+    expect(values["content-security-policy"]).toBe(fieldWorkspaceContentSecurityPolicy);
+    expect(values["permissions-policy"]).toContain("camera=(self)");
+    expect(fieldWorkspaceContentSecurityPolicy).toContain("connect-src 'self'");
+    expect(fieldWorkspaceContentSecurityPolicy).not.toContain("posthog");
+    expect(fieldWorkspaceContentSecurityPolicy).not.toContain("sentry");
+    expect(fieldWorkspaceContentSecurityPolicy).not.toContain("api.openai.com");
+    expect(createFieldWorkspaceContentSecurityPolicy("development")).toContain("'unsafe-eval'");
+    expect(createFieldWorkspaceContentSecurityPolicy("production")).not.toContain("'unsafe-eval'");
   });
 });
 

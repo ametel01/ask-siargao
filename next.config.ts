@@ -17,9 +17,34 @@ export const contentSecurityPolicyReportOnly = [
   "media-src 'self'",
 ].join("; ");
 
+export function createFieldWorkspaceContentSecurityPolicy(nodeEnv = process.env.NODE_ENV) {
+  const developmentScriptSource = nodeEnv === "development" ? " 'unsafe-eval'" : "";
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    `script-src 'self' 'unsafe-inline'${developmentScriptSource}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "media-src 'self' blob:",
+  ].join("; ");
+}
+
+export const fieldWorkspaceContentSecurityPolicy = createFieldWorkspaceContentSecurityPolicy();
+
 const nextConfig: NextConfig = {
   devIndicators: false,
   env: {
+    NEXT_PUBLIC_FIELD_CACHE_GENERATION:
+      process.env.NEXT_PUBLIC_FIELD_CACHE_GENERATION ??
+      process.env.VERCEL_GIT_COMMIT_SHA ??
+      "local",
     NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED: process.env.NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED ?? "1",
   },
   experimental: {
@@ -57,6 +82,35 @@ const nextConfig: NextConfig = {
       {
         source: "/admin/:path*",
         headers: [{ key: "x-robots-tag", value: "noindex, nofollow" }],
+      },
+      {
+        source: "/operator/field/:path*",
+        headers: [
+          { key: "cache-control", value: "private, no-store" },
+          { key: "content-security-policy", value: fieldWorkspaceContentSecurityPolicy },
+          {
+            key: "permissions-policy",
+            value: "camera=(self), microphone=(self), geolocation=(self), payment=()",
+          },
+          { key: "referrer-policy", value: "no-referrer" },
+          { key: "x-robots-tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/api/operator/field/:path*",
+        headers: [
+          { key: "cache-control", value: "private, no-store" },
+          { key: "content-security-policy", value: fieldWorkspaceContentSecurityPolicy },
+          { key: "x-robots-tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/field-service-worker",
+        headers: [
+          { key: "cache-control", value: "no-cache, no-store, must-revalidate" },
+          { key: "service-worker-allowed", value: "/" },
+          { key: "x-robots-tag", value: "noindex, nofollow" },
+        ],
       },
     ];
   },

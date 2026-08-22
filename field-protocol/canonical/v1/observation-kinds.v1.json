@@ -1,0 +1,557 @@
+{
+  "schemaVersion": "observation-kind-registry.v1",
+  "componentVersion": "1.0.1",
+  "coverageSemantics": {
+    "windowIdentity": "local_hour",
+    "negativeEvidenceCountsTowardMinimumRecords": true
+  },
+  "kinds": [
+    {
+      "kind": "identity",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": { "strategy": "constant", "value": "positive" },
+      "allowedUnits": [],
+      "requiredContext": ["displayedName", "category", "resolutionEvidence"],
+      "freshness": { "defaultReviewMinutes": 259200, "maximumReviewMinutes": 259200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["displayedName", "aliases", "category", "resolutionEvidence"],
+        "properties": {
+          "displayedName": { "type": "string", "minLength": 1 },
+          "officialName": { "type": "string", "minLength": 1 },
+          "aliases": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          },
+          "category": { "enum": ["place", "service", "route", "organisation"] },
+          "resolutionEvidence": {
+            "enum": ["displayed_sign", "receipt", "source_statement", "official_directory"]
+          }
+        }
+      }
+    },
+    {
+      "kind": "opening_signal",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "state",
+        "positiveValues": ["open"],
+        "negativeValues": ["closed"],
+        "unknownValues": ["unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": ["state", "basis", "postedHoursSeparatelyEvidenced"],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 43200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["state", "basis", "postedHoursSeparatelyEvidenced"],
+        "properties": {
+          "state": { "enum": ["open", "closed", "unknown"] },
+          "basis": { "enum": ["observed", "posted", "attempted"] },
+          "postedHoursSeparatelyEvidenced": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "kind": "price",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": { "strategy": "constant", "value": "positive" },
+      "allowedUnits": [],
+      "requiredContext": [
+        "amount",
+        "currency",
+        "item",
+        "pricingUnit",
+        "partySize",
+        "inclusions",
+        "basis"
+      ],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 43200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "amount",
+          "currency",
+          "item",
+          "pricingUnit",
+          "partySize",
+          "inclusions",
+          "basis",
+          "taxesAndFees",
+          "negotiated"
+        ],
+        "properties": {
+          "amount": { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,2})?$" },
+          "currency": { "const": "PHP" },
+          "item": { "type": "string", "minLength": 1 },
+          "pricingUnit": { "enum": ["item", "person", "party", "journey", "hour", "day"] },
+          "partySize": { "type": "integer", "minimum": 1 },
+          "inclusions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "basis": { "enum": ["posted", "quoted", "paid"] },
+          "taxesAndFees": { "enum": ["included", "excluded", "unknown"] },
+          "negotiated": { "type": "boolean" },
+          "paymentMethodAttempted": { "enum": ["cash", "card", "gcash", "maya", "bank_transfer"] },
+          "receiptAssetId": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
+    {
+      "kind": "route_duration",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": { "strategy": "constant", "value": "positive" },
+      "allowedUnits": ["s"],
+      "requiredContext": [
+        "originSubjectId",
+        "destinationSubjectId",
+        "transportMode",
+        "durationSeconds"
+      ],
+      "freshness": { "defaultReviewMinutes": 43200, "maximumReviewMinutes": 129600 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["originSubjectId", "destinationSubjectId", "transportMode", "durationSeconds"],
+        "properties": {
+          "originSubjectId": { "type": "string", "pattern": "^subject_[a-z0-9_]+$" },
+          "destinationSubjectId": { "type": "string", "pattern": "^subject_[a-z0-9_]+$" },
+          "transportMode": {
+            "enum": ["walk", "bicycle", "motorbike", "tricycle", "car", "van", "boat"]
+          },
+          "durationSeconds": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "kind": "route_wait",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": { "strategy": "constant", "value": "positive" },
+      "allowedUnits": ["s"],
+      "requiredContext": ["waitSeconds", "transportMode", "queueState"],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 43200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["waitSeconds", "transportMode", "queueState"],
+        "properties": {
+          "waitSeconds": { "type": "integer", "minimum": 0 },
+          "transportMode": { "enum": ["tricycle", "car", "van", "boat"] },
+          "queueState": { "enum": ["none", "short", "moderate", "long"] }
+        }
+      }
+    },
+    {
+      "kind": "road_condition",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "obstruction",
+        "positiveValues": ["none", "minor", "partial"],
+        "negativeValues": ["blocked"],
+        "unknownValues": ["unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": ["segmentId", "surface", "obstruction", "weatherContext"],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 43200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["segmentId", "surface", "obstruction", "weatherContext"],
+        "properties": {
+          "segmentId": { "type": "string", "pattern": "^segment_[a-z0-9_]+$" },
+          "surface": { "enum": ["paved", "gravel", "sand", "mud", "mixed"] },
+          "obstruction": { "enum": ["none", "minor", "partial", "blocked", "unknown"] },
+          "weatherContext": { "enum": ["dry", "recent_rain", "active_rain", "unknown"] }
+        }
+      }
+    },
+    {
+      "kind": "facility",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "state",
+        "positiveValues": ["present", "available"],
+        "negativeValues": ["absent", "unavailable", "inaccessible"],
+        "unknownValues": ["unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": ["facilityType", "state", "accessConditions"],
+      "freshness": { "defaultReviewMinutes": 43200, "maximumReviewMinutes": 129600 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["facilityType", "state", "accessConditions"],
+        "properties": {
+          "facilityType": {
+            "enum": [
+              "toilet",
+              "shower",
+              "shade",
+              "seating",
+              "parking",
+              "cash_machine",
+              "clinic",
+              "pharmacy",
+              "fuel",
+              "drinking_water",
+              "waste_disposal",
+              "food"
+            ]
+          },
+          "state": {
+            "enum": ["present", "absent", "available", "unavailable", "inaccessible", "unknown"]
+          },
+          "accessConditions": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "kind": "accessibility",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "state",
+        "positiveValues": ["present", "usable"],
+        "negativeValues": ["absent", "not_usable"],
+        "unknownValues": ["not_tested", "unknown"]
+      },
+      "allowedUnits": ["cm", "degree"],
+      "requiredContext": ["feature", "state", "measurementBasis"],
+      "freshness": { "defaultReviewMinutes": 43200, "maximumReviewMinutes": 129600 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["feature", "state", "measurementBasis"],
+        "properties": {
+          "feature": {
+            "enum": [
+              "step",
+              "ramp",
+              "door_width",
+              "path_surface",
+              "toilet_access",
+              "transfer_barrier",
+              "shelter"
+            ]
+          },
+          "state": {
+            "enum": ["present", "absent", "usable", "not_usable", "not_tested", "unknown"]
+          },
+          "measurementBasis": { "enum": ["measured", "observed", "attempted"] },
+          "measuredValue": { "type": "number" },
+          "unit": { "enum": ["cm", "degree"] }
+        }
+      }
+    },
+    {
+      "kind": "payment_method",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "outcome",
+        "positiveValues": ["offered", "accepted"],
+        "negativeValues": ["rejected", "not_offered"],
+        "unknownValues": ["not_tested", "unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": ["method", "outcome", "transactionContext"],
+      "freshness": { "defaultReviewMinutes": 43200, "maximumReviewMinutes": 43200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["method", "outcome", "transactionContext"],
+        "properties": {
+          "method": { "enum": ["cash", "card", "gcash", "maya", "bank_transfer"] },
+          "outcome": {
+            "enum": ["offered", "accepted", "rejected", "not_offered", "not_tested", "unknown"]
+          },
+          "transactionContext": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "kind": "connectivity",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": { "strategy": "constant", "value": "positive" },
+      "allowedUnits": ["Mbps", "ms"],
+      "requiredContext": ["network", "deviceClass", "zone", "measurements"],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 43200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["network", "deviceClass", "zone", "measurements"],
+        "properties": {
+          "network": { "type": "string", "minLength": 1 },
+          "deviceClass": { "enum": ["phone", "tablet", "laptop", "dedicated_meter"] },
+          "zone": { "enum": ["indoors", "outdoors", "threshold", "roadside"] },
+          "measurements": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["metric", "value", "unit"],
+              "properties": {
+                "metric": { "enum": ["download", "upload", "latency"] },
+                "value": { "type": "number", "minimum": 0 },
+                "unit": { "enum": ["Mbps", "ms"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "kind": "power",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "state",
+        "positiveValues": ["available"],
+        "negativeValues": ["unavailable", "outage"],
+        "unknownValues": ["unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": ["state", "socketPermission", "basis"],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 43200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["state", "socketPermission", "basis"],
+        "properties": {
+          "state": { "enum": ["available", "unavailable", "outage", "unknown"] },
+          "socketPermission": { "enum": ["granted", "denied", "not_requested", "not_applicable"] },
+          "basis": { "enum": ["direct_observation", "attempted", "source_stated"] },
+          "backupPowerStatementId": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
+    {
+      "kind": "crowd_snapshot",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "band",
+        "positiveValues": ["quiet", "moderate", "busy", "very_busy"],
+        "negativeValues": ["empty"],
+        "unknownValues": []
+      },
+      "allowedUnits": ["person"],
+      "requiredContext": ["boundary", "method", "band"],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 10080 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["boundary", "method", "band"],
+        "properties": {
+          "boundary": { "type": "string", "minLength": 1 },
+          "method": { "enum": ["counted", "estimated_band"] },
+          "count": { "type": "integer", "minimum": 0 },
+          "band": { "enum": ["empty", "quiet", "moderate", "busy", "very_busy"] }
+        }
+      }
+    },
+    {
+      "kind": "noise_snapshot",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": { "strategy": "constant", "value": "positive" },
+      "allowedUnits": ["dBA"],
+      "requiredContext": ["method", "band", "measurementPosition"],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 10080 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["method", "band", "measurementPosition"],
+        "properties": {
+          "method": { "enum": ["measured_dba", "subjective_band"] },
+          "dba": { "type": "number", "minimum": 0, "maximum": 180 },
+          "band": { "enum": ["quiet", "moderate", "loud", "very_loud"] },
+          "measurementPosition": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "kind": "weather_condition",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "condition",
+        "positiveValues": [
+          "clear",
+          "cloudy",
+          "light_rain",
+          "heavy_rain",
+          "thunderstorm",
+          "strong_wind"
+        ],
+        "negativeValues": [],
+        "unknownValues": ["unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": ["condition", "observationBasis"],
+      "freshness": { "defaultReviewMinutes": 180, "maximumReviewMinutes": 720 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["condition", "observationBasis"],
+        "properties": {
+          "condition": {
+            "enum": [
+              "clear",
+              "cloudy",
+              "light_rain",
+              "heavy_rain",
+              "thunderstorm",
+              "strong_wind",
+              "unknown"
+            ]
+          },
+          "observationBasis": { "enum": ["direct", "authoritative_source"] },
+          "authoritativeSourceId": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "kind": "tide_context",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "shorelineState",
+        "positiveValues": ["low", "rising", "mid", "falling", "high"],
+        "negativeValues": [],
+        "unknownValues": ["unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": ["shorelineState", "sourceId", "sourceRetrievedAt"],
+      "freshness": { "defaultReviewMinutes": 180, "maximumReviewMinutes": 720 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["shorelineState", "sourceId", "sourceRetrievedAt"],
+        "properties": {
+          "shorelineState": { "enum": ["low", "rising", "mid", "falling", "high", "unknown"] },
+          "sourceId": { "type": "string", "minLength": 1 },
+          "sourceRetrievedAt": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+          }
+        }
+      }
+    },
+    {
+      "kind": "menu_item",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "availability",
+        "positiveValues": ["available"],
+        "negativeValues": ["unavailable"],
+        "unknownValues": ["unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": [
+        "itemName",
+        "amount",
+        "currency",
+        "availability",
+        "dietaryDisclosureBasis"
+      ],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 43200 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["itemName", "amount", "currency", "availability", "dietaryDisclosureBasis"],
+        "properties": {
+          "itemName": { "type": "string", "minLength": 1 },
+          "amount": { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,2})?$" },
+          "currency": { "const": "PHP" },
+          "availability": { "enum": ["available", "unavailable", "unknown"] },
+          "dietaryDisclosureBasis": { "enum": ["menu_label", "staff_statement", "not_disclosed"] }
+        }
+      }
+    },
+    {
+      "kind": "service_status",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": {
+        "strategy": "value",
+        "path": "state",
+        "positiveValues": ["operating", "limited"],
+        "negativeValues": ["not_operating"],
+        "unknownValues": ["unknown"]
+      },
+      "allowedUnits": [],
+      "requiredContext": ["state", "basis"],
+      "freshness": { "defaultReviewMinutes": 1440, "maximumReviewMinutes": 10080 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["state", "basis"],
+        "properties": {
+          "state": { "enum": ["operating", "not_operating", "limited", "unknown"] },
+          "basis": { "enum": ["observed", "attempted", "posted", "source_stated"] },
+          "limitations": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "kind": "contact_channel",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": { "strategy": "constant", "value": "positive" },
+      "allowedUnits": [],
+      "requiredContext": ["channelType", "publicValue", "verificationMethod", "permission"],
+      "freshness": { "defaultReviewMinutes": 43200, "maximumReviewMinutes": 129600 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["channelType", "publicValue", "verificationMethod", "permission"],
+        "properties": {
+          "channelType": { "enum": ["phone", "email", "website", "facebook", "instagram"] },
+          "publicValue": { "type": "string", "minLength": 1 },
+          "verificationMethod": {
+            "enum": ["displayed", "called", "messaged", "official_directory"]
+          },
+          "permission": { "enum": ["publicly_displayed", "explicitly_granted", "internal_only"] }
+        }
+      }
+    },
+    {
+      "kind": "local_caveat",
+      "valueSchemaVersion": "1.0.0",
+      "coverageDisposition": { "strategy": "constant", "value": "positive" },
+      "allowedUnits": [],
+      "requiredContext": ["warning", "appliesWhen", "directness", "corroborationCount"],
+      "freshness": { "defaultReviewMinutes": 10080, "maximumReviewMinutes": 129600 },
+      "valueSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["warning", "appliesWhen", "directness", "corroborationCount"],
+        "properties": {
+          "warning": { "type": "string", "minLength": 1 },
+          "appliesWhen": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "weather_change",
+                "tide_change",
+                "after_dark",
+                "crowd_peak",
+                "service_disruption",
+                "access_restriction"
+              ]
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "directness": { "enum": ["direct_observation", "source_stated", "derived"] },
+          "corroborationCount": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  ]
+}

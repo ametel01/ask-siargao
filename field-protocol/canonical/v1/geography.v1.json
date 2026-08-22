@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "travel-compatibility-graph.v1",
+  "componentVersion": "1.0.0",
+  "areas": [
+    { "id": "area_del_carmen", "classification": "town_and_airport_cluster" },
+    { "id": "area_general_luna", "classification": "visitor_service_cluster" },
+    { "id": "area_dapa", "classification": "port_and_service_cluster" },
+    { "id": "area_central_corridor", "classification": "transfer_corridor" },
+    { "id": "area_south_central", "classification": "route_corridor" },
+    { "id": "area_north", "classification": "remote_route_corridor" },
+    { "id": "area_pilar", "classification": "condition_dependent_access" }
+  ],
+  "transportModes": ["walk", "bicycle", "motorbike", "tricycle", "car", "van", "boat"],
+  "routes": [
+    {
+      "id": "route_airport_del_carmen",
+      "subjectId": "subject_route_airport_del_carmen",
+      "originSubjectId": "subject_sayak_airport",
+      "destinationSubjectId": "subject_area_del_carmen",
+      "areaIds": ["area_del_carmen"]
+    },
+    {
+      "id": "route_santa_monica_alegria",
+      "subjectId": "subject_route_santa_monica_alegria",
+      "originSubjectId": "subject_route_northbound",
+      "destinationSubjectId": "subject_route_santa_monica_alegria",
+      "areaIds": ["area_north"]
+    }
+  ],
+  "edges": [
+    {
+      "from": "area_del_carmen",
+      "to": "area_central_corridor",
+      "modes": ["motorbike", "tricycle", "car", "van"],
+      "durationBandMinutes": [25, 50],
+      "direction": "bidirectional",
+      "transferBoundary": false
+    },
+    {
+      "from": "area_central_corridor",
+      "to": "area_general_luna",
+      "modes": ["motorbike", "tricycle", "car", "van"],
+      "durationBandMinutes": [30, 60],
+      "direction": "bidirectional",
+      "transferBoundary": false
+    },
+    {
+      "from": "area_central_corridor",
+      "to": "area_dapa",
+      "modes": ["motorbike", "tricycle", "car", "van"],
+      "durationBandMinutes": [20, 45],
+      "direction": "bidirectional",
+      "transferBoundary": false
+    },
+    {
+      "from": "area_general_luna",
+      "to": "area_south_central",
+      "modes": ["motorbike", "tricycle", "car"],
+      "durationBandMinutes": [20, 55],
+      "direction": "bidirectional",
+      "transferBoundary": false
+    },
+    {
+      "from": "area_del_carmen",
+      "to": "area_north",
+      "modes": ["motorbike", "tricycle", "car", "van"],
+      "durationBandMinutes": [45, 105],
+      "direction": "bidirectional",
+      "transferBoundary": false
+    },
+    {
+      "from": "area_central_corridor",
+      "to": "area_pilar",
+      "modes": ["motorbike", "tricycle", "car"],
+      "durationBandMinutes": [30, 75],
+      "direction": "bidirectional",
+      "transferBoundary": false
+    },
+    {
+      "from": "area_del_carmen",
+      "to": "area_del_carmen",
+      "modes": ["boat"],
+      "durationBandMinutes": [15, 180],
+      "direction": "bidirectional",
+      "transferBoundary": true
+    }
+  ]
+}

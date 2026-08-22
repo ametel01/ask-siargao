@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "field-protocol-help.v1",
+  "componentVersion": "1.0.0",
+  "entries": {
+    "assignment.unscheduled": "Assignments stay unscheduled until a Field Researcher assembles one outing. Eligibility is a condition, not a calendar date.",
+    "objective.coverage": "Coverage comes from linked typed records or an exact Capture Exception. There is no manual done checkbox.",
+    "observation.subject": "Select exactly one governed Subject or create one structured Provisional Subject.",
+    "observation.schema_gap": "If the protocol cannot represent reality without distortion, record a Schema Gap instead of choosing a placeholder or arbitrary value.",
+    "measurement.lineage": "Keep the instrument value and unit as the Raw Measurement. Store any converted value separately with its conversion version and raw-measurement link.",
+    "source.consent": "Participation, quotation, article, LLM, and public-use consent are independent. Preserve original language; translations are separate attributed derivatives.",
+    "export.recovery": "A Field Recovery Export is a private encrypted backup and may contain unfinished or unresolved work. It is not a Field Batch.",
+    "export.batch": "A Field Batch contains an explicit, reviewed, referentially closed selection. Creating it does not upload or admit Facts.",
+    "migration.preview": "A Protocol Migration never rewrites originals. Preview every result and quarantine ambiguity or failure before activation."
+  }
+}

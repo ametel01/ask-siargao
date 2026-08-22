@@ -15,7 +15,7 @@ import {
 } from "@/server/trip-pass/payment-lifecycle";
 
 const activationTime = new Date("2026-08-08T00:00:00.000Z");
-const expiry = new Date("2026-08-22T00:00:00.000Z");
+const expiry = new Date("2099-08-22T00:00:00.000Z");
 
 describe("Trip Pass payment lifecycle", () => {
   test("counts only successful cumulative refunds and leaves review access/meters unchanged", async () => {

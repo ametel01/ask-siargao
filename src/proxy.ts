@@ -4,10 +4,11 @@ import { NextResponse } from "next/server";
 
 import {
   formatClerkConfigErrors,
-  hasVercelDeploymentSignals,
   readClerkDeploymentConfig,
 } from "@/server/auth/clerk-deployment-config";
 import { getClerkRoutePolicy } from "@/server/auth/clerk-route-policy";
+import { isProtectedUiHarnessRequest } from "@/server/auth/protected-ui-harness";
+import { isFieldSecurityProductionHarnessRequest } from "@/server/field-security/test-harness";
 
 type ClerkProxyAuth = {
   protect: () => Promise<unknown>;
@@ -61,7 +62,9 @@ export function applyDisabledClerkRoutePolicy(requestOrPathname: NextRequest | s
 
   if (
     decision.action === "allow" ||
-    (decision.action === "protect" && isProtectedUiHarnessRequest(requestOrPathname))
+    (decision.action === "protect" &&
+      (isProtectedUiHarnessProxyRequest(requestOrPathname) ||
+        isFieldSecurityHarnessRequest(requestOrPathname)))
   ) {
     return NextResponse.next();
   }
@@ -69,6 +72,14 @@ export function applyDisabledClerkRoutePolicy(requestOrPathname: NextRequest | s
   return denyClerkPerimeter(
     decision.action === "protect" ? "clerk_disabled_protected_route" : decision.reason,
   );
+}
+
+function isFieldSecurityHarnessRequest(requestOrPathname: NextRequest | string) {
+  if (typeof requestOrPathname === "string") return false;
+  return isFieldSecurityProductionHarnessRequest({
+    headers: requestOrPathname.headers,
+    pathname: requestOrPathname.nextUrl.pathname,
+  });
 }
 
 export function getClerkPerimeterDecision(
@@ -113,27 +124,10 @@ function clerkConfigurationFailure(errors: Parameters<typeof formatClerkConfigEr
   );
 }
 
-function isProtectedUiHarnessRequest(requestOrPathname: NextRequest | string) {
-  const token = process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS_TOKEN?.trim();
-
-  if (
-    typeof requestOrPathname === "string" ||
-    process.env.PLAYWRIGHT_PROTECTED_UI_HARNESS !== "1" ||
-    process.env.NODE_ENV === "production" ||
-    hasVercelDeploymentSignals() ||
-    !token ||
-    token.length < 32 ||
-    requestOrPathname.headers.get("x-ask-siargao-protected-ui-harness") !== "1" ||
-    requestOrPathname.headers.get("x-ask-siargao-protected-ui-harness-token") !== token
-  ) {
-    return false;
-  }
-
-  const result = readClerkDeploymentConfig();
+function isProtectedUiHarnessProxyRequest(requestOrPathname: NextRequest | string) {
   return (
-    result.ok &&
-    result.config.mode === "disabled" &&
-    (result.config.context === "local" || result.config.context === "test")
+    typeof requestOrPathname !== "string" &&
+    isProtectedUiHarnessRequest({ headers: requestOrPathname.headers })
   );
 }
 
