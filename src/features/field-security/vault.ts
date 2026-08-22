@@ -89,6 +89,16 @@ export type FieldVaultMetadata =
         version: 1;
       };
     }
+  | {
+      key: "planner-readiness";
+      value: {
+        handoffId: string;
+        opaqueRecordKey: string;
+        protocolPackageId: string;
+        protocolPackageVersion: string;
+        version: 1;
+      };
+    }
   | { key: "recorder-pointer"; value: FieldRecorderPointer }
   | { key: "device-wrap"; value: FieldDeviceWrap }
   | { key: "device-role"; value: { role: "desk" | "recorder"; version: 1 } }
@@ -317,11 +327,18 @@ export class IndexedDbFieldVault {
   async commitRestore(input: {
     additions: readonly FieldEncryptedEnvelope[];
     auditEnvelope: FieldEncryptedEnvelope;
+    deskArchiveHeaders?: readonly FieldDeskArchiveHeader[];
     legacyCaptureHeaders?: readonly LegacyCaptureVaultHeader[];
     quarantines: readonly FieldRestoreQuarantineRow[];
   }): Promise<void> {
     await this.withTransaction(
-      [envelopeStore, restoreQuarantineStore, auditStore, legacyCaptureIndexStore],
+      [
+        envelopeStore,
+        restoreQuarantineStore,
+        auditStore,
+        legacyCaptureIndexStore,
+        deskArchiveStore,
+      ],
       "readwrite",
       async (transaction) => {
         const envelopes = transaction.objectStore(envelopeStore);
@@ -347,6 +364,21 @@ export class IndexedDbFieldVault {
           throw new FieldSecurityError("field_artifact_invalid");
         }
         for (const addition of input.additions) envelopes.put(addition);
+        const archives = transaction.objectStore(deskArchiveStore);
+        for (const header of input.deskArchiveHeaders ?? []) {
+          const existing = await requestResult<FieldDeskArchiveHeader | undefined>(
+            archives.get(header.archiveId),
+          );
+          if (
+            existing &&
+            (existing.sourceRecorderSha256 !== header.sourceRecorderSha256 ||
+              existing.latestRevision !== header.latestRevision ||
+              existing.latestEnvelopeKey !== header.latestEnvelopeKey)
+          ) {
+            throw new FieldSecurityError("field_artifact_invalid");
+          }
+          if (!existing) archives.add(header);
+        }
         const legacyIndexes = transaction.objectStore(legacyCaptureIndexStore);
         const legacyCaptureHeaders = input.legacyCaptureHeaders ?? [];
         const existingHeaders = await Promise.all(
