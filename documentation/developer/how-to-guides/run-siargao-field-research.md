@@ -51,7 +51,7 @@ inaccessible, or transport-incompatible Assignments remain excluded even when ma
 The former date-bound 14-day itinerary becomes this Assignment pool. A Field Day Plan may group several
 compatible Assignments in one outing without merging their Subjects or evidence.
 
-| Assignment | Geography | Primary objective modules | Typical eligibility or repetition |
+| Assignment | Geography | Primary Coverage Requirements | Typical eligibility or repetition |
 | --- | --- | --- | --- |
 | Home-base readiness and practicalities | Private Del Carmen base | offline readiness, water, power, waste, noise, connectivity, nearby essentials | private location protected; multiple dayparts and changed conditions |
 | Del Carmen visitor essentials | Del Carmen centre and public transport/service nodes | identity, wayfinding, cash, payment, pharmacy/clinic leads, fuel, food, toilets, shade, access, connectivity | weekday/weekend or operating-window coverage |

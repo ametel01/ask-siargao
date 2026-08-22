@@ -114,6 +114,25 @@ describe("canonical field protocol records", () => {
     }
   });
 
+  test("links each observation to exactly one governed Coverage Requirement", () => {
+    const example = baselineFieldProtocolPackage.examples.examples.fieldObservation;
+    expect(
+      validateFieldProtocolRecord("fieldObservation", {
+        ...example,
+        coverageRequirementId: ["coverage_payment", "coverage_food"],
+      }).success,
+    ).toBe(false);
+
+    const unrelated = validateFieldProtocolRecord("fieldObservation", {
+      ...example,
+      coverageRequirementId: "coverage_offline_readiness",
+    });
+    expect(unrelated.success).toBe(false);
+    if (!unrelated.success) {
+      expect(unrelated.issues.map((issue) => issue.code)).toContain("unknown_coverage_requirement");
+    }
+  });
+
   test("keeps Source Statement translations separate and consent scopes independent", () => {
     const example = baselineFieldProtocolPackage.examples.examples.sourceStatement;
     const embeddedTranslation = {
@@ -232,7 +251,7 @@ describe("baseline Field Protocol Package", () => {
       expect(JSON.stringify(airport)).toContain(requiredKind);
     }
 
-    const expectedCoverageModules: Record<string, string[]> = {
+    const expectedCoverageRequirementLabels: Record<string, string[]> = {
       assignment_home_base_readiness: [
         "offline_readiness",
         "water",
@@ -254,6 +273,7 @@ describe("baseline Field Protocol Package", () => {
         "shade",
         "access",
         "connectivity",
+        "opening",
       ],
       assignment_airport_arrival: [
         "pickup",
@@ -369,15 +389,16 @@ describe("baseline Field Protocol Package", () => {
       Object.fromEntries(
         baselineFieldProtocolPackage.campaign.assignments.map((assignment) => [
           assignment.id,
-          assignment.requiredCoverageModules.map((module) => module.id),
+          assignment.coverageRequirements.map((requirement) => requirement.labelKey),
         ]),
       ) as Record<string, string[]>,
-    ).toEqual(expectedCoverageModules);
+    ).toEqual(expectedCoverageRequirementLabels);
     for (const assignment of baselineFieldProtocolPackage.campaign.assignments) {
       const objectiveIds = new Set(assignment.objectives.map((objective) => objective.id));
       expect(
-        assignment.requiredCoverageModules.every(
-          (module) => objectiveIds.has(module.objectiveId) && module.minimumRecords > 0,
+        assignment.coverageRequirements.every(
+          (requirement) =>
+            objectiveIds.has(requirement.objectiveId) && requirement.minimumRecords > 0,
         ),
       ).toBe(true);
     }
@@ -514,12 +535,12 @@ describe("baseline Field Protocol Package", () => {
     expect(rejectedActivation).toMatchObject({ success: false, code: "integrity_mismatch" });
   });
 
-  test("resolves active work through its exact pinned package", () => {
+  test("resolves active work through its exact verified pinned package", async () => {
     const laterPackage = structuredClone(baselineFieldProtocolPackage) as unknown as {
       manifest: { packageId: string; packageVersion: string };
     };
     laterPackage.manifest.packageVersion = "1.1.0";
-    const resolved = resolveProtocolForWork(
+    const resolved = await resolveProtocolForWork(
       {
         protocolPackageId: "field-protocol-siargao-baseline",
         protocolPackageVersion: "1.0.0",
@@ -527,7 +548,7 @@ describe("baseline Field Protocol Package", () => {
       [laterPackage, baselineFieldProtocolPackage],
     );
     expect(resolved).toBe(baselineFieldProtocolPackage);
-    expect(() =>
+    await expect(
       resolveProtocolForWork(
         {
           protocolPackageId: "field-protocol-siargao-baseline",
@@ -535,7 +556,18 @@ describe("baseline Field Protocol Package", () => {
         },
         [baselineFieldProtocolPackage],
       ),
-    ).toThrow("is not installed");
+    ).rejects.toThrow("is not installed");
+
+    const manifestOnly = { manifest: baselineFieldProtocolPackage.manifest };
+    await expect(
+      resolveProtocolForWork(
+        {
+          protocolPackageId: "field-protocol-siargao-baseline",
+          protocolPackageVersion: "1.0.0",
+        },
+        [manifestOnly],
+      ),
+    ).rejects.toThrow("is not verified");
   });
 });
 

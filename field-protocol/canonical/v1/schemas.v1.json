@@ -182,6 +182,7 @@
         "assignmentId",
         "visitId",
         "objectiveId",
+        "coverageRequirementId",
         "researcherId",
         "deviceId",
         "recordedAt",
@@ -210,6 +211,10 @@
         "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
         "visitId": { "type": "string", "format": "uuid" },
         "objectiveId": { "type": "string", "pattern": "^objective_[a-z0-9_]+$" },
+        "coverageRequirementId": {
+          "type": "string",
+          "pattern": "^coverage_[a-z0-9_]+$"
+        },
         "researcherId": { "type": "string", "minLength": 1 },
         "deviceId": { "type": "string", "minLength": 1 },
         "recordedAt": {
@@ -362,6 +367,8 @@
         "campaignId",
         "assignmentId",
         "visitId",
+        "objectiveId",
+        "coverageRequirementId",
         "researcherId",
         "deviceId",
         "recordedAt",
@@ -392,6 +399,11 @@
         "campaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
         "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
         "visitId": { "type": "string", "format": "uuid" },
+        "objectiveId": { "type": "string", "pattern": "^objective_[a-z0-9_]+$" },
+        "coverageRequirementId": {
+          "type": "string",
+          "pattern": "^coverage_[a-z0-9_]+$"
+        },
         "researcherId": { "type": "string", "minLength": 1 },
         "deviceId": { "type": "string", "minLength": 1 },
         "recordedAt": {
@@ -470,6 +482,7 @@
         "assignmentId",
         "visitId",
         "objectiveId",
+        "coverageRequirementId",
         "researcherId",
         "deviceId",
         "recordedAt",
@@ -498,6 +511,10 @@
         "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
         "visitId": { "type": "string", "format": "uuid" },
         "objectiveId": { "type": "string", "pattern": "^objective_[a-z0-9_]+$" },
+        "coverageRequirementId": {
+          "type": "string",
+          "pattern": "^coverage_[a-z0-9_]+$"
+        },
         "researcherId": { "type": "string", "minLength": 1 },
         "deviceId": { "type": "string", "minLength": 1 },
         "recordedAt": {
@@ -652,6 +669,7 @@
         "capturedAt",
         "purpose",
         "objectiveIds",
+        "coverageRequirementIds",
         "recordIds",
         "permittedLocation",
         "peoplePresent",
@@ -700,6 +718,12 @@
           "minItems": 1,
           "uniqueItems": true
         },
+        "coverageRequirementIds": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^coverage_[a-z0-9_]+$" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "recordIds": {
           "type": "array",
           "items": { "type": "string", "format": "uuid" },
@@ -733,6 +757,7 @@
         "campaignId",
         "assignmentId",
         "objectiveId",
+        "coverageRequirementId",
         "researcherId",
         "deviceId",
         "recordedAt",
@@ -750,6 +775,10 @@
         "campaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
         "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
         "objectiveId": { "type": "string", "pattern": "^objective_[a-z0-9_]+$" },
+        "coverageRequirementId": {
+          "type": "string",
+          "pattern": "^coverage_[a-z0-9_]+$"
+        },
         "visitId": { "type": "string", "format": "uuid" },
         "researcherId": { "type": "string", "minLength": 1 },
         "deviceId": { "type": "string", "minLength": 1 },
@@ -789,6 +818,7 @@
         "campaignId",
         "assignmentId",
         "objectiveId",
+        "coverageRequirementId",
         "researcherId",
         "deviceId",
         "recordedAt",
@@ -808,6 +838,10 @@
         "campaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
         "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
         "objectiveId": { "type": "string", "pattern": "^objective_[a-z0-9_]+$" },
+        "coverageRequirementId": {
+          "type": "string",
+          "pattern": "^coverage_[a-z0-9_]+$"
+        },
         "visitId": { "type": "string", "format": "uuid" },
         "researcherId": { "type": "string", "minLength": 1 },
         "deviceId": { "type": "string", "minLength": 1 },

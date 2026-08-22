@@ -8,6 +8,7 @@ export interface CaptureException {
   campaignId: string;
   assignmentId: string;
   objectiveId: string;
+  coverageRequirementId: string;
   visitId?: string;
   researcherId: string;
   deviceId: string;

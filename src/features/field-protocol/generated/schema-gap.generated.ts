@@ -8,6 +8,7 @@ export interface SchemaGap {
   campaignId: string;
   assignmentId: string;
   objectiveId: string;
+  coverageRequirementId: string;
   visitId?: string;
   researcherId: string;
   deviceId: string;

@@ -98,6 +98,17 @@ const methodProfileRegistry = new Map<string, MethodProfileRegistryEntry>(
 const governedSubjectIds = new Set<string>(
   baselineFieldProtocolPackageData.subjects.subjects.map((subject) => subject.id),
 );
+const coverageRequirementsByAssignment = new Map<
+  string,
+  ReadonlyMap<string, { objectiveId: string }>
+>(
+  baselineFieldProtocolPackageData.campaign.assignments.map((assignment) => [
+    assignment.id,
+    new Map<string, { objectiveId: string }>(
+      assignment.coverageRequirements.map((requirement) => [requirement.id, requirement] as const),
+    ),
+  ]),
+);
 
 export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
   kind: K,
@@ -124,6 +135,8 @@ export function validateFieldProtocolRecord<K extends FieldProtocolRecordKind>(
     const issues = validateFieldBatchSemantics(parsed.data as FieldBatch);
     if (issues.length > 0) return { success: false, issues };
   }
+  const coverageIssues = validateCoverageRequirementLinks(parsed.data);
+  if (coverageIssues.length > 0) return { success: false, issues: coverageIssues };
 
   return { success: true, data: parsed.data as FieldProtocolRecordByKind[K] };
 }
@@ -262,7 +275,12 @@ export async function activateFieldProtocolPackage(input: {
   const installedBundles = [...(input.installedBundles ?? []), bundle];
   const pinnedWork = (input.activeWork ?? []).map((reference) => ({ ...reference }));
   try {
-    for (const reference of pinnedWork) resolveProtocolForWork(reference, installedBundles);
+    for (const reference of pinnedWork) {
+      await resolveProtocolForWork(reference, installedBundles, {
+        applicationVersion: input.applicationVersion,
+        trustedSigners: input.trustedSigners,
+      });
+    }
   } catch (error) {
     return invalidPackage(
       error instanceof Error ? error.message : "Pinned work cannot be resolved.",
@@ -279,23 +297,36 @@ export async function activateFieldProtocolPackage(input: {
   };
 }
 
-export function resolveProtocolForWork(
+export async function resolveProtocolForWork(
   reference: { protocolPackageId: string; protocolPackageVersion: string },
   installedBundles: readonly unknown[],
+  verification: { applicationVersion?: string; trustedSigners?: unknown } = {},
 ) {
-  const resolved = installedBundles.find((candidate) => {
+  const candidates = installedBundles.filter((candidate) => {
     const manifest = asObject(asObject(candidate)?.manifest);
     return (
       manifest?.packageId === reference.protocolPackageId &&
       manifest.packageVersion === reference.protocolPackageVersion
     );
   });
-  if (!resolved) {
+  if (candidates.length === 0) {
     throw new Error(
       `Pinned Field Protocol Package ${reference.protocolPackageId}@${reference.protocolPackageVersion} is not installed.`,
     );
   }
-  return resolved;
+  let lastFailure: ProtocolVerificationFailure | undefined;
+  for (const candidate of candidates) {
+    const result = await verifyFieldProtocolPackage({
+      applicationVersion: verification.applicationVersion ?? "0.1.0",
+      bundle: candidate,
+      trustedSigners: verification.trustedSigners,
+    });
+    if (result.success) return candidate;
+    lastFailure = result;
+  }
+  throw new Error(
+    `Pinned Field Protocol Package ${reference.protocolPackageId}@${reference.protocolPackageVersion} is not verified: ${lastFailure?.message ?? "verification failed"}`,
+  );
 }
 
 export function previewProtocolMigration(input: {
@@ -494,6 +525,67 @@ function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue
   return issues;
 }
 
+function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIssue[] {
+  const record = asObject(value);
+  if (!record || typeof record.assignmentId !== "string") return [];
+  const requirements = coverageRequirementsByAssignment.get(record.assignmentId);
+  if (!requirements) {
+    return [
+      issue(
+        "unknown_assignment",
+        `Assignment ${record.assignmentId} is not governed by the baseline Campaign.`,
+        "assignmentId",
+      ),
+    ];
+  }
+
+  const links =
+    typeof record.coverageRequirementId === "string"
+      ? [record.coverageRequirementId]
+      : Array.isArray(record.coverageRequirementIds)
+        ? record.coverageRequirementIds.filter(
+            (candidate): candidate is string => typeof candidate === "string",
+          )
+        : [];
+  const objectiveIds =
+    typeof record.objectiveId === "string"
+      ? new Set([record.objectiveId])
+      : new Set(
+          Array.isArray(record.objectiveIds)
+            ? record.objectiveIds.filter(
+                (candidate): candidate is string => typeof candidate === "string",
+              )
+            : [],
+        );
+
+  const issues: ProtocolValidationIssue[] = [];
+  for (const [index, requirementId] of links.entries()) {
+    const requirement = requirements.get(requirementId);
+    const path =
+      typeof record.coverageRequirementId === "string"
+        ? "coverageRequirementId"
+        : `coverageRequirementIds.${index}`;
+    if (!requirement) {
+      issues.push(
+        issue(
+          "unknown_coverage_requirement",
+          `Coverage Requirement ${requirementId} does not belong to Assignment ${record.assignmentId}.`,
+          path,
+        ),
+      );
+    } else if (!objectiveIds.has(requirement.objectiveId)) {
+      issues.push(
+        issue(
+          "coverage_objective_mismatch",
+          `Coverage Requirement ${requirementId} belongs to Objective ${requirement.objectiveId}.`,
+          path,
+        ),
+      );
+    }
+  }
+  return issues;
+}
+
 function previewRecordMigration(
   migration: ProtocolMigration,
   originalValue: unknown,
@@ -670,6 +762,17 @@ function previewLegacyCaptureMigration(
       reason: `Governed Subject ${subjectMapping.to} has no deterministic baseline assignment.`,
     };
   }
+  const coverageRequirementId = legacyCoverageRequirementId(
+    assignment.assignmentId,
+    kindMapping.to,
+  );
+  if (!coverageRequirementId) {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: `Migrated Observation Kind ${kindMapping.to} has no deterministic Coverage Requirement.`,
+    };
+  }
 
   const captureConfidence =
     record.fieldConfidence === "high" ||
@@ -686,6 +789,7 @@ function previewLegacyCaptureMigration(
     assignmentId: assignment.assignmentId,
     visitId: record.visitId,
     objectiveId: assignment.objectiveId,
+    coverageRequirementId,
     researcherId,
     deviceId: `legacy-batch-${record.clientBatchId}`,
     recordedAt: record.capturedAt,
@@ -740,6 +844,17 @@ function legacyAssignmentForSubject(subjectId: string) {
       assignmentId: "assignment_general_luna_journey",
       objectiveId: "objective_general_luna_attempt_arrival",
     };
+  }
+  return undefined;
+}
+
+function legacyCoverageRequirementId(assignmentId: string, observationKind: string) {
+  if (assignmentId === "assignment_del_carmen_essentials") {
+    if (observationKind === "opening_signal") return "coverage_opening";
+    if (observationKind === "connectivity") return "coverage_connectivity";
+  }
+  if (assignmentId === "assignment_general_luna_journey" && observationKind === "connectivity") {
+    return "coverage_connectivity";
   }
   return undefined;
 }

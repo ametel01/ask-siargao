@@ -8,6 +8,8 @@ export interface RouteRun {
   campaignId: string;
   assignmentId: string;
   visitId: string;
+  objectiveId: string;
+  coverageRequirementId: string;
   researcherId: string;
   deviceId: string;
   recordedAt: string;

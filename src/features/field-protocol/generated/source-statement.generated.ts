@@ -9,6 +9,7 @@ export interface SourceStatement {
   assignmentId: string;
   visitId: string;
   objectiveId: string;
+  coverageRequirementId: string;
   researcherId: string;
   deviceId: string;
   recordedAt: string;

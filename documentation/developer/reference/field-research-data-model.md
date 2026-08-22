@@ -48,7 +48,7 @@ directly.
 | Field Campaign | contains Field Assignments | Scoped research programme with one methodology and evidence objective; no fixed schedule required. |
 | Field Assignment | belongs to one Campaign | Unscheduled work for one principal Subject, bounded area, or route. |
 | Research Objective | belongs to one Assignment | Required question, observation, measurement, attempt, statement, traversal, document, or repetition. |
-| Coverage Requirement | belongs to one Objective | A named baseline module with requiredness, minimum record count, supporting evidence, and repetition conditions. |
+| Coverage Requirement | belongs to one Objective | A named evidence obligation with requiredness, minimum record count, supporting evidence, and repetition conditions. |
 | Eligibility Window | applies to Assignment or Objective | Daypart, weekday class, tide, access, operating, or other conditions for a valid attempt. |
 | Partial Coverage Set | belongs to one Assignment | Explicit subset that remains independently valid when the entire Assignment cannot fit. |
 | Field Day Plan | selects Assignments | Researcher-confirmed, capacity-bounded grouping for one outing. |
@@ -107,9 +107,9 @@ The Travel Compatibility Graph provides versioned area, corridor, transport, tra
 conservative-duration relationships. Live maps or routing are optional preflight evidence, not a
 correctness dependency.
 
-Every baseline module in the accepted Assignment library is a separate
-`requiredCoverageModules` entry linked to one Objective. An Objective's broad Observation Kind set or
-aggregate record count cannot satisfy a module that has no linked evidence.
+Every named baseline item in the accepted Assignment library is a separate Coverage Requirement
+linked to one Objective. A captured record carries one exact `coverageRequirementId`; an Objective's
+broad Observation Kind set or aggregate record count cannot satisfy an unrelated requirement.
 
 ### Planner inputs
 
@@ -174,6 +174,7 @@ structured conditions, Objective links, asset links, and optional Private Contex
 An observation is atomic and has exactly one Subject. Required fields include:
 
 - Observation Kind and value-schema version;
+- one exact Coverage Requirement link for the active Assignment and Objective;
 - directness;
 - `observedAt`, `recordedAt`, timezone, offset, and time-correction indicator;
 - typed value or controlled negative state;
@@ -227,7 +228,8 @@ Controlled exception reasons are:
 - `interrupted`;
 - `not_applicable`.
 
-Every exception links to its Objective, time, Visit or planning context, and structured reason details.
+Every exception links to its Coverage Requirement, Objective, time, Visit or planning context, and
+structured reason details.
 An exception explains missing evidence; it does not fabricate Satisfied coverage.
 
 ### Schema Gap

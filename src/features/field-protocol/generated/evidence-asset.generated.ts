@@ -29,6 +29,10 @@ export interface EvidenceAsset {
    * @minItems 1
    */
   objectiveIds: [string, ...string[]];
+  /**
+   * @minItems 1
+   */
+  coverageRequirementIds: [string, ...string[]];
   recordIds: string[];
   permittedLocation: "withheld" | "governed_area" | "route_corridor" | "approximate_100m";
   peoplePresent: "none" | "researcher_only" | "consenting_people" | "bystanders_present";
