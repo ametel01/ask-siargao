@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 test("generates and safely adjusts an accessible offline Field Day Plan", async ({
@@ -22,6 +23,8 @@ test("generates and safely adjusts an accessible offline Field Day Plan", async 
     "data-field-planner-ready",
     "true",
   );
+  const accessibility = await new AxeBuilder({ page }).include("main").analyze();
+  expect(accessibility.violations).toEqual([]);
 
   await context.setOffline(true);
   await page.getByRole("button", { name: "Generate deterministic proposal" }).click();

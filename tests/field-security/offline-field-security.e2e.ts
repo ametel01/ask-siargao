@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 test("prepares an identity-free shell and hard reloads offline without leakage", async ({
@@ -13,6 +14,8 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
   expect(response?.headers()["cache-control"]).toContain("no-store");
   expect(response?.headers()["content-security-policy"]).toContain("connect-src 'self'");
   await expect(page.getByRole("heading", { name: "Prepare this field device" })).toBeVisible();
+  const readinessAccessibility = await new AxeBuilder({ page }).include("main").analyze();
+  expect(readinessAccessibility.violations).toEqual([]);
 
   await page.evaluate(
     async ({ sentinel }) => {
@@ -71,6 +74,8 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
   await context.setOffline(true);
   await page.goto("/operator/field/offline-shell", { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("heading", { name: "Protected fieldwork is locked" })).toBeVisible();
+  const lockedShellAccessibility = await new AxeBuilder({ page }).include("main").analyze();
+  expect(lockedShellAccessibility.violations).toEqual([]);
   await context.setOffline(false);
 });
 
