@@ -100,25 +100,27 @@ const governedSubjectIds = new Set<string>(
 );
 const coverageRequirementsByAssignment = new Map<
   string,
-  ReadonlyMap<
-    string,
-    {
-      objectiveId: string;
-      admissibleRecordKinds: readonly string[];
-      admissibleObservationKinds: readonly string[];
-    }
-  >
+  ReadonlyMap<string, CoverageRequirementConstraint>
 >(
   baselineFieldProtocolPackageData.campaign.assignments.map((assignment) => [
     assignment.id,
-    new Map<
-      string,
-      {
-        objectiveId: string;
-        admissibleRecordKinds: readonly string[];
-        admissibleObservationKinds: readonly string[];
-      }
-    >(assignment.coverageRequirements.map((requirement) => [requirement.id, requirement] as const)),
+    new Map<string, CoverageRequirementConstraint>(
+      assignment.coverageRequirements.map((requirement) => [requirement.id, requirement] as const),
+    ),
+  ]),
+);
+const objectiveConstraintsByAssignment = new Map<string, ReadonlyMap<string, ObjectiveConstraint>>(
+  baselineFieldProtocolPackageData.campaign.assignments.map((assignment) => [
+    assignment.id,
+    new Map<string, ObjectiveConstraint>(
+      assignment.objectives.map((objective) => [
+        objective.id,
+        {
+          observationKinds: "observationKinds" in objective ? objective.observationKinds : [],
+          recordKinds: "recordKinds" in objective ? objective.recordKinds : [],
+        },
+      ]),
+    ),
   ]),
 );
 
@@ -544,7 +546,8 @@ function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIss
   const record = asObject(value);
   if (!record || typeof record.assignmentId !== "string") return [];
   const requirements = coverageRequirementsByAssignment.get(record.assignmentId);
-  if (!requirements) {
+  const objectives = objectiveConstraintsByAssignment.get(record.assignmentId);
+  if (!requirements || !objectives) {
     return [
       issue(
         "unknown_assignment",
@@ -593,6 +596,32 @@ function validateCoverageRequirementLinks(value: unknown): ProtocolValidationIss
         issue(
           "coverage_objective_mismatch",
           `Coverage Requirement ${requirementId} belongs to Objective ${requirement.objectiveId}.`,
+          path,
+        ),
+      );
+    } else if (
+      record.schemaVersion === "field-observation.v1" &&
+      typeof record.observationKind === "string" &&
+      !objectives.get(requirement.objectiveId)?.observationKinds.includes(record.observationKind)
+    ) {
+      issues.push(
+        issue(
+          "objective_observation_kind_mismatch",
+          `Objective ${requirement.objectiveId} does not accept ${record.observationKind} observations.`,
+          "observationKind",
+        ),
+      );
+    } else if (
+      record.schemaVersion !== "field-observation.v1" &&
+      record.schemaVersion !== "capture-exception.v1" &&
+      record.schemaVersion !== "schema-gap.v1" &&
+      typeof record.schemaVersion === "string" &&
+      !objectives.get(requirement.objectiveId)?.recordKinds.includes(record.schemaVersion)
+    ) {
+      issues.push(
+        issue(
+          "objective_record_kind_mismatch",
+          `Objective ${requirement.objectiveId} does not accept ${record.schemaVersion} evidence.`,
           path,
         ),
       );
@@ -1047,4 +1076,15 @@ type MethodProfileRegistryEntry = {
   id: string;
   supportedKinds: readonly string[];
   supportedUnits: readonly string[];
+};
+
+type CoverageRequirementConstraint = {
+  objectiveId: string;
+  admissibleRecordKinds: readonly string[];
+  admissibleObservationKinds: readonly string[];
+};
+
+type ObjectiveConstraint = {
+  observationKinds: readonly string[];
+  recordKinds: readonly string[];
 };

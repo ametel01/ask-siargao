@@ -68,7 +68,7 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_home_observe_utilities",
             action: "observe",
-            observationKinds: ["power", "facility"],
+            observationKinds: ["power"],
             coverage: {
               required: true,
               minimumRecords: 2,
@@ -81,7 +81,7 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_home_observe_practical_essentials",
             action: "observe",
-            observationKinds: ["facility", "service_status"],
+            observationKinds: ["facility"],
             facilityTypes: ["drinking_water", "waste_disposal", "food"],
             coverage: {
               required: true,
@@ -95,7 +95,7 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_home_measure_environment",
             action: "measure",
-            observationKinds: ["connectivity", "noise_snapshot"],
+            observationKinds: ["noise_snapshot", "connectivity"],
             coverage: {
               required: true,
               minimumRecords: 2,
@@ -245,7 +245,18 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_del_carmen_observe_services",
             action: "observe",
-            observationKinds: ["identity", "facility", "payment_method", "connectivity"],
+            observationKinds: [
+              "identity",
+              "local_caveat",
+              "facility",
+              "payment_method",
+              "price",
+              "accessibility",
+              "road_condition",
+              "service_status",
+              "connectivity",
+              "opening_signal",
+            ],
             coverage: {
               required: true,
               minimumRecords: 4,
@@ -254,6 +265,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            recordKinds: ["evidence-asset.v1"],
           },
           {
             id: "objective_del_carmen_ask_service_leads",
@@ -267,6 +279,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            observationKinds: ["facility"],
           },
         ],
         coverageRequirements: [
@@ -469,6 +482,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            observationKinds: ["route_duration"],
           },
           {
             id: "objective_airport_document_signage",
@@ -482,6 +496,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            observationKinds: ["identity", "local_caveat"],
           },
           {
             id: "objective_airport_observe_arrival_conditions",
@@ -490,6 +505,8 @@ export const baselineFieldProtocolPackageData = {
               "route_wait",
               "price",
               "accessibility",
+              "road_condition",
+              "service_status",
               "connectivity",
               "payment_method",
             ],
@@ -501,6 +518,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            recordKinds: ["route-run.v1"],
           },
         ],
         coverageRequirements: [
@@ -567,7 +585,7 @@ export const baselineFieldProtocolPackageData = {
               minimumDistinctWindows: 1,
             },
             admissibleRecordKinds: ["field-observation.v1"],
-            admissibleObservationKinds: ["price"],
+            admissibleObservationKinds: ["price", "payment_method"],
           },
           {
             id: "coverage_route_time",
@@ -641,7 +659,16 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_general_luna_attempt_arrival",
             action: "attempt",
-            observationKinds: ["payment_method", "facility", "accessibility"],
+            observationKinds: [
+              "route_duration",
+              "accessibility",
+              "facility",
+              "identity",
+              "local_caveat",
+              "price",
+              "road_condition",
+              "service_status",
+            ],
             coverage: {
               required: true,
               minimumRecords: 3,
@@ -650,6 +677,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 2,
               },
             },
+            recordKinds: ["route-run.v1", "evidence-asset.v1"],
           },
           {
             id: "objective_general_luna_repeat_crowd",
@@ -798,7 +826,7 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_connectivity_measure_sets",
             action: "measure",
-            observationKinds: ["connectivity", "power", "noise_snapshot"],
+            observationKinds: ["connectivity", "power", "noise_snapshot", "facility"],
             coverage: {
               required: true,
               minimumRecords: 6,
@@ -930,15 +958,19 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            observationKinds: ["route_duration"],
           },
           {
             id: "objective_dapa_observe_services",
             action: "observe",
             observationKinds: [
-              "price",
+              "identity",
+              "local_caveat",
               "payment_method",
+              "price",
               "facility",
               "accessibility",
+              "road_condition",
               "service_status",
             ],
             coverage: {
@@ -949,6 +981,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            recordKinds: ["evidence-asset.v1", "source-statement.v1"],
           },
         ],
         coverageRequirements: [
@@ -1123,8 +1156,18 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_south_traverse_twice",
             action: "repeat",
-            recordKinds: ["route-run.v1"],
-            observationKinds: ["road_condition", "route_duration", "connectivity"],
+            recordKinds: ["route-run.v1", "evidence-asset.v1"],
+            observationKinds: [
+              "road_condition",
+              "route_duration",
+              "accessibility",
+              "service_status",
+              "price",
+              "facility",
+              "connectivity",
+              "identity",
+              "local_caveat",
+            ],
             coverage: {
               required: true,
               minimumRecords: 6,
@@ -1276,9 +1319,12 @@ export const baselineFieldProtocolPackageData = {
             observationKinds: [
               "route_duration",
               "road_condition",
-              "price",
               "facility",
+              "payment_method",
+              "accessibility",
               "service_status",
+              "contact_channel",
+              "local_caveat",
               "connectivity",
             ],
             coverage: {
@@ -1289,6 +1335,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 2,
               },
             },
+            recordKinds: ["route-run.v1", "source-statement.v1"],
           },
         ],
         coverageRequirements: [
@@ -1440,7 +1487,7 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_north_route_traverse",
             action: "traverse",
-            recordKinds: ["route-run.v1"],
+            recordKinds: ["route-run.v1", "source-statement.v1"],
             coverage: {
               required: true,
               minimumRecords: 1,
@@ -1449,11 +1496,24 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            observationKinds: [
+              "route_duration",
+              "service_status",
+              "contact_channel",
+              "local_caveat",
+            ],
           },
           {
             id: "objective_north_route_repeat_gap",
             action: "repeat",
-            observationKinds: ["route_wait", "facility", "connectivity"],
+            observationKinds: [
+              "service_status",
+              "contact_channel",
+              "local_caveat",
+              "facility",
+              "payment_method",
+              "connectivity",
+            ],
             coverage: {
               required: true,
               minimumRecords: 1,
@@ -1462,6 +1522,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 2,
               },
             },
+            recordKinds: ["source-statement.v1"],
           },
         ],
         coverageRequirements: [
@@ -1591,11 +1652,12 @@ export const baselineFieldProtocolPackageData = {
             action: "observe",
             observationKinds: [
               "tide_context",
+              "route_duration",
+              "accessibility",
               "road_condition",
+              "service_status",
               "price",
               "facility",
-              "accessibility",
-              "service_status",
             ],
             coverage: {
               required: true,
@@ -1605,6 +1667,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            recordKinds: ["route-run.v1"],
           },
         ],
         coverageRequirements: [
@@ -1734,11 +1797,12 @@ export const baselineFieldProtocolPackageData = {
             id: "objective_boat_attempt_booking",
             action: "attempt",
             observationKinds: [
-              "price",
-              "payment_method",
-              "route_wait",
-              "facility",
               "service_status",
+              "contact_channel",
+              "local_caveat",
+              "route_wait",
+              "price",
+              "facility",
             ],
             coverage: {
               required: true,
@@ -1748,6 +1812,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            recordKinds: ["source-statement.v1", "route-run.v1"],
           },
           {
             id: "objective_boat_traverse_journey",
@@ -1761,6 +1826,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            observationKinds: ["route_duration"],
           },
           {
             id: "objective_boat_ask_policy",
@@ -1774,6 +1840,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            observationKinds: ["service_status", "contact_channel", "local_caveat"],
           },
         ],
         coverageRequirements: [
@@ -1913,7 +1980,15 @@ export const baselineFieldProtocolPackageData = {
           {
             id: "objective_accessibility_attempt_journey",
             action: "attempt",
-            observationKinds: ["accessibility", "price", "facility", "route_wait"],
+            observationKinds: [
+              "service_status",
+              "contact_channel",
+              "local_caveat",
+              "price",
+              "accessibility",
+              "road_condition",
+              "facility",
+            ],
             coverage: {
               required: true,
               minimumRecords: 4,
@@ -1922,6 +1997,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            recordKinds: ["source-statement.v1"],
           },
           {
             id: "objective_accessibility_traverse_journey",
@@ -1935,6 +2011,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 1,
               },
             },
+            observationKinds: ["route_duration", "accessibility", "facility"],
           },
         ],
         coverageRequirements: [
@@ -2089,6 +2166,19 @@ export const baselineFieldProtocolPackageData = {
               "opening_signal",
               "connectivity",
               "identity",
+              "route_wait",
+              "road_condition",
+              "facility",
+              "accessibility",
+              "payment_method",
+              "power",
+              "crowd_snapshot",
+              "noise_snapshot",
+              "weather_condition",
+              "tide_context",
+              "menu_item",
+              "service_status",
+              "contact_channel",
               "local_caveat",
             ],
             coverage: {
@@ -2099,6 +2189,7 @@ export const baselineFieldProtocolPackageData = {
                 minimumDistinctWindows: 2,
               },
             },
+            recordKinds: ["route-run.v1"],
           },
         ],
         coverageRequirements: [
@@ -5878,7 +5969,7 @@ export const baselineFieldProtocolPackageData = {
     files: [
       {
         path: "canonical/v1/campaign-island-baseline.v1.json",
-        sha256: "9e907600148f9ac917abd53fc160d151029595451bad9c982935b3279c069c0d",
+        sha256: "8a9834781889c49d32cefabd30a139edea42ccb86b5cf7bbda580566fdd5ee9f",
       },
       {
         path: "canonical/v1/distribution-schemas.v1.json",
@@ -5920,7 +6011,7 @@ export const baselineFieldProtocolPackageData = {
     signature: {
       algorithm: "Ed25519",
       value:
-        "McdXaDZQVM8V+fuhIADcwfbVvQAy4avhQL5gTDLsB+WPEoSoYsrKPPKutca7CR9FzEjQOeuaGUwRsmSxMOpLDw==",
+        "9Cb7REqc8h02ZZX/UYXg7sbZo3SVbrPLa+jaUEb4b8Vlfromj7B4Mtbt4vEWzcH+VKXgZwUB1nPU5uolytJ9Dw==",
     },
   },
 } as const;
@@ -5930,7 +6021,7 @@ export const trustedFieldProtocolSignersData = {
     {
       keyId: "ask-siargao-field-protocol-2026-01",
       algorithm: "Ed25519",
-      publicKeySpkiBase64: "MCowBQYDK2VwAyEALXR2HyIKFuASk4K2Wf5NGH3qjzvwsOqxgKOGgPTY6Nc=",
+      publicKeySpkiBase64: "MCowBQYDK2VwAyEA3du1w0t6ZDA4B8lRsnsD+bSf+D2f8qUDm1asXrUHF6E=",
       status: "trusted",
     },
   ],

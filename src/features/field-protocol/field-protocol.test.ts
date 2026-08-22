@@ -132,6 +132,17 @@ describe("canonical field protocol records", () => {
       expect(unrelated.issues.map((issue) => issue.code)).toContain("unknown_coverage_requirement");
     }
 
+    const wrongObjective = validateFieldProtocolRecord("fieldObservation", {
+      ...example,
+      objectiveId: "objective_del_carmen_ask_service_leads",
+    });
+    expect(wrongObjective.success).toBe(false);
+    if (!wrongObjective.success) {
+      expect(wrongObjective.issues.map((issue) => issue.code)).toContain(
+        "coverage_objective_mismatch",
+      );
+    }
+
     const wrongKind = validateFieldProtocolRecord("fieldObservation", {
       ...example,
       observationKind: "facility",
@@ -424,17 +435,31 @@ describe("baseline Field Protocol Package", () => {
       ) as Record<string, string[]>,
     ).toEqual(expectedCoverageRequirementLabels);
     for (const assignment of baselineFieldProtocolPackage.campaign.assignments) {
-      const objectiveIds = new Set(assignment.objectives.map((objective) => objective.id));
+      const objectives = new Map(
+        assignment.objectives.map((objective) => [objective.id, objective]),
+      );
       expect(
-        assignment.coverageRequirements.every(
-          (requirement) =>
-            objectiveIds.has(requirement.objectiveId) &&
+        assignment.coverageRequirements.every((requirement) => {
+          const objective = objectives.get(requirement.objectiveId);
+          const objectiveObservationKinds: readonly string[] =
+            objective && "observationKinds" in objective ? objective.observationKinds : [];
+          const objectiveRecordKinds: readonly string[] =
+            objective && "recordKinds" in objective ? objective.recordKinds : [];
+          return (
+            Boolean(objective) &&
             requirement.required &&
             requirement.minimumRecords > 0 &&
             requirement.supportingAsset.length > 0 &&
             requirement.repetition.minimumDistinctWindows > 0 &&
-            requirement.admissibleRecordKinds.length > 0,
-        ),
+            requirement.admissibleRecordKinds.length > 0 &&
+            requirement.admissibleObservationKinds.every((kind) =>
+              objectiveObservationKinds.includes(kind),
+            ) &&
+            requirement.admissibleRecordKinds
+              .filter((kind) => kind !== "field-observation.v1")
+              .every((kind) => objectiveRecordKinds.includes(kind))
+          );
+        }),
       ).toBe(true);
     }
   });
