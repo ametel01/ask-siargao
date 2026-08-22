@@ -33,9 +33,11 @@ describe("Protected Field Data cryptography", () => {
   test("fails closed for a wrong key, changed ciphertext, and changed AAD", () => {
     const key = createFieldVaultKey();
     const envelope = encryptFieldValue({ applicationVersion: "0.1.0", key, value: { safe: true } });
+    const changedCiphertext = `${envelope.ciphertext.startsWith("A") ? "B" : "A"}${envelope.ciphertext.slice(1)}`;
+    expect(changedCiphertext).not.toBe(envelope.ciphertext);
     for (const candidate of [
       { envelope, key: createFieldVaultKey() },
-      { envelope: { ...envelope, ciphertext: `${envelope.ciphertext.slice(0, -1)}A` }, key },
+      { envelope: { ...envelope, ciphertext: changedCiphertext }, key },
       { envelope: { ...envelope, applicationVersion: "0.2.0" }, key },
       { envelope: { ...envelope, opaqueRecordKey: `${envelope.opaqueRecordKey}x` }, key },
     ]) {
