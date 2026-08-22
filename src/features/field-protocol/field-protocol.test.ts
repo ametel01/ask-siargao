@@ -338,6 +338,19 @@ describe("baseline Field Protocol Package", () => {
 
 describe("Protocol Migration preview", () => {
   test("migrates actual Legacy Capture shape and distinguishes ambiguity and failure", () => {
+    const visit = {
+      schemaVersion: "field-record.v1",
+      recordType: "visit",
+      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1522",
+      clientBatchId: "0192f060-4f41-7aa1-b322-4aa9fc9f1521",
+      campaignSlug: "island-baseline-2026",
+      capturedAt: "2026-08-22T09:30:00+08:00",
+      localTimezone: "Asia/Manila",
+      observerKey: "legacy-researcher",
+      entityId: "legacy_del_carmen",
+      purposeCodes: ["guide_fact_check"],
+      startedAt: "2026-08-22T09:30:00+08:00",
+    };
     const source = {
       schemaVersion: "field-record.v1",
       recordType: "observation",
@@ -347,8 +360,6 @@ describe("Protocol Migration preview", () => {
       capturedAt: "2026-08-22T09:32:00+08:00",
       localTimezone: "Asia/Manila",
       visitId: "0192f060-4f41-7aa1-b322-4aa9fc9f1522",
-      observerKey: "legacy-researcher",
-      entityId: "legacy_del_carmen",
       observationKind: "opening_hours",
       directness: "direct_observation",
       observedAt: "2026-08-22T09:32:00+08:00",
@@ -364,15 +375,16 @@ describe("Protocol Migration preview", () => {
     };
     const ambiguous = { ...source, observationKind: "free_text_observation" };
     const unsupported = { ...source, observationKind: "legacy_arbitrary_json" };
-    const preview = previewProtocolMigration({ records: [source, ambiguous, unsupported] });
+    const preview = previewProtocolMigration({ records: [visit, source, ambiguous, unsupported] });
 
     expect(preview.results.map((result) => result.status)).toEqual([
+      "needs_resolution",
       "migrated",
       "needs_resolution",
       "failed",
     ]);
-    expect(preview.results[0]?.original).toEqual(source);
-    expect(preview.results[0]?.migrated).toMatchObject({
+    expect(preview.results[1]?.original).toEqual(source);
+    expect(preview.results[1]?.migrated).toMatchObject({
       protocolPackageVersion: "1.0.0",
       observationKind: "opening_signal",
       subject: { kind: "governed", subjectId: "subject_area_del_carmen" },

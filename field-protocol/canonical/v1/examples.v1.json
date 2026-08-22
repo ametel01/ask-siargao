@@ -289,6 +289,8 @@
         "sourceStatement": 1,
         "statementTranslation": 1,
         "evidenceAsset": 1,
+        "captureException": 0,
+        "schemaGap": 0,
         "fieldReview": 1
       },
       "files": [

@@ -49,6 +49,8 @@ export interface FieldBatch {
     sourceStatement: number;
     statementTranslation: number;
     evidenceAsset: number;
+    captureException: number;
+    schemaGap: number;
     fieldReview: number;
   };
   /**
@@ -63,6 +65,8 @@ export interface FieldBatch {
         | "sourceStatement"
         | "statementTranslation"
         | "evidenceAsset"
+        | "captureException"
+        | "schemaGap"
         | "fieldReview";
       filename: string;
       byteSize: number;
@@ -77,6 +81,8 @@ export interface FieldBatch {
         | "sourceStatement"
         | "statementTranslation"
         | "evidenceAsset"
+        | "captureException"
+        | "schemaGap"
         | "fieldReview";
       filename: string;
       byteSize: number;

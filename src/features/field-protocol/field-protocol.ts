@@ -312,9 +312,16 @@ export function previewProtocolMigration(input: {
     );
   }
   const migration = parsed.data as ProtocolMigration;
+  const legacyVisits = new Map<string, Record<string, unknown>>();
+  for (const recordValue of input.records) {
+    const record = asObject(recordValue);
+    if (record?.recordType === "visit" && typeof record.id === "string") {
+      legacyVisits.set(record.id, record);
+    }
+  }
   return {
     migrationId: migration.migrationId,
-    results: input.records.map((record) => previewRecordMigration(migration, record)),
+    results: input.records.map((record) => previewRecordMigration(migration, record, legacyVisits)),
   };
 }
 
@@ -490,6 +497,7 @@ function validateFieldBatchSemantics(batch: FieldBatch): ProtocolValidationIssue
 function previewRecordMigration(
   migration: ProtocolMigration,
   originalValue: unknown,
+  legacyVisits: ReadonlyMap<string, Record<string, unknown>>,
 ): MigrationPreviewResult {
   const original = structuredClone(originalValue);
   const record = asObject(originalValue);
@@ -505,7 +513,7 @@ function previewRecordMigration(
     typeof record.schemaVersion === "string" &&
     migration.sourceSchemaVersions.includes(record.schemaVersion)
   ) {
-    return previewLegacyCaptureMigration(migration, record, original);
+    return previewLegacyCaptureMigration(migration, record, original, legacyVisits);
   }
 
   if (record.protocolPackageVersion !== migration.fromPackageVersion) {
@@ -566,6 +574,7 @@ function previewLegacyCaptureMigration(
   migration: ProtocolMigration,
   record: Record<string, unknown>,
   original: unknown,
+  legacyVisits: ReadonlyMap<string, Record<string, unknown>>,
 ): MigrationPreviewResult {
   const parsedLegacy = parseFieldFile("legacy-field-record.json", JSON.stringify(record));
   if (parsedLegacy.issues.length > 0 || parsedLegacy.records.length !== 1) {
@@ -603,7 +612,9 @@ function previewLegacyCaptureMigration(
     };
   }
 
-  const legacySubjectId = typeof record.entityId === "string" ? record.entityId : "";
+  const legacyVisit =
+    typeof record.visitId === "string" ? legacyVisits.get(record.visitId) : undefined;
+  const legacySubjectId = firstString(record.entityId, legacyVisit?.entityId, legacyVisit?.areaId);
   const subjectMapping = migration.subjectMappings.find((entry) => entry.from === legacySubjectId);
   if (!subjectMapping) {
     return {
@@ -629,7 +640,6 @@ function previewLegacyCaptureMigration(
     "capturedAt",
     "localTimezone",
     "visitId",
-    "observerKey",
     "observedAt",
     "reviewDueAt",
   ] as const;
@@ -641,6 +651,14 @@ function previewLegacyCaptureMigration(
       original,
       status: "needs_resolution",
       reason: `Legacy Capture is missing ${missing}, which is required for attributable migration.`,
+    };
+  }
+  const researcherId = firstString(record.observerKey, legacyVisit?.observerKey);
+  if (!researcherId) {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: "Legacy Capture has no attributable researcher on the observation or its Visit.",
     };
   }
 
@@ -668,7 +686,7 @@ function previewLegacyCaptureMigration(
     assignmentId: assignment.assignmentId,
     visitId: record.visitId,
     objectiveId: assignment.objectiveId,
-    researcherId: record.observerKey,
+    researcherId,
     deviceId: `legacy-batch-${record.clientBatchId}`,
     recordedAt: record.capturedAt,
     localTimezone: record.localTimezone,
@@ -731,6 +749,12 @@ function utcOffsetMinutes(value: string) {
   if (!match) return 0;
   const minutes = Number(match[2]) * 60 + Number(match[3]);
   return match[1] === "-" ? -minutes : minutes;
+}
+
+function firstString(...values: unknown[]) {
+  return (
+    values.find((value): value is string => typeof value === "string" && value.length > 0) ?? ""
+  );
 }
 
 function recordKindForSchemaVersion(value: unknown): FieldProtocolRecordKind | undefined {

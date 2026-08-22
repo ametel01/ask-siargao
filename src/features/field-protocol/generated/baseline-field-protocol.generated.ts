@@ -1407,6 +1407,8 @@ export const baselineFieldProtocolPackageData = {
           sourceStatement: 1,
           statementTranslation: 1,
           evidenceAsset: 1,
+          captureException: 0,
+          schemaGap: 0,
           fieldReview: 1,
         },
         files: [
@@ -4071,6 +4073,8 @@ export const baselineFieldProtocolPackageData = {
               "sourceStatement",
               "statementTranslation",
               "evidenceAsset",
+              "captureException",
+              "schemaGap",
               "fieldReview",
             ],
             properties: {
@@ -4098,6 +4102,14 @@ export const baselineFieldProtocolPackageData = {
                 type: "integer",
                 minimum: 0,
               },
+              captureException: {
+                type: "integer",
+                minimum: 0,
+              },
+              schemaGap: {
+                type: "integer",
+                minimum: 0,
+              },
               fieldReview: {
                 type: "integer",
                 minimum: 0,
@@ -4119,6 +4131,8 @@ export const baselineFieldProtocolPackageData = {
                     "sourceStatement",
                     "statementTranslation",
                     "evidenceAsset",
+                    "captureException",
+                    "schemaGap",
                     "fieldReview",
                   ],
                 },
@@ -4386,7 +4400,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/examples.v1.json",
-        sha256: "8e6326ad59020a059b4d11809182a1687588a71646994f41f0754d6221ac09d2",
+        sha256: "55e3ca0f35720308f4c2b3acf95f1005ab20d7663dd843be4f762999000987b8",
       },
       {
         path: "canonical/v1/geography.v1.json",
@@ -4410,7 +4424,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/schemas.v1.json",
-        sha256: "23f828280a7fe995b7443a6b19af811b285fa4b54d52a2fa0f0707d8dfa9f659",
+        sha256: "dc29ba2833bf8153262723b87f5d02e6945603de22fb8fcbf719cc62cd3760ae",
       },
       {
         path: "canonical/v1/subjects.v1.json",
@@ -4420,7 +4434,7 @@ export const baselineFieldProtocolPackageData = {
     signature: {
       algorithm: "Ed25519",
       value:
-        "a6wvKKJGZZXK7sUOcFsdl9VQx176GRi7ZHEy0QX0MTtxlRlKDkGk9/eEh0m2i1pMlAYNiUpeizYyfALAKxHLBg==",
+        "dMlojKyht+VK4TB2Yj8dbisUOgm8NxdNMmxr6noEdGS+5/HPlCQ8CarZRUoghVfKxkv2BHZZ6CJTYT8XZRpHBQ==",
     },
   },
 } as const;
@@ -4430,7 +4444,7 @@ export const trustedFieldProtocolSignersData = {
     {
       keyId: "ask-siargao-field-protocol-2026-01",
       algorithm: "Ed25519",
-      publicKeySpkiBase64: "MCowBQYDK2VwAyEAsYe6up2vqH+ZJ+rW3E5SfPXMj7B2ElfHASK0oE0XSk4=",
+      publicKeySpkiBase64: "MCowBQYDK2VwAyEAA2+1L4tjdjRof6nkcRWPQXjBzoyy5r9UPPtKZGfs8ns=",
       status: "trusted",
     },
   ],
