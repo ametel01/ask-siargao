@@ -25,6 +25,7 @@ const applicationVersion = "0.1.0";
 const applicationBuildId = process.env.NEXT_PUBLIC_FIELD_CACHE_GENERATION ?? "unconfigured";
 
 type SetupState = {
+  deviceRole: "desk" | "recorder";
   deviceAuthorized: boolean;
   offlineShellPrepared: boolean;
   recoverySecret?: string;
@@ -39,6 +40,7 @@ type SetupState = {
 
 export function FieldSecurityWorkspace() {
   const [state, setState] = useState<SetupState>({
+    deviceRole: "recorder",
     deviceAuthorized: false,
     offlineShellPrepared: false,
     recoveryVerified: false,
@@ -94,7 +96,7 @@ export function FieldSecurityWorkspace() {
           ),
           applicationVersion,
           registrationResponse,
-          role: "recorder",
+          role: state.deviceRole,
           signingPublicKey,
           signingPublicKeyFingerprint: await sha256Hex(
             new TextEncoder().encode(canonical(signingPublicKey)),
@@ -175,6 +177,10 @@ export function FieldSecurityWorkspace() {
       await vault.putEnvelopeBatch([authorizationEnvelope]);
       await vault.putMetadata({ key: "recovery-wrap", value: wrap });
       await vault.putMetadata({ key: "device-wrap", value: deviceWrap });
+      await vault.putMetadata({
+        key: "device-role",
+        value: { role: state.deviceRole, version: 1 },
+      });
       await vault.putMetadata({
         key: "unlock-credential",
         value: state.pendingAuthorization.unlockCredential,
@@ -271,6 +277,24 @@ export function FieldSecurityWorkspace() {
             Requires fresh identity verification and a user-verified, non-backup-eligible
             credential.
           </p>
+          <label className="mt-3 block text-sm font-semibold" htmlFor="field-device-role">
+            Device workspace
+          </label>
+          <select
+            className="mt-1 min-h-11 w-full rounded-lg border border-stone-400 bg-white px-3 text-sm"
+            disabled={state.deviceAuthorized || Boolean(state.pendingAuthorization)}
+            id="field-device-role"
+            onChange={(event) =>
+              setState((current) => ({
+                ...current,
+                deviceRole: event.target.value === "desk" ? "desk" : "recorder",
+              }))
+            }
+            value={state.deviceRole}
+          >
+            <option value="recorder">Recorder — plan and capture</option>
+            <option value="desk">Desk — review and protected exports</option>
+          </select>
           <button
             className="mt-3 rounded-lg bg-stone-950 px-4 py-2 text-sm text-white"
             onClick={authorizeDevice}

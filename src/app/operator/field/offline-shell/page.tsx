@@ -1,6 +1,6 @@
-import { FieldRecorderShell } from "@/features/field-recorder/FieldRecorderShell";
 import { loadRecorderProtocol } from "@/features/field-recorder/load-recorder-protocol";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
+import { FieldOfflineAreas } from "@/features/field-workspace/FieldOfflineAreas";
 
 function FieldOfflineShell(props: { children?: React.ReactNode }) {
   return (
@@ -22,7 +22,7 @@ export default async function FieldOfflineShellPage() {
   const protocol = await loadRecorderProtocol();
   return (
     <FieldOfflineShell>
-      <FieldRecorderShell protocol={protocol} />
+      <FieldOfflineAreas protocol={protocol} />
     </FieldOfflineShell>
   );
 }

@@ -25,12 +25,12 @@ test("generates and safely adjusts an accessible offline Field Day Plan", async 
 
   await context.setOffline(true);
   await page.getByRole("button", { name: "Generate deterministic proposal" }).click();
-  await expect(page.getByRole("status")).toContainText("Proposal regenerated");
+  await expect(page.getByRole("status").filter({ hasText: "Proposal regenerated" })).toBeVisible();
 
   const moveLater = page.getByRole("button", { name: "Move Connectivity transect later" });
   await moveLater.focus();
   await moveLater.press("Enter");
-  await expect(page.getByRole("status")).toContainText("move accepted");
+  await expect(page.getByRole("status").filter({ hasText: "move accepted" })).toBeVisible();
   await expect(moveLater).toBeFocused();
 
   const unsafeAdd = page.getByRole("button", {
