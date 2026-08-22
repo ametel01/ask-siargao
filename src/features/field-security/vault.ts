@@ -1,5 +1,10 @@
 import { FieldSecurityError } from "@/features/field-security/errors";
 import type {
+  EncryptedFieldMediaBundle,
+  FieldEncryptedMediaChunk,
+  FieldEncryptedMediaManifest,
+} from "@/features/field-security/media";
+import type {
   FieldDeviceWrap,
   FieldEncryptedEnvelope,
   FieldRecoveryWrap,
@@ -7,12 +12,21 @@ import type {
 import type { DeviceBoundCredentialEvidence } from "@/features/field-security/webauthn";
 
 const databaseName = "ask-siargao-protected-field-vault";
-const databaseVersion = 1;
+const databaseVersion = 2;
 const envelopeStore = "opaque-envelopes";
 const metadataStore = "crypto-metadata";
 const leaseStore = "writer-leases";
 const auditStore = "encrypted-audit";
 const deviceKeyStore = "device-keys";
+const mediaChunkStore = "encrypted-media-chunks";
+const mediaManifestStore = "encrypted-media-manifests";
+
+export type FieldRecorderPointer = {
+  opaqueRecordKey: string;
+  revision: number;
+  updatedAt: string;
+  version: 1;
+};
 
 export type FieldWriterLease = {
   expiresAt: number;
@@ -26,6 +40,17 @@ export type FieldVaultMetadata =
   | { key: "recovery-verified"; value: { at: string; version: 1 } }
   | { key: "trusted-wall-clock"; value: { observedAtMs: number; version: 1 } }
   | { key: "authorization-envelope"; value: { opaqueRecordKey: string; version: 1 } }
+  | {
+      key: "field-readiness";
+      value: {
+        buildId: string;
+        offlineShellPrepared: boolean;
+        persisted: boolean;
+        preparedAt: string;
+        version: 1;
+      };
+    }
+  | { key: "recorder-pointer"; value: FieldRecorderPointer }
   | { key: "device-wrap"; value: FieldDeviceWrap }
   | { key: "unlock-credential"; value: DeviceBoundCredentialEvidence };
 
@@ -76,6 +101,100 @@ export class IndexedDbFieldVault {
     return this.withTransaction([envelopeStore], "readonly", async (transaction) =>
       requestResult<FieldEncryptedEnvelope[]>(transaction.objectStore(envelopeStore).getAll()),
     );
+  }
+
+  async putRecorderRevision(input: {
+    envelope: FieldEncryptedEnvelope;
+    expectedPreviousRevision: number;
+    media?: readonly EncryptedFieldMediaBundle[];
+    pointer: Omit<FieldRecorderPointer, "version">;
+    writerLease?: {
+      nowMs: number;
+      visitReference: string;
+      writerInstanceId: string;
+    };
+  }): Promise<void> {
+    assertRecorderRevision(input);
+    await this.withTransaction(
+      [envelopeStore, metadataStore, mediaManifestStore, mediaChunkStore, leaseStore],
+      "readwrite",
+      async (transaction) => {
+        const existing = await requestResult<
+          Extract<FieldVaultMetadata, { key: "recorder-pointer" }> | undefined
+        >(transaction.objectStore(metadataStore).get("recorder-pointer"));
+        if (
+          (existing?.value.revision ?? 0) !== input.expectedPreviousRevision ||
+          (existing && existing.value.opaqueRecordKey !== input.pointer.opaqueRecordKey)
+        ) {
+          throw new FieldSecurityError("field_recorder_revision_conflict");
+        }
+        if (input.writerLease) {
+          const lease = await requestResult<FieldWriterLease | undefined>(
+            transaction.objectStore(leaseStore).get(input.writerLease.visitReference),
+          );
+          if (
+            !lease ||
+            lease.writerInstanceId !== input.writerLease.writerInstanceId ||
+            lease.expiresAt <= input.writerLease.nowMs
+          ) {
+            throw new FieldSecurityError("field_writer_conflict");
+          }
+        }
+        transaction.objectStore(envelopeStore).put(input.envelope);
+        for (const bundle of input.media ?? []) putMediaBundle(transaction, bundle);
+        transaction.objectStore(metadataStore).put({
+          key: "recorder-pointer",
+          value: { ...input.pointer, version: 1 },
+        });
+      },
+    );
+  }
+
+  async getRecorderPointer(): Promise<FieldRecorderPointer | undefined> {
+    return (await this.getMetadata("recorder-pointer"))?.value;
+  }
+
+  async putEncryptedMedia(bundle: EncryptedFieldMediaBundle): Promise<void> {
+    assertMediaBundle(bundle);
+    await this.withTransaction(
+      [mediaManifestStore, mediaChunkStore],
+      "readwrite",
+      async (transaction) => putMediaBundle(transaction, bundle),
+    );
+  }
+
+  async getEncryptedMedia(opaqueMediaKey: string): Promise<EncryptedFieldMediaBundle | undefined> {
+    if (!/^field_media_[A-Za-z0-9_-]{16,}$/u.test(opaqueMediaKey)) {
+      throw new FieldSecurityError("field_media_integrity_failed");
+    }
+    return this.withTransaction(
+      [mediaManifestStore, mediaChunkStore],
+      "readonly",
+      async (transaction) => {
+        const manifest = await requestResult<FieldEncryptedMediaManifest | undefined>(
+          transaction.objectStore(mediaManifestStore).get(opaqueMediaKey),
+        );
+        if (!manifest) return undefined;
+        const index = transaction.objectStore(mediaChunkStore).index("opaqueMediaKey");
+        const chunks = await requestResult<FieldEncryptedMediaChunk[]>(
+          index.getAll(IDBKeyRange.only(opaqueMediaKey)),
+        );
+        const bundle = { chunks: chunks.sort((left, right) => left.index - right.index), manifest };
+        assertMediaBundle(bundle);
+        return bundle;
+      },
+    );
+  }
+
+  async hasDeviceKeys(): Promise<boolean> {
+    return this.withTransaction([deviceKeyStore], "readonly", async (transaction) => {
+      const store = transaction.objectStore(deviceKeyStore);
+      const [agreement, signing] = await Promise.all([
+        requestResult(store.getKey("agreement-private")),
+        requestResult(store.getKey("signing-private")),
+      ]);
+      return agreement !== undefined && signing !== undefined;
+    });
   }
 
   async putMetadata(metadata: FieldVaultMetadata): Promise<void> {
@@ -212,6 +331,26 @@ export async function requestPersistentFieldStorage(): Promise<{
   };
 }
 
+export async function estimateFieldStorage(): Promise<{
+  availableBytes: number;
+  quotaBytes: number;
+  usageBytes: number;
+}> {
+  if (!navigator.storage?.estimate) {
+    return { availableBytes: 0, quotaBytes: 0, usageBytes: 0 };
+  }
+  const estimate = await navigator.storage
+    .estimate()
+    .catch((): StorageEstimate => ({ quota: 0, usage: 0 }));
+  const quotaBytes = estimate.quota ?? 0;
+  const usageBytes = estimate.usage ?? 0;
+  return {
+    availableBytes: Math.max(0, quotaBytes - usageBytes),
+    quotaBytes,
+    usageBytes,
+  };
+}
+
 export function evaluateFieldReadiness(input: {
   availableBytes: number;
   grantUsable: boolean;
@@ -243,15 +382,83 @@ function openFieldVaultDatabase(): Promise<IDBDatabase> {
         [leaseStore, "visitReference"],
         [auditStore, "opaqueRecordKey"],
         [deviceKeyStore, "key"],
+        [mediaManifestStore, "opaqueMediaKey"],
       ] as const) {
         if (!request.result.objectStoreNames.contains(store)) {
           request.result.createObjectStore(store, { keyPath });
         }
       }
+      if (!request.result.objectStoreNames.contains(mediaChunkStore)) {
+        const chunks = request.result.createObjectStore(mediaChunkStore, { keyPath: "chunkKey" });
+        chunks.createIndex("opaqueMediaKey", "opaqueMediaKey", { unique: false });
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+function assertRecorderRevision(input: {
+  envelope: FieldEncryptedEnvelope;
+  expectedPreviousRevision: number;
+  media?: readonly EncryptedFieldMediaBundle[];
+  pointer: Omit<FieldRecorderPointer, "version">;
+  writerLease?: {
+    nowMs: number;
+    visitReference: string;
+    writerInstanceId: string;
+  };
+}): void {
+  if (
+    input.pointer.opaqueRecordKey !== input.envelope.opaqueRecordKey ||
+    !Number.isSafeInteger(input.expectedPreviousRevision) ||
+    input.expectedPreviousRevision < 0 ||
+    !Number.isSafeInteger(input.pointer.revision) ||
+    input.pointer.revision !== input.expectedPreviousRevision + 1 ||
+    !Number.isFinite(Date.parse(input.pointer.updatedAt))
+  ) {
+    throw new FieldSecurityError("field_recorder_revision_conflict");
+  }
+  if (
+    input.writerLease &&
+    (!/^visit_ref_[A-Za-z0-9_-]{16,}$/u.test(input.writerLease.visitReference) ||
+      input.writerLease.writerInstanceId.length < 1 ||
+      !Number.isFinite(input.writerLease.nowMs))
+  ) {
+    throw new FieldSecurityError("field_writer_conflict");
+  }
+  for (const bundle of input.media ?? []) assertMediaBundle(bundle);
+}
+
+function assertMediaBundle(bundle: EncryptedFieldMediaBundle): void {
+  const { manifest } = bundle;
+  if (
+    !/^field_media_[A-Za-z0-9_-]{16,}$/u.test(manifest.opaqueMediaKey) ||
+    manifest.chunkCount < 1 ||
+    manifest.chunkCount !== bundle.chunks.length
+  ) {
+    throw new FieldSecurityError("field_media_integrity_failed");
+  }
+  const indexes = new Set<number>();
+  for (const chunk of bundle.chunks) {
+    if (
+      chunk.opaqueMediaKey !== manifest.opaqueMediaKey ||
+      chunk.index < 0 ||
+      chunk.index >= manifest.chunkCount ||
+      chunk.chunkKey !== `${manifest.opaqueMediaKey}:${chunk.index}` ||
+      indexes.has(chunk.index)
+    ) {
+      throw new FieldSecurityError("field_media_integrity_failed");
+    }
+    indexes.add(chunk.index);
+  }
+}
+
+function putMediaBundle(transaction: IDBTransaction, bundle: EncryptedFieldMediaBundle): void {
+  assertMediaBundle(bundle);
+  transaction.objectStore(mediaManifestStore).put(bundle.manifest);
+  const chunks = transaction.objectStore(mediaChunkStore);
+  for (const chunk of bundle.chunks) chunks.put(chunk);
 }
 
 function requestResult<T>(request: IDBRequest): Promise<T> {

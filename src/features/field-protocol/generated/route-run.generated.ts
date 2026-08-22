@@ -15,6 +15,10 @@ export interface RouteRun {
   recordedAt: string;
   localTimezone: "Asia/Manila";
   captureState: "draft" | "captured";
+  /**
+   * @minItems 1
+   */
+  captureWindowIds: [string, ...string[]];
   supersedesId?: string;
   originSubjectId: string;
   destinationSubjectId: string;
@@ -36,7 +40,28 @@ export interface RouteRun {
     basis: "posted" | "quoted" | "paid";
     receiptAssetId?: string;
   };
-  conditions: string[];
+  conditions: (
+    | "weather_clear"
+    | "weather_cloudy"
+    | "weather_rain"
+    | "tide_low"
+    | "tide_mid"
+    | "tide_high"
+    | "road_dry"
+    | "road_wet"
+    | "crowd_quiet"
+    | "crowd_moderate"
+    | "crowd_busy"
+    | "noise_quiet"
+    | "noise_moderate"
+    | "noise_loud"
+    | "power_available"
+    | "power_outage"
+    | "access_open"
+    | "access_restricted"
+    | "disruption_none"
+    | "disruption_active"
+  )[];
   signalCheckpoints: string[];
   barriers: string[];
   notTested: string[];

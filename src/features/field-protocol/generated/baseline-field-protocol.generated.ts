@@ -2,7 +2,7 @@
 export const baselineFieldProtocolPackageData = {
   campaign: {
     schemaVersion: "field-campaign.v1",
-    componentVersion: "1.0.0",
+    componentVersion: "1.0.1",
     campaignId: "campaign_island_baseline",
     name: "Siargao island baseline",
     purpose:
@@ -230,6 +230,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity", "power"],
@@ -243,6 +244,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -256,6 +258,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["power"],
@@ -269,6 +272,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -282,6 +286,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["noise_snapshot"],
@@ -295,6 +300,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -308,6 +314,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -395,6 +402,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["identity"],
@@ -408,6 +416,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "evidence-asset.v1"],
             admissibleObservationKinds: ["identity", "local_caveat"],
@@ -421,6 +430,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility", "payment_method"],
@@ -434,6 +444,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "evidence-asset.v1"],
             admissibleObservationKinds: ["payment_method", "price"],
@@ -447,6 +458,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["facility"],
@@ -460,6 +472,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -473,6 +486,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -486,6 +500,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -499,6 +514,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -512,6 +528,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -525,6 +542,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -538,6 +556,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["opening_signal"],
@@ -637,6 +656,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -650,6 +670,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "evidence-asset.v1"],
             admissibleObservationKinds: ["identity", "local_caveat"],
@@ -663,6 +684,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_wait"],
@@ -676,6 +698,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -689,6 +712,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["price", "payment_method"],
@@ -702,6 +726,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -715,6 +740,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -728,6 +754,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -812,6 +839,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -825,6 +853,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["accessibility", "facility"],
@@ -838,6 +867,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "evidence-asset.v1"],
             admissibleObservationKinds: ["identity", "local_caveat"],
@@ -851,6 +881,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["price"],
@@ -864,6 +895,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -877,6 +909,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -890,6 +923,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["crowd_snapshot"],
@@ -903,6 +937,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -959,6 +994,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -972,6 +1008,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -985,6 +1022,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["power"],
@@ -998,6 +1036,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["power"],
@@ -1011,6 +1050,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["noise_snapshot"],
@@ -1024,6 +1064,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1109,6 +1150,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -1122,6 +1164,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -1135,6 +1178,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "evidence-asset.v1"],
             admissibleObservationKinds: ["identity", "local_caveat"],
@@ -1148,6 +1192,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["payment_method", "price"],
@@ -1161,6 +1206,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility", "payment_method"],
@@ -1174,6 +1220,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1187,6 +1234,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1200,6 +1248,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1213,6 +1262,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1226,6 +1276,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1239,6 +1290,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "required_for_posted_information",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -1306,6 +1358,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["road_condition", "route_duration"],
@@ -1319,6 +1372,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["road_condition", "route_duration"],
@@ -1332,6 +1386,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -1345,6 +1400,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -1358,6 +1414,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["price"],
@@ -1371,6 +1428,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1384,6 +1442,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -1397,6 +1456,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "evidence-asset.v1"],
             admissibleObservationKinds: ["identity", "local_caveat"],
@@ -1469,6 +1529,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -1482,6 +1543,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["road_condition", "route_duration"],
@@ -1495,6 +1557,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1508,6 +1571,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1521,6 +1585,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility", "payment_method"],
@@ -1534,6 +1599,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1547,6 +1613,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -1560,6 +1627,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["service_status", "contact_channel", "local_caveat"],
@@ -1573,6 +1641,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -1659,6 +1728,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -1672,6 +1742,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["service_status", "contact_channel", "local_caveat"],
@@ -1685,6 +1756,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["service_status", "contact_channel", "local_caveat"],
@@ -1698,6 +1770,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1711,6 +1784,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility", "payment_method"],
@@ -1724,6 +1798,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1737,6 +1812,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -1807,6 +1883,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["tide_context"],
@@ -1820,6 +1897,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -1833,6 +1911,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -1846,6 +1925,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["price"],
@@ -1859,6 +1939,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -1872,6 +1953,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["road_condition", "route_duration"],
@@ -1885,6 +1967,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -1983,6 +2066,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["service_status", "contact_channel", "local_caveat"],
@@ -1996,6 +2080,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["service_status", "contact_channel", "local_caveat"],
@@ -2009,6 +2094,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_wait"],
@@ -2022,6 +2108,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["price"],
@@ -2035,6 +2122,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -2048,6 +2136,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -2061,6 +2150,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -2074,6 +2164,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "not_required",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["service_status", "contact_channel", "local_caveat"],
@@ -2157,6 +2248,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "source-statement.v1"],
             admissibleObservationKinds: ["service_status", "contact_channel", "local_caveat"],
@@ -2170,6 +2262,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -2183,6 +2276,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["price"],
@@ -2196,6 +2290,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -2209,6 +2304,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -2222,6 +2318,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["accessibility", "road_condition", "service_status"],
@@ -2235,6 +2332,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -2248,6 +2346,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["facility"],
@@ -2261,6 +2360,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "optional",
             repetition: {
               minimumDistinctWindows: 1,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["accessibility", "facility"],
@@ -2338,6 +2438,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "depends_on_original_requirement",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["price"],
@@ -2351,6 +2452,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "depends_on_original_requirement",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1", "route-run.v1"],
             admissibleObservationKinds: ["route_duration"],
@@ -2364,6 +2466,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "depends_on_original_requirement",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["opening_signal"],
@@ -2377,6 +2480,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "depends_on_original_requirement",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["connectivity"],
@@ -2390,6 +2494,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "depends_on_original_requirement",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: ["identity"],
@@ -2403,6 +2508,7 @@ export const baselineFieldProtocolPackageData = {
             supportingAsset: "depends_on_original_requirement",
             repetition: {
               minimumDistinctWindows: 2,
+              windowIdentity: "local_hour",
             },
             admissibleRecordKinds: ["field-observation.v1"],
             admissibleObservationKinds: [
@@ -2995,13 +3101,13 @@ export const baselineFieldProtocolPackageData = {
   },
   examples: {
     schemaVersion: "field-protocol-examples.v1",
-    componentVersion: "1.0.0",
+    componentVersion: "1.0.1",
     examples: {
       fieldVisit: {
         schemaVersion: "field-visit.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
         campaignId: "campaign_island_baseline",
         assignmentId: "assignment_del_carmen_essentials",
         researcherId: "researcher_example",
@@ -3011,6 +3117,20 @@ export const baselineFieldProtocolPackageData = {
         captureState: "captured",
         startedAt: "2026-08-22T08:30:00+08:00",
         endedAt: "2026-08-22T09:30:00+08:00",
+        captureWindows: [
+          {
+            id: "0192f060-4f41-7aa1-b322-4aa9fc9f1511",
+            windowIdentity: "local_hour",
+            localHourStartedAt: "2026-08-22T08:00:00+08:00",
+            utcOffsetMinutes: 480,
+          },
+          {
+            id: "0192f060-4f41-7aa1-b322-4aa9fc9f1512",
+            windowIdentity: "local_hour",
+            localHourStartedAt: "2026-08-22T09:00:00+08:00",
+            utcOffsetMinutes: 480,
+          },
+        ],
         target: {
           kind: "governed_subject",
           subjectId: "subject_area_del_carmen",
@@ -3027,7 +3147,7 @@ export const baselineFieldProtocolPackageData = {
         schemaVersion: "field-observation.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1502",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
         campaignId: "campaign_island_baseline",
         assignmentId: "assignment_del_carmen_essentials",
         visitId: "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
@@ -3038,6 +3158,7 @@ export const baselineFieldProtocolPackageData = {
         recordedAt: "2026-08-22T09:05:00+08:00",
         localTimezone: "Asia/Manila",
         captureState: "captured",
+        captureWindowIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1512"],
         subject: {
           kind: "governed",
           subjectId: "subject_area_del_carmen",
@@ -3077,7 +3198,7 @@ export const baselineFieldProtocolPackageData = {
         schemaVersion: "route-run.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1503",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
         campaignId: "campaign_island_baseline",
         assignmentId: "assignment_airport_arrival",
         visitId: "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
@@ -3088,6 +3209,10 @@ export const baselineFieldProtocolPackageData = {
         recordedAt: "2026-08-22T09:35:00+08:00",
         localTimezone: "Asia/Manila",
         captureState: "captured",
+        captureWindowIds: [
+          "0192f060-4f41-7aa1-b322-4aa9fc9f1511",
+          "0192f060-4f41-7aa1-b322-4aa9fc9f1512",
+        ],
         originSubjectId: "subject_sayak_airport",
         destinationSubjectId: "subject_area_del_carmen",
         transportMode: "van",
@@ -3116,7 +3241,7 @@ export const baselineFieldProtocolPackageData = {
         schemaVersion: "source-statement.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1504",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
         campaignId: "campaign_island_baseline",
         assignmentId: "assignment_del_carmen_essentials",
         visitId: "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
@@ -3127,6 +3252,7 @@ export const baselineFieldProtocolPackageData = {
         recordedAt: "2026-08-22T09:15:00+08:00",
         localTimezone: "Asia/Manila",
         captureState: "captured",
+        captureWindowIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1512"],
         subjectId: "subject_area_del_carmen",
         sourceRole: "staff",
         basisOfKnowledge: "direct_responsibility",
@@ -3172,7 +3298,16 @@ export const baselineFieldProtocolPackageData = {
         schemaVersion: "statement-translation.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1510",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
+        campaignId: "campaign_island_baseline",
+        assignmentId: "assignment_del_carmen_essentials",
+        visitId: "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
+        objectiveId: "objective_del_carmen_ask_service_leads",
+        coverageRequirementId: "coverage_pharmacy_clinic_leads",
+        researcherId: "researcher_example",
+        deviceId: "device_example",
+        localTimezone: "Asia/Manila",
+        captureState: "captured",
         sourceStatementId: "0192f060-4f41-7aa1-b322-4aa9fc9f1504",
         originalLanguage: "en",
         targetLanguage: "fil",
@@ -3187,7 +3322,7 @@ export const baselineFieldProtocolPackageData = {
         schemaVersion: "evidence-asset.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1505",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
         campaignId: "campaign_island_baseline",
         assignmentId: "assignment_del_carmen_essentials",
         visitId: "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
@@ -3196,6 +3331,7 @@ export const baselineFieldProtocolPackageData = {
         recordedAt: "2026-08-22T09:10:00+08:00",
         localTimezone: "Asia/Manila",
         captureState: "captured",
+        captureWindowIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1512"],
         assetKind: "receipt_scan",
         byteSize: 2048,
         mediaType: "image/jpeg",
@@ -3216,7 +3352,7 @@ export const baselineFieldProtocolPackageData = {
         schemaVersion: "capture-exception.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1506",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
         campaignId: "campaign_island_baseline",
         assignmentId: "assignment_pilar_access",
         objectiveId: "objective_pilar_observe_conditions",
@@ -3234,7 +3370,7 @@ export const baselineFieldProtocolPackageData = {
         schemaVersion: "schema-gap.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1507",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
         campaignId: "campaign_island_baseline",
         assignmentId: "assignment_del_carmen_essentials",
         objectiveId: "objective_del_carmen_observe_services",
@@ -3255,11 +3391,78 @@ export const baselineFieldProtocolPackageData = {
           "The controlled facility states cannot represent the observed shared-access restriction without distortion.",
         resolutionState: "blocked_pending_protocol",
       },
+      objectiveCoverage: {
+        schemaVersion: "objective-coverage.v1",
+        id: "0192f060-4f41-7aa1-b322-4aa9fc9f1520",
+        protocolPackageId: "field-protocol-siargao-baseline",
+        protocolPackageVersion: "1.0.1",
+        campaignId: "campaign_island_baseline",
+        assignmentId: "assignment_del_carmen_essentials",
+        objectiveId: "objective_del_carmen_observe_services",
+        status: "satisfied",
+        requirements: [
+          {
+            coverageRequirementId: "coverage_payment",
+            status: "satisfied",
+            capturedRecordIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1502"],
+            requiredRecords: 1,
+            distinctWindowIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1512"],
+            requiredDistinctWindows: 1,
+            supportingAssetIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1505"],
+            reasonCodes: [],
+          },
+        ],
+        sourceRecordIds: [
+          "0192f060-4f41-7aa1-b322-4aa9fc9f1502",
+          "0192f060-4f41-7aa1-b322-4aa9fc9f1505",
+        ],
+        derivedAt: "2026-08-22T09:30:00+08:00",
+      },
+      assignmentOutcome: {
+        schemaVersion: "assignment-outcome.v1",
+        id: "0192f060-4f41-7aa1-b322-4aa9fc9f1521",
+        protocolPackageId: "field-protocol-siargao-baseline",
+        protocolPackageVersion: "1.0.1",
+        campaignId: "campaign_island_baseline",
+        assignmentId: "assignment_pilar_access",
+        visitIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1501"],
+        status: "closed_with_gaps",
+        unresolvedRequirementIds: ["coverage_access_state"],
+        followUpAssignmentIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1522"],
+        closedAt: "2026-08-22T10:05:00+08:00",
+      },
+      followUpAssignment: {
+        schemaVersion: "follow-up-assignment.v1",
+        id: "0192f060-4f41-7aa1-b322-4aa9fc9f1522",
+        protocolPackageId: "field-protocol-siargao-baseline",
+        protocolPackageVersion: "1.0.1",
+        campaignId: "campaign_island_baseline",
+        originatingAssignmentId: "assignment_pilar_access",
+        originatingVisitIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1501"],
+        coverageRequirementIds: ["coverage_access_state"],
+        createdAt: "2026-08-22T10:05:00+08:00",
+        reason: "closed_with_gaps",
+      },
+      fieldDayClose: {
+        schemaVersion: "field-day-close.v1",
+        id: "0192f060-4f41-7aa1-b322-4aa9fc9f1523",
+        protocolPackageId: "field-protocol-siargao-baseline",
+        protocolPackageVersion: "1.0.1",
+        campaignId: "campaign_island_baseline",
+        planSnapshotId: "0192f060-4f41-7aa1-b322-4aa9fc9f1524",
+        assignmentOutcomeIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1521"],
+        followUpAssignmentIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1522"],
+        unresolvedRecordIds: ["0192f060-4f41-7aa1-b322-4aa9fc9f1506"],
+        permissionIssueRecordIds: [],
+        assetIssueRecordIds: [],
+        recoveryStatus: "recovery_required",
+        closedAt: "2026-08-22T18:00:00+08:00",
+      },
       fieldReview: {
         schemaVersion: "field-review.v1",
         id: "0192f060-4f41-7aa1-b322-4aa9fc9f1508",
         protocolPackageId: "field-protocol-siargao-baseline",
-        protocolPackageVersion: "1.0.0",
+        protocolPackageVersion: "1.0.1",
         recordId: "0192f060-4f41-7aa1-b322-4aa9fc9f1502",
         reviewerId: "reviewer_example",
         researcherId: "researcher_example",
@@ -3285,18 +3488,18 @@ export const baselineFieldProtocolPackageData = {
         protocolPackages: [
           {
             packageId: "field-protocol-siargao-baseline",
-            version: "1.0.0",
+            version: "1.0.1",
             componentVersions: {
-              schemas: "1.0.0",
+              schemas: "1.0.1",
               distributionSchemas: "1.0.0",
-              observationKinds: "1.0.0",
+              observationKinds: "1.0.1",
               methodProfiles: "1.0.0",
               subjects: "1.0.0",
               geography: "1.0.0",
-              campaign: "1.0.0",
+              campaign: "1.0.1",
               help: "1.0.0",
-              migration: "1.0.0",
-              examples: "1.0.0",
+              migration: "1.0.1",
+              examples: "1.0.1",
             },
           },
         ],
@@ -3602,10 +3805,10 @@ export const baselineFieldProtocolPackageData = {
   },
   migration: {
     schemaVersion: "protocol-migration.v1",
-    componentVersion: "1.0.0",
-    migrationId: "migration_legacy_0_9_0_to_baseline_1_0_0",
+    componentVersion: "1.0.1",
+    migrationId: "migration_legacy_0_9_0_to_baseline_1_0_1",
     fromPackageVersion: "0.9.0",
-    toPackageVersion: "1.0.0",
+    toPackageVersion: "1.0.1",
     sourceSchemaVersions: ["field-record.v1"],
     targetProtocolPackageId: "field-protocol-siargao-baseline",
     targetCampaignId: "campaign_island_baseline",
@@ -3673,11 +3876,19 @@ export const baselineFieldProtocolPackageData = {
   },
   observationKinds: {
     schemaVersion: "observation-kind-registry.v1",
-    componentVersion: "1.0.0",
+    componentVersion: "1.0.1",
+    coverageSemantics: {
+      windowIdentity: "local_hour",
+      negativeEvidenceCountsTowardMinimumRecords: true,
+    },
     kinds: [
       {
         kind: "identity",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "constant",
+          value: "positive",
+        },
         allowedUnits: [],
         requiredContext: ["displayedName", "category", "resolutionEvidence"],
         freshness: {
@@ -3717,6 +3928,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "opening_signal",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "state",
+          positiveValues: ["open"],
+          negativeValues: ["closed"],
+          unknownValues: ["unknown"],
+        },
         allowedUnits: [],
         requiredContext: ["state", "basis", "postedHoursSeparatelyEvidenced"],
         freshness: {
@@ -3743,6 +3961,10 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "price",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "constant",
+          value: "positive",
+        },
         allowedUnits: [],
         requiredContext: [
           "amount",
@@ -3819,6 +4041,10 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "route_duration",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "constant",
+          value: "positive",
+        },
         allowedUnits: ["s"],
         requiredContext: [
           "originSubjectId",
@@ -3856,6 +4082,10 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "route_wait",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "constant",
+          value: "positive",
+        },
         allowedUnits: ["s"],
         requiredContext: ["waitSeconds", "transportMode", "queueState"],
         freshness: {
@@ -3883,6 +4113,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "road_condition",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "obstruction",
+          positiveValues: ["none", "minor", "partial"],
+          negativeValues: ["blocked"],
+          unknownValues: ["unknown"],
+        },
         allowedUnits: [],
         requiredContext: ["segmentId", "surface", "obstruction", "weatherContext"],
         freshness: {
@@ -3913,6 +4150,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "facility",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "state",
+          positiveValues: ["present", "available"],
+          negativeValues: ["absent", "unavailable", "inaccessible"],
+          unknownValues: ["unknown"],
+        },
         allowedUnits: [],
         requiredContext: ["facilityType", "state", "accessConditions"],
         freshness: {
@@ -3953,6 +4197,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "accessibility",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "state",
+          positiveValues: ["present", "usable"],
+          negativeValues: ["absent", "not_usable"],
+          unknownValues: ["not_tested", "unknown"],
+        },
         allowedUnits: ["cm", "degree"],
         requiredContext: ["feature", "state", "measurementBasis"],
         freshness: {
@@ -3993,6 +4244,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "payment_method",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "outcome",
+          positiveValues: ["offered", "accepted"],
+          negativeValues: ["rejected", "not_offered"],
+          unknownValues: ["not_tested", "unknown"],
+        },
         allowedUnits: [],
         requiredContext: ["method", "outcome", "transactionContext"],
         freshness: {
@@ -4020,6 +4278,10 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "connectivity",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "constant",
+          value: "positive",
+        },
         allowedUnits: ["Mbps", "ms"],
         requiredContext: ["network", "deviceClass", "zone", "measurements"],
         freshness: {
@@ -4068,6 +4330,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "power",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "state",
+          positiveValues: ["available"],
+          negativeValues: ["unavailable", "outage"],
+          unknownValues: ["unknown"],
+        },
         allowedUnits: [],
         requiredContext: ["state", "socketPermission", "basis"],
         freshness: {
@@ -4098,6 +4367,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "crowd_snapshot",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "band",
+          positiveValues: ["quiet", "moderate", "busy", "very_busy"],
+          negativeValues: ["empty"],
+          unknownValues: [],
+        },
         allowedUnits: ["person"],
         requiredContext: ["boundary", "method", "band"],
         freshness: {
@@ -4129,6 +4405,10 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "noise_snapshot",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "constant",
+          value: "positive",
+        },
         allowedUnits: ["dBA"],
         requiredContext: ["method", "band", "measurementPosition"],
         freshness: {
@@ -4161,6 +4441,20 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "weather_condition",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "condition",
+          positiveValues: [
+            "clear",
+            "cloudy",
+            "light_rain",
+            "heavy_rain",
+            "thunderstorm",
+            "strong_wind",
+          ],
+          negativeValues: [],
+          unknownValues: ["unknown"],
+        },
         allowedUnits: [],
         requiredContext: ["condition", "observationBasis"],
         freshness: {
@@ -4196,6 +4490,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "tide_context",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "shorelineState",
+          positiveValues: ["low", "rising", "mid", "falling", "high"],
+          negativeValues: [],
+          unknownValues: ["unknown"],
+        },
         allowedUnits: [],
         requiredContext: ["shorelineState", "sourceId", "sourceRetrievedAt"],
         freshness: {
@@ -4225,6 +4526,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "menu_item",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "availability",
+          positiveValues: ["available"],
+          negativeValues: ["unavailable"],
+          unknownValues: ["unknown"],
+        },
         allowedUnits: [],
         requiredContext: [
           "itemName",
@@ -4265,6 +4573,13 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "service_status",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "value",
+          path: "state",
+          positiveValues: ["operating", "limited"],
+          negativeValues: ["not_operating"],
+          unknownValues: ["unknown"],
+        },
         allowedUnits: [],
         requiredContext: ["state", "basis"],
         freshness: {
@@ -4292,6 +4607,10 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "contact_channel",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "constant",
+          value: "positive",
+        },
         allowedUnits: [],
         requiredContext: ["channelType", "publicValue", "verificationMethod", "permission"],
         freshness: {
@@ -4322,6 +4641,10 @@ export const baselineFieldProtocolPackageData = {
       {
         kind: "local_caveat",
         valueSchemaVersion: "1.0.0",
+        coverageDisposition: {
+          strategy: "constant",
+          value: "positive",
+        },
         allowedUnits: [],
         requiredContext: ["warning", "appliesWhen", "directness", "corroborationCount"],
         freshness: {
@@ -4366,7 +4689,7 @@ export const baselineFieldProtocolPackageData = {
   },
   schemas: {
     schemaVersion: "field-protocol-schemas.v1",
-    componentVersion: "1.0.0",
+    componentVersion: "1.0.1",
     records: {
       fieldVisit: {
         $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -4387,6 +4710,7 @@ export const baselineFieldProtocolPackageData = {
           "localTimezone",
           "captureState",
           "startedAt",
+          "captureWindows",
           "target",
           "locationPermissionState",
           "publicLocationPrecision",
@@ -4452,6 +4776,14 @@ export const baselineFieldProtocolPackageData = {
             pattern:
               "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
           },
+          captureWindows: {
+            type: "array",
+            items: {
+              $ref: "#/$defs/captureWindow",
+            },
+            minItems: 1,
+            uniqueItems: true,
+          },
           target: {
             $ref: "#/$defs/visitTarget",
           },
@@ -4488,6 +4820,29 @@ export const baselineFieldProtocolPackageData = {
           },
         },
         $defs: {
+          captureWindow: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id", "windowIdentity", "localHourStartedAt", "utcOffsetMinutes"],
+            properties: {
+              id: {
+                type: "string",
+                format: "uuid",
+              },
+              windowIdentity: {
+                const: "local_hour",
+              },
+              localHourStartedAt: {
+                type: "string",
+                pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:00:00(?:\\.0+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+              },
+              utcOffsetMinutes: {
+                type: "integer",
+                minimum: -720,
+                maximum: 840,
+              },
+            },
+          },
           visitTarget: {
             oneOf: [
               {
@@ -4637,6 +4992,7 @@ export const baselineFieldProtocolPackageData = {
           "recordedAt",
           "localTimezone",
           "captureState",
+          "captureWindowIds",
           "subject",
           "observationKind",
           "valueSchemaVersion",
@@ -4710,6 +5066,15 @@ export const baselineFieldProtocolPackageData = {
           },
           captureState: {
             enum: ["draft", "captured"],
+          },
+          captureWindowIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            minItems: 1,
+            uniqueItems: true,
           },
           subject: {
             oneOf: [
@@ -4936,6 +5301,7 @@ export const baselineFieldProtocolPackageData = {
           "recordedAt",
           "localTimezone",
           "captureState",
+          "captureWindowIds",
           "originSubjectId",
           "destinationSubjectId",
           "transportMode",
@@ -5007,6 +5373,15 @@ export const baselineFieldProtocolPackageData = {
           },
           captureState: {
             enum: ["draft", "captured"],
+          },
+          captureWindowIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            minItems: 1,
+            uniqueItems: true,
           },
           supersedesId: {
             type: "string",
@@ -5097,8 +5472,28 @@ export const baselineFieldProtocolPackageData = {
           conditions: {
             type: "array",
             items: {
-              type: "string",
-              minLength: 1,
+              enum: [
+                "weather_clear",
+                "weather_cloudy",
+                "weather_rain",
+                "tide_low",
+                "tide_mid",
+                "tide_high",
+                "road_dry",
+                "road_wet",
+                "crowd_quiet",
+                "crowd_moderate",
+                "crowd_busy",
+                "noise_quiet",
+                "noise_moderate",
+                "noise_loud",
+                "power_available",
+                "power_outage",
+                "access_open",
+                "access_restricted",
+                "disruption_none",
+                "disruption_active",
+              ],
             },
             uniqueItems: true,
           },
@@ -5146,6 +5541,7 @@ export const baselineFieldProtocolPackageData = {
           "recordedAt",
           "localTimezone",
           "captureState",
+          "captureWindowIds",
           "subjectId",
           "sourceRole",
           "basisOfKnowledge",
@@ -5214,6 +5610,15 @@ export const baselineFieldProtocolPackageData = {
           },
           captureState: {
             enum: ["draft", "captured"],
+          },
+          captureWindowIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            minItems: 1,
+            uniqueItems: true,
           },
           supersedesId: {
             type: "string",
@@ -5351,6 +5756,15 @@ export const baselineFieldProtocolPackageData = {
           "id",
           "protocolPackageId",
           "protocolPackageVersion",
+          "campaignId",
+          "assignmentId",
+          "visitId",
+          "objectiveId",
+          "coverageRequirementId",
+          "researcherId",
+          "deviceId",
+          "localTimezone",
+          "captureState",
           "sourceStatementId",
           "originalLanguage",
           "targetLanguage",
@@ -5373,6 +5787,40 @@ export const baselineFieldProtocolPackageData = {
           protocolPackageVersion: {
             type: "string",
             pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          },
+          campaignId: {
+            type: "string",
+            pattern: "^campaign_[a-z0-9_]+$",
+          },
+          assignmentId: {
+            type: "string",
+            pattern: "^assignment_[a-z0-9_]+$",
+          },
+          visitId: {
+            type: "string",
+            format: "uuid",
+          },
+          objectiveId: {
+            type: "string",
+            pattern: "^objective_[a-z0-9_]+$",
+          },
+          coverageRequirementId: {
+            type: "string",
+            pattern: "^coverage_[a-z0-9_]+$",
+          },
+          researcherId: {
+            type: "string",
+            minLength: 1,
+          },
+          deviceId: {
+            type: "string",
+            minLength: 1,
+          },
+          localTimezone: {
+            const: "Asia/Manila",
+          },
+          captureState: {
+            enum: ["draft", "captured"],
           },
           sourceStatementId: {
             type: "string",
@@ -5434,6 +5882,7 @@ export const baselineFieldProtocolPackageData = {
           "recordedAt",
           "localTimezone",
           "captureState",
+          "captureWindowIds",
           "assetKind",
           "byteSize",
           "mediaType",
@@ -5496,6 +5945,15 @@ export const baselineFieldProtocolPackageData = {
           },
           captureState: {
             enum: ["draft", "captured"],
+          },
+          captureWindowIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            minItems: 1,
+            uniqueItems: true,
           },
           supersedesId: {
             type: "string",
@@ -5662,6 +6120,10 @@ export const baselineFieldProtocolPackageData = {
           captureState: {
             enum: ["draft", "captured"],
           },
+          supersedesId: {
+            type: "string",
+            format: "uuid",
+          },
           reason: {
             enum: [
               "access_denied",
@@ -5764,6 +6226,10 @@ export const baselineFieldProtocolPackageData = {
           captureState: {
             enum: ["draft", "captured"],
           },
+          supersedesId: {
+            type: "string",
+            format: "uuid",
+          },
           subject: {
             oneOf: [
               {
@@ -5815,6 +6281,400 @@ export const baselineFieldProtocolPackageData = {
           },
           resolutionState: {
             const: "blocked_pending_protocol",
+          },
+        },
+      },
+      objectiveCoverage: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        $id: "https://asksiargao.com/schemas/objective-coverage.v1.json",
+        title: "ObjectiveCoverage",
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "schemaVersion",
+          "id",
+          "protocolPackageId",
+          "protocolPackageVersion",
+          "campaignId",
+          "assignmentId",
+          "objectiveId",
+          "status",
+          "requirements",
+          "sourceRecordIds",
+          "derivedAt",
+        ],
+        properties: {
+          schemaVersion: {
+            const: "objective-coverage.v1",
+          },
+          id: {
+            type: "string",
+            format: "uuid",
+          },
+          protocolPackageId: {
+            type: "string",
+            pattern: "^field-protocol-[a-z0-9-]+$",
+          },
+          protocolPackageVersion: {
+            type: "string",
+            pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          },
+          campaignId: {
+            type: "string",
+            pattern: "^campaign_[a-z0-9_]+$",
+          },
+          assignmentId: {
+            type: "string",
+            pattern: "^assignment_[a-z0-9_]+$",
+          },
+          objectiveId: {
+            type: "string",
+            pattern: "^objective_[a-z0-9_]+$",
+          },
+          status: {
+            enum: ["unstarted", "in_progress", "satisfied", "blocked", "needs_resolution"],
+          },
+          requirements: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: [
+                "coverageRequirementId",
+                "status",
+                "capturedRecordIds",
+                "requiredRecords",
+                "distinctWindowIds",
+                "requiredDistinctWindows",
+                "supportingAssetIds",
+                "reasonCodes",
+              ],
+              properties: {
+                coverageRequirementId: {
+                  type: "string",
+                  pattern: "^coverage_[a-z0-9_]+$",
+                },
+                status: {
+                  enum: [
+                    "unstarted",
+                    "in_progress",
+                    "satisfied",
+                    "blocked",
+                    "not_applicable",
+                    "needs_resolution",
+                  ],
+                },
+                capturedRecordIds: {
+                  type: "array",
+                  items: {
+                    type: "string",
+                    format: "uuid",
+                  },
+                  uniqueItems: true,
+                },
+                requiredRecords: {
+                  type: "integer",
+                  minimum: 1,
+                },
+                distinctWindowIds: {
+                  type: "array",
+                  items: {
+                    type: "string",
+                    format: "uuid",
+                  },
+                  uniqueItems: true,
+                },
+                requiredDistinctWindows: {
+                  type: "integer",
+                  minimum: 1,
+                },
+                supportingAssetIds: {
+                  type: "array",
+                  items: {
+                    type: "string",
+                    format: "uuid",
+                  },
+                  uniqueItems: true,
+                },
+                reasonCodes: {
+                  type: "array",
+                  items: {
+                    enum: [
+                      "outside_partial_coverage_set",
+                      "schema_gap",
+                      "provisional_subject",
+                      "unknown_or_not_tested",
+                      "unresolved_contradiction",
+                      "record_threshold",
+                      "distinct_window_threshold",
+                      "supporting_asset_required",
+                      "invalid_capture_window_link",
+                      "invalid_permission_link",
+                      "invalid_asset_link",
+                      "capture_exception",
+                      "not_applicable",
+                    ],
+                  },
+                  uniqueItems: true,
+                },
+              },
+            },
+            minItems: 1,
+          },
+          sourceRecordIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            uniqueItems: true,
+          },
+          derivedAt: {
+            type: "string",
+            pattern:
+              "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+          },
+        },
+      },
+      assignmentOutcome: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        $id: "https://asksiargao.com/schemas/assignment-outcome.v1.json",
+        title: "AssignmentOutcome",
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "schemaVersion",
+          "id",
+          "protocolPackageId",
+          "protocolPackageVersion",
+          "campaignId",
+          "assignmentId",
+          "visitIds",
+          "status",
+          "unresolvedRequirementIds",
+          "followUpAssignmentIds",
+          "closedAt",
+        ],
+        properties: {
+          schemaVersion: {
+            const: "assignment-outcome.v1",
+          },
+          id: {
+            type: "string",
+            format: "uuid",
+          },
+          protocolPackageId: {
+            type: "string",
+            pattern: "^field-protocol-[a-z0-9-]+$",
+          },
+          protocolPackageVersion: {
+            type: "string",
+            pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          },
+          campaignId: {
+            type: "string",
+            pattern: "^campaign_[a-z0-9_]+$",
+          },
+          assignmentId: {
+            type: "string",
+            pattern: "^assignment_[a-z0-9_]+$",
+          },
+          visitIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            uniqueItems: true,
+          },
+          status: {
+            enum: ["complete", "closed_with_gaps", "deferred"],
+          },
+          unresolvedRequirementIds: {
+            type: "array",
+            items: {
+              type: "string",
+              pattern: "^coverage_[a-z0-9_]+$",
+            },
+            uniqueItems: true,
+          },
+          followUpAssignmentIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            uniqueItems: true,
+          },
+          closedAt: {
+            type: "string",
+            pattern:
+              "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+          },
+        },
+      },
+      followUpAssignment: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        $id: "https://asksiargao.com/schemas/follow-up-assignment.v1.json",
+        title: "FollowUpAssignment",
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "schemaVersion",
+          "id",
+          "protocolPackageId",
+          "protocolPackageVersion",
+          "campaignId",
+          "originatingAssignmentId",
+          "originatingVisitIds",
+          "coverageRequirementIds",
+          "createdAt",
+          "reason",
+        ],
+        properties: {
+          schemaVersion: {
+            const: "follow-up-assignment.v1",
+          },
+          id: {
+            type: "string",
+            format: "uuid",
+          },
+          protocolPackageId: {
+            type: "string",
+            pattern: "^field-protocol-[a-z0-9-]+$",
+          },
+          protocolPackageVersion: {
+            type: "string",
+            pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          },
+          campaignId: {
+            type: "string",
+            pattern: "^campaign_[a-z0-9_]+$",
+          },
+          originatingAssignmentId: {
+            type: "string",
+            pattern: "^assignment_[a-z0-9_]+$",
+          },
+          originatingVisitIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            minItems: 1,
+            uniqueItems: true,
+          },
+          coverageRequirementIds: {
+            type: "array",
+            items: {
+              type: "string",
+              pattern: "^coverage_[a-z0-9_]+$",
+            },
+            minItems: 1,
+            uniqueItems: true,
+          },
+          createdAt: {
+            type: "string",
+            pattern:
+              "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
+          },
+          reason: {
+            enum: ["closed_with_gaps", "interrupted", "needs_resolution"],
+          },
+        },
+      },
+      fieldDayClose: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        $id: "https://asksiargao.com/schemas/field-day-close.v1.json",
+        title: "FieldDayClose",
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "schemaVersion",
+          "id",
+          "protocolPackageId",
+          "protocolPackageVersion",
+          "campaignId",
+          "planSnapshotId",
+          "assignmentOutcomeIds",
+          "followUpAssignmentIds",
+          "unresolvedRecordIds",
+          "permissionIssueRecordIds",
+          "assetIssueRecordIds",
+          "recoveryStatus",
+          "closedAt",
+        ],
+        properties: {
+          schemaVersion: {
+            const: "field-day-close.v1",
+          },
+          id: {
+            type: "string",
+            format: "uuid",
+          },
+          protocolPackageId: {
+            type: "string",
+            pattern: "^field-protocol-[a-z0-9-]+$",
+          },
+          protocolPackageVersion: {
+            type: "string",
+            pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          },
+          campaignId: {
+            type: "string",
+            pattern: "^campaign_[a-z0-9_]+$",
+          },
+          planSnapshotId: {
+            type: "string",
+            format: "uuid",
+          },
+          assignmentOutcomeIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            uniqueItems: true,
+          },
+          followUpAssignmentIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            uniqueItems: true,
+          },
+          unresolvedRecordIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            uniqueItems: true,
+          },
+          permissionIssueRecordIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            uniqueItems: true,
+          },
+          assetIssueRecordIds: {
+            type: "array",
+            items: {
+              type: "string",
+              format: "uuid",
+            },
+            uniqueItems: true,
+          },
+          recoveryStatus: {
+            enum: ["recovery_required", "verified"],
+          },
+          closedAt: {
+            type: "string",
+            pattern:
+              "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$",
           },
         },
       },
@@ -6352,19 +7212,19 @@ export const baselineFieldProtocolPackageData = {
   manifest: {
     schemaVersion: "field-protocol-package-manifest.v1",
     packageId: "field-protocol-siargao-baseline",
-    packageVersion: "1.0.0",
-    createdAt: "2026-08-22T00:00:00.000Z",
-    signerKeyId: "ask-siargao-field-protocol-2026-02",
+    packageVersion: "1.0.1",
+    createdAt: "2026-08-23T00:00:00.000Z",
+    signerKeyId: "ask-siargao-field-protocol-2026-04",
     componentVersions: {
-      campaign: "1.0.0",
+      campaign: "1.0.1",
       distributionSchemas: "1.0.0",
-      examples: "1.0.0",
+      examples: "1.0.1",
       geography: "1.0.0",
       help: "1.0.0",
       methodProfiles: "1.0.0",
-      migration: "1.0.0",
-      observationKinds: "1.0.0",
-      schemas: "1.0.0",
+      migration: "1.0.1",
+      observationKinds: "1.0.1",
+      schemas: "1.0.1",
       subjects: "1.0.0",
     },
     compatibility: {
@@ -6374,12 +7234,12 @@ export const baselineFieldProtocolPackageData = {
     migrationDeclaration: {
       strategy: "explicit_preview_required",
       supportedFromVersions: ["0.9.0"],
-      migrationIds: ["migration_legacy_0_9_0_to_baseline_1_0_0"],
+      migrationIds: ["migration_legacy_0_9_0_to_baseline_1_0_1"],
     },
     files: [
       {
         path: "canonical/v1/campaign-island-baseline.v1.json",
-        sha256: "c534586923e9454d3866f8d0055fa6fe19c59c2745af2fe8c230ad92b34ba0bf",
+        sha256: "cd2476eefb82c3de00bbc538189551c0314fee0aa57d1488fb6bb612ea004c92",
       },
       {
         path: "canonical/v1/distribution-schemas.v1.json",
@@ -6387,7 +7247,7 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/examples.v1.json",
-        sha256: "a8be0c3d6aec9b12dc268bee0bd5496eaaf297ee5b336b64509941f70232db97",
+        sha256: "ee9a696f4ed0cd550fdb42a61193db5f5e2f3190d5e9d5ce6b05735b439e2a89",
       },
       {
         path: "canonical/v1/geography.v1.json",
@@ -6403,15 +7263,15 @@ export const baselineFieldProtocolPackageData = {
       },
       {
         path: "canonical/v1/migration-legacy-0.9.0.v1.json",
-        sha256: "754e9d551edf346d4caeaa7dd027bf097c007afc18fdc5af67fe3591defaf18f",
+        sha256: "7285cbe5569da255430a79d8a4ec6428e1fa237633cd746075b95671758f39e7",
       },
       {
         path: "canonical/v1/observation-kinds.v1.json",
-        sha256: "23790ca38729ebb0666aa078091065ff4ef0ada9339b6f64320284aad2e88e1f",
+        sha256: "78a1de3db3a5bdcc3308c2671ac0afec4cffdd0c96f2cad3dc53fab8bbad3cf9",
       },
       {
         path: "canonical/v1/schemas.v1.json",
-        sha256: "e178c4fd5c673cce7e202d2d252bbb889b1c556a7856c99f9f1a29116048a31d",
+        sha256: "4e6ace9742f3603e1f962406260e39df20432d955208b29d0b576c1eb84b0034",
       },
       {
         path: "canonical/v1/subjects.v1.json",
@@ -6421,7 +7281,7 @@ export const baselineFieldProtocolPackageData = {
     signature: {
       algorithm: "Ed25519",
       value:
-        "TrCfArM8UaTAZurHqu13dpjDdXZ9yX3ai1wJAT53lNne2d+C/6TPngSydkUD8vsmqhyEqTQyp0BCG3Fh12K5Cw==",
+        "HLofsQSLfnYIu8upmWMJk6SQcJT08Vw0Oms9YmFPyjEuCEkF9nA6I7d+MowXJSq6XFHt9hQfuHxbXcIMjL70Dg==",
     },
   },
 } as const;
@@ -6438,6 +7298,12 @@ export const trustedFieldProtocolSignersData = {
       keyId: "ask-siargao-field-protocol-2026-02",
       algorithm: "Ed25519",
       publicKeySpkiBase64: "MCowBQYDK2VwAyEAMnIejrkV/CCZHZpQiXE+ZW5x/l1dRspg+oHU1+W1lcg=",
+      status: "trusted",
+    },
+    {
+      keyId: "ask-siargao-field-protocol-2026-04",
+      algorithm: "Ed25519",
+      publicKeySpkiBase64: "MCowBQYDK2VwAyEA8bsFBs3TOI6KD+etL5AP28qXEb5S1SYc96YsmfdRkEE=",
       status: "trusted",
     },
   ],

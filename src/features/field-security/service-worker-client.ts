@@ -10,8 +10,7 @@ export async function prepareFieldOfflineShell(input: {
     scope: "/",
   });
   await navigator.serviceWorker.ready;
-  const target = registration.active ?? registration.waiting ?? registration.installing;
-  target?.postMessage({
+  postToFieldWorkers(registration, {
     activeVisit: input.activeVisit,
     buildId: input.buildId,
     shellPath: fieldOfflineShellPath,
@@ -24,9 +23,35 @@ export async function prepareFieldOfflineShell(input: {
   };
 }
 
+export async function notifyFieldVisitState(input: {
+  activeVisit: boolean;
+  buildId: string;
+}): Promise<{ updateWaiting: boolean }> {
+  if (!("serviceWorker" in navigator)) {
+    throw new Error("field_offline_shell_unavailable");
+  }
+  const registration = await navigator.serviceWorker.getRegistration("/");
+  if (!registration) throw new Error("field_offline_shell_unavailable");
+  postToFieldWorkers(registration, {
+    activeVisit: input.activeVisit,
+    buildId: input.buildId,
+    type: "FIELD_VISIT_STATE",
+  });
+  return { updateWaiting: Boolean(registration.waiting) };
+}
+
 export async function activateSafeFieldUpdate(activeVisit: boolean): Promise<boolean> {
   const registration = await navigator.serviceWorker.getRegistration("/");
   if (!registration?.waiting || activeVisit) return false;
   registration.waiting.postMessage({ type: "ACTIVATE_SAFE_FIELD_UPDATE" });
   return true;
+}
+
+function postToFieldWorkers(registration: ServiceWorkerRegistration, message: object): void {
+  const workers = new Set(
+    [registration.active, registration.waiting, registration.installing].filter(
+      (worker): worker is ServiceWorker => Boolean(worker),
+    ),
+  );
+  for (const worker of workers) worker.postMessage(message);
 }

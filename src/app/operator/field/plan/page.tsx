@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-
-import { FieldDayPlanner } from "@/features/field-planning/FieldDayPlanner";
 import {
   createFailClosedPlannerFixture,
   createPlannerFixture,
 } from "@/features/field-planning/fixtures/planner-fixtures";
 import { loadPlannerProtocol } from "@/features/field-planning/load-planner-protocol";
+import { FieldPlanRecorderBridge } from "@/features/field-recorder/FieldPlanRecorderBridge";
 
 export const metadata: Metadata = {
   title: "Build a Field Day Plan | Ask Siargao",
@@ -19,10 +18,11 @@ export default async function FieldDayPlanPage() {
       ? createPlannerFixture(protocol)
       : createFailClosedPlannerFixture(protocol);
   return (
-    <FieldDayPlanner
-      protocol={protocol}
+    <FieldPlanRecorderBridge
+      applicationVersion="0.1.0"
       coverageSnapshot={fixture.coverageSnapshot}
       initialInputs={fixture.inputs}
+      protocol={protocol}
     />
   );
 }

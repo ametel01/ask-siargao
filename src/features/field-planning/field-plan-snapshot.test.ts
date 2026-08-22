@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { confirmFieldPlanSnapshot } from "./field-plan-snapshot";
+import { applyFieldPlanAdjustment } from "./field-plan-adjustments";
+import {
+  confirmFieldPlanSnapshot,
+  confirmFieldPlanSnapshotAndHandoff,
+} from "./field-plan-snapshot";
 import { proposeFieldDayPlan } from "./field-planner";
 import { createTestPlannerFixture } from "./fixtures/test-fixtures";
 
@@ -112,5 +116,117 @@ describe("immutable Field Plan Snapshots", () => {
         },
       }),
     ).rejects.toThrow("does not match current hard-gated planning inputs");
+  });
+
+  test("deterministically validates and freezes a legitimately adjusted proposal", async () => {
+    const fixture = createTestPlannerFixture();
+    const initialProposal = proposeFieldDayPlan(
+      fixture.protocol,
+      fixture.coverageSnapshot,
+      fixture.inputs,
+    );
+    const adjustment = {
+      kind: "move",
+      assignmentId: initialProposal.selected[1]?.assignmentId ?? "missing-assignment",
+      direction: "earlier",
+    } as const;
+    const adjustedProposal = applyFieldPlanAdjustment(
+      fixture.protocol,
+      fixture.coverageSnapshot,
+      fixture.inputs,
+      initialProposal,
+      adjustment,
+    ).proposal;
+
+    const snapshot = await confirmFieldPlanSnapshot({
+      protocol: fixture.protocol,
+      coverageSnapshot: fixture.coverageSnapshot,
+      plannerInputs: fixture.inputs,
+      proposal: adjustedProposal,
+      adjustments: [adjustment],
+      metadata: {
+        snapshotId: "snapshot-adjusted",
+        confirmedAt: "2026-08-23T08:05:00.000Z",
+        researcherId: "researcher",
+        deviceId: "device",
+        revisionReason: "researcher reordered the work",
+      },
+    });
+
+    expect(snapshot.proposal.selected.map(({ assignmentId }) => assignmentId)).toEqual(
+      adjustedProposal.selected.map(({ assignmentId }) => assignmentId),
+    );
+    expect(snapshot.adjustments).toEqual([adjustment]);
+    expect(Object.isFrozen(snapshot.proposal.selected)).toBe(true);
+    expect(() =>
+      (snapshot.proposal.selected as unknown as { assignmentId: string }[]).push({
+        assignmentId: "mutation",
+      }),
+    ).toThrow();
+  });
+
+  test("does not report handoff success when protected persistence fails", async () => {
+    const fixture = createTestPlannerFixture();
+    const proposal = proposeFieldDayPlan(
+      fixture.protocol,
+      fixture.coverageSnapshot,
+      fixture.inputs,
+    );
+    let successReported = false;
+    let handedOffSnapshot: unknown;
+
+    await expect(
+      confirmFieldPlanSnapshotAndHandoff(
+        {
+          protocol: fixture.protocol,
+          coverageSnapshot: fixture.coverageSnapshot,
+          plannerInputs: fixture.inputs,
+          proposal,
+          metadata: {
+            snapshotId: "snapshot-failed-handoff",
+            confirmedAt: "2026-08-23T08:05:00.000Z",
+            researcherId: "researcher",
+            deviceId: "device",
+            revisionReason: "initial confirmation",
+          },
+        },
+        async (snapshot) => {
+          handedOffSnapshot = snapshot;
+          throw new Error("quota exceeded");
+        },
+      ).then(() => {
+        successReported = true;
+      }),
+    ).rejects.toThrow("quota exceeded");
+
+    expect(successReported).toBe(false);
+    expect(Object.isFrozen(handedOffSnapshot)).toBe(true);
+  });
+
+  test("clones caller-owned inputs before the asynchronous handoff", async () => {
+    const fixture = createTestPlannerFixture();
+    const proposal = proposeFieldDayPlan(
+      fixture.protocol,
+      fixture.coverageSnapshot,
+      fixture.inputs,
+    );
+    const mutableInputs = structuredClone(fixture.inputs);
+    const pendingSnapshot = confirmFieldPlanSnapshot({
+      protocol: fixture.protocol,
+      coverageSnapshot: fixture.coverageSnapshot,
+      plannerInputs: mutableInputs,
+      proposal,
+      metadata: {
+        snapshotId: "snapshot-cloned",
+        confirmedAt: "2026-08-23T08:05:00.000Z",
+        researcherId: "researcher",
+        deviceId: "device",
+        revisionReason: "initial confirmation",
+      },
+    });
+    (mutableInputs as { availableMinutes: number }).availableMinutes = 1;
+    const snapshot = await pendingSnapshot;
+
+    expect(snapshot.inputs.availableMinutes).toBe(fixture.inputs.availableMinutes);
   });
 });

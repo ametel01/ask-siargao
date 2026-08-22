@@ -5,6 +5,15 @@ export interface StatementTranslation {
   id: string;
   protocolPackageId: string;
   protocolPackageVersion: string;
+  campaignId: string;
+  assignmentId: string;
+  visitId: string;
+  objectiveId: string;
+  coverageRequirementId: string;
+  researcherId: string;
+  deviceId: string;
+  localTimezone: "Asia/Manila";
+  captureState: "draft" | "captured";
   sourceStatementId: string;
   originalLanguage: string;
   targetLanguage: string;

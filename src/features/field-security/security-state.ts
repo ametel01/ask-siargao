@@ -1,4 +1,5 @@
 import { zeroize } from "@/features/field-security/encoding";
+import { FieldSecurityError } from "@/features/field-security/errors";
 
 export type FieldSecurityState =
   | { status: "unprepared" }
@@ -6,6 +7,7 @@ export type FieldSecurityState =
   | { status: "unlocked"; lastActivityAtMs: number };
 
 export class FieldSecuritySession {
+  #borrowedKeys = new Set<Uint8Array>();
   #inactivityMs: number;
   #key?: Uint8Array;
   #state: FieldSecurityState = { status: "unprepared" };
@@ -43,14 +45,43 @@ export class FieldSecuritySession {
 
   lock(reason: "inactivity" | "grant" | "manual" | "clock"): void {
     if (this.#key) zeroize(this.#key);
+    for (const borrowedKey of this.#borrowedKeys) zeroize(borrowedKey);
+    this.#borrowedKeys.clear();
     this.#key = undefined;
     this.#state = { reason, status: "locked" };
   }
 
-  withKey<T>(callback: (key: Uint8Array) => T): T {
+  withKey<T>(callback: (key: Uint8Array) => Promise<T>): Promise<T>;
+  withKey<T>(callback: (key: Uint8Array) => T): T;
+  withKey<T>(callback: (key: Uint8Array) => T | Promise<T>): T | Promise<T> {
     if (this.#state.status !== "unlocked" || !this.#key) {
-      throw new Error("field_key_unavailable");
+      throw new FieldSecurityError("field_key_unavailable");
     }
-    return callback(this.#key);
+    const temporaryKey = new Uint8Array(this.#key);
+    this.#borrowedKeys.add(temporaryKey);
+    const release = () => {
+      this.#borrowedKeys.delete(temporaryKey);
+      zeroize(temporaryKey);
+    };
+    try {
+      const result = callback(temporaryKey);
+      if (isPromiseLike(result)) {
+        return Promise.resolve(result).finally(release);
+      }
+      release();
+      return result;
+    } catch (error) {
+      release();
+      throw error;
+    }
   }
+}
+
+function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "then" in value &&
+    typeof value.then === "function"
+  );
 }

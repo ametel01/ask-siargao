@@ -1,12 +1,12 @@
 {
   "schemaVersion": "field-protocol-examples.v1",
-  "componentVersion": "1.0.0",
+  "componentVersion": "1.0.1",
   "examples": {
     "fieldVisit": {
       "schemaVersion": "field-visit.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
       "campaignId": "campaign_island_baseline",
       "assignmentId": "assignment_del_carmen_essentials",
       "researcherId": "researcher_example",
@@ -16,6 +16,20 @@
       "captureState": "captured",
       "startedAt": "2026-08-22T08:30:00+08:00",
       "endedAt": "2026-08-22T09:30:00+08:00",
+      "captureWindows": [
+        {
+          "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1511",
+          "windowIdentity": "local_hour",
+          "localHourStartedAt": "2026-08-22T08:00:00+08:00",
+          "utcOffsetMinutes": 480
+        },
+        {
+          "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1512",
+          "windowIdentity": "local_hour",
+          "localHourStartedAt": "2026-08-22T09:00:00+08:00",
+          "utcOffsetMinutes": 480
+        }
+      ],
       "target": { "kind": "governed_subject", "subjectId": "subject_area_del_carmen" },
       "locationPermissionState": "coarse",
       "publicLocationPrecision": "governed_area",
@@ -27,7 +41,7 @@
       "schemaVersion": "field-observation.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1502",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
       "campaignId": "campaign_island_baseline",
       "assignmentId": "assignment_del_carmen_essentials",
       "visitId": "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
@@ -38,6 +52,7 @@
       "recordedAt": "2026-08-22T09:05:00+08:00",
       "localTimezone": "Asia/Manila",
       "captureState": "captured",
+      "captureWindowIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1512"],
       "subject": { "kind": "governed", "subjectId": "subject_area_del_carmen" },
       "observationKind": "price",
       "valueSchemaVersion": "1.0.0",
@@ -74,7 +89,7 @@
       "schemaVersion": "route-run.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1503",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
       "campaignId": "campaign_island_baseline",
       "assignmentId": "assignment_airport_arrival",
       "visitId": "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
@@ -85,6 +100,10 @@
       "recordedAt": "2026-08-22T09:35:00+08:00",
       "localTimezone": "Asia/Manila",
       "captureState": "captured",
+      "captureWindowIds": [
+        "0192f060-4f41-7aa1-b322-4aa9fc9f1511",
+        "0192f060-4f41-7aa1-b322-4aa9fc9f1512"
+      ],
       "originSubjectId": "subject_sayak_airport",
       "destinationSubjectId": "subject_area_del_carmen",
       "transportMode": "van",
@@ -109,7 +128,7 @@
       "schemaVersion": "source-statement.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1504",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
       "campaignId": "campaign_island_baseline",
       "assignmentId": "assignment_del_carmen_essentials",
       "visitId": "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
@@ -120,6 +139,7 @@
       "recordedAt": "2026-08-22T09:15:00+08:00",
       "localTimezone": "Asia/Manila",
       "captureState": "captured",
+      "captureWindowIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1512"],
       "subjectId": "subject_area_del_carmen",
       "sourceRole": "staff",
       "basisOfKnowledge": "direct_responsibility",
@@ -164,7 +184,16 @@
       "schemaVersion": "statement-translation.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1510",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
+      "campaignId": "campaign_island_baseline",
+      "assignmentId": "assignment_del_carmen_essentials",
+      "visitId": "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
+      "objectiveId": "objective_del_carmen_ask_service_leads",
+      "coverageRequirementId": "coverage_pharmacy_clinic_leads",
+      "researcherId": "researcher_example",
+      "deviceId": "device_example",
+      "localTimezone": "Asia/Manila",
+      "captureState": "captured",
       "sourceStatementId": "0192f060-4f41-7aa1-b322-4aa9fc9f1504",
       "originalLanguage": "en",
       "targetLanguage": "fil",
@@ -179,7 +208,7 @@
       "schemaVersion": "evidence-asset.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1505",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
       "campaignId": "campaign_island_baseline",
       "assignmentId": "assignment_del_carmen_essentials",
       "visitId": "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
@@ -188,6 +217,7 @@
       "recordedAt": "2026-08-22T09:10:00+08:00",
       "localTimezone": "Asia/Manila",
       "captureState": "captured",
+      "captureWindowIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1512"],
       "assetKind": "receipt_scan",
       "byteSize": 2048,
       "mediaType": "image/jpeg",
@@ -208,7 +238,7 @@
       "schemaVersion": "capture-exception.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1506",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
       "campaignId": "campaign_island_baseline",
       "assignmentId": "assignment_pilar_access",
       "objectiveId": "objective_pilar_observe_conditions",
@@ -226,7 +256,7 @@
       "schemaVersion": "schema-gap.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1507",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
       "campaignId": "campaign_island_baseline",
       "assignmentId": "assignment_del_carmen_essentials",
       "objectiveId": "objective_del_carmen_observe_services",
@@ -243,11 +273,78 @@
       "description": "The controlled facility states cannot represent the observed shared-access restriction without distortion.",
       "resolutionState": "blocked_pending_protocol"
     },
+    "objectiveCoverage": {
+      "schemaVersion": "objective-coverage.v1",
+      "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1520",
+      "protocolPackageId": "field-protocol-siargao-baseline",
+      "protocolPackageVersion": "1.0.1",
+      "campaignId": "campaign_island_baseline",
+      "assignmentId": "assignment_del_carmen_essentials",
+      "objectiveId": "objective_del_carmen_observe_services",
+      "status": "satisfied",
+      "requirements": [
+        {
+          "coverageRequirementId": "coverage_payment",
+          "status": "satisfied",
+          "capturedRecordIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1502"],
+          "requiredRecords": 1,
+          "distinctWindowIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1512"],
+          "requiredDistinctWindows": 1,
+          "supportingAssetIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1505"],
+          "reasonCodes": []
+        }
+      ],
+      "sourceRecordIds": [
+        "0192f060-4f41-7aa1-b322-4aa9fc9f1502",
+        "0192f060-4f41-7aa1-b322-4aa9fc9f1505"
+      ],
+      "derivedAt": "2026-08-22T09:30:00+08:00"
+    },
+    "assignmentOutcome": {
+      "schemaVersion": "assignment-outcome.v1",
+      "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1521",
+      "protocolPackageId": "field-protocol-siargao-baseline",
+      "protocolPackageVersion": "1.0.1",
+      "campaignId": "campaign_island_baseline",
+      "assignmentId": "assignment_pilar_access",
+      "visitIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1501"],
+      "status": "closed_with_gaps",
+      "unresolvedRequirementIds": ["coverage_access_state"],
+      "followUpAssignmentIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1522"],
+      "closedAt": "2026-08-22T10:05:00+08:00"
+    },
+    "followUpAssignment": {
+      "schemaVersion": "follow-up-assignment.v1",
+      "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1522",
+      "protocolPackageId": "field-protocol-siargao-baseline",
+      "protocolPackageVersion": "1.0.1",
+      "campaignId": "campaign_island_baseline",
+      "originatingAssignmentId": "assignment_pilar_access",
+      "originatingVisitIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1501"],
+      "coverageRequirementIds": ["coverage_access_state"],
+      "createdAt": "2026-08-22T10:05:00+08:00",
+      "reason": "closed_with_gaps"
+    },
+    "fieldDayClose": {
+      "schemaVersion": "field-day-close.v1",
+      "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1523",
+      "protocolPackageId": "field-protocol-siargao-baseline",
+      "protocolPackageVersion": "1.0.1",
+      "campaignId": "campaign_island_baseline",
+      "planSnapshotId": "0192f060-4f41-7aa1-b322-4aa9fc9f1524",
+      "assignmentOutcomeIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1521"],
+      "followUpAssignmentIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1522"],
+      "unresolvedRecordIds": ["0192f060-4f41-7aa1-b322-4aa9fc9f1506"],
+      "permissionIssueRecordIds": [],
+      "assetIssueRecordIds": [],
+      "recoveryStatus": "recovery_required",
+      "closedAt": "2026-08-22T18:00:00+08:00"
+    },
     "fieldReview": {
       "schemaVersion": "field-review.v1",
       "id": "0192f060-4f41-7aa1-b322-4aa9fc9f1508",
       "protocolPackageId": "field-protocol-siargao-baseline",
-      "protocolPackageVersion": "1.0.0",
+      "protocolPackageVersion": "1.0.1",
       "recordId": "0192f060-4f41-7aa1-b322-4aa9fc9f1502",
       "reviewerId": "reviewer_example",
       "researcherId": "researcher_example",
@@ -273,18 +370,18 @@
       "protocolPackages": [
         {
           "packageId": "field-protocol-siargao-baseline",
-          "version": "1.0.0",
+          "version": "1.0.1",
           "componentVersions": {
-            "schemas": "1.0.0",
+            "schemas": "1.0.1",
             "distributionSchemas": "1.0.0",
-            "observationKinds": "1.0.0",
+            "observationKinds": "1.0.1",
             "methodProfiles": "1.0.0",
             "subjects": "1.0.0",
             "geography": "1.0.0",
-            "campaign": "1.0.0",
+            "campaign": "1.0.1",
             "help": "1.0.0",
-            "migration": "1.0.0",
-            "examples": "1.0.0"
+            "migration": "1.0.1",
+            "examples": "1.0.1"
           }
         }
       ],

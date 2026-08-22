@@ -1,6 +1,6 @@
 {
   "schemaVersion": "field-protocol-schemas.v1",
-  "componentVersion": "1.0.0",
+  "componentVersion": "1.0.1",
   "records": {
     "fieldVisit": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -21,6 +21,7 @@
         "localTimezone",
         "captureState",
         "startedAt",
+        "captureWindows",
         "target",
         "locationPermissionState",
         "publicLocationPrecision",
@@ -52,6 +53,12 @@
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
         },
+        "captureWindows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/captureWindow" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "target": { "$ref": "#/$defs/visitTarget" },
         "locationPermissionState": { "enum": ["denied", "coarse", "precise_active_visit"] },
         "publicLocationPrecision": {
@@ -72,6 +79,20 @@
         "privateContextNote": { "type": "string", "minLength": 1, "maxLength": 2000 }
       },
       "$defs": {
+        "captureWindow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "windowIdentity", "localHourStartedAt", "utcOffsetMinutes"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "windowIdentity": { "const": "local_hour" },
+            "localHourStartedAt": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:00:00(?:\\.0+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "utcOffsetMinutes": { "type": "integer", "minimum": -720, "maximum": 840 }
+          }
+        },
         "visitTarget": {
           "oneOf": [
             {
@@ -188,6 +209,7 @@
         "recordedAt",
         "localTimezone",
         "captureState",
+        "captureWindowIds",
         "subject",
         "observationKind",
         "valueSchemaVersion",
@@ -224,6 +246,12 @@
         "localTimezone": { "type": "string", "const": "Asia/Manila" },
         "supersedesId": { "type": "string", "format": "uuid" },
         "captureState": { "enum": ["draft", "captured"] },
+        "captureWindowIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "subject": {
           "oneOf": [
             {
@@ -374,6 +402,7 @@
         "recordedAt",
         "localTimezone",
         "captureState",
+        "captureWindowIds",
         "originSubjectId",
         "destinationSubjectId",
         "transportMode",
@@ -412,6 +441,12 @@
         },
         "localTimezone": { "const": "Asia/Manila" },
         "captureState": { "enum": ["draft", "captured"] },
+        "captureWindowIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "supersedesId": { "type": "string", "format": "uuid" },
         "originSubjectId": { "type": "string", "pattern": "^subject_[a-z0-9_]+$" },
         "destinationSubjectId": { "type": "string", "pattern": "^subject_[a-z0-9_]+$" },
@@ -459,7 +494,30 @@
         },
         "conditions": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "enum": [
+              "weather_clear",
+              "weather_cloudy",
+              "weather_rain",
+              "tide_low",
+              "tide_mid",
+              "tide_high",
+              "road_dry",
+              "road_wet",
+              "crowd_quiet",
+              "crowd_moderate",
+              "crowd_busy",
+              "noise_quiet",
+              "noise_moderate",
+              "noise_loud",
+              "power_available",
+              "power_outage",
+              "access_open",
+              "access_restricted",
+              "disruption_none",
+              "disruption_active"
+            ]
+          },
           "uniqueItems": true
         },
         "signalCheckpoints": { "type": "array", "items": { "type": "string", "minLength": 1 } },
@@ -488,6 +546,7 @@
         "recordedAt",
         "localTimezone",
         "captureState",
+        "captureWindowIds",
         "subjectId",
         "sourceRole",
         "basisOfKnowledge",
@@ -523,6 +582,12 @@
         },
         "localTimezone": { "const": "Asia/Manila" },
         "captureState": { "enum": ["draft", "captured"] },
+        "captureWindowIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "supersedesId": { "type": "string", "format": "uuid" },
         "subjectId": { "type": "string", "pattern": "^subject_[a-z0-9_]+$" },
         "sourceRole": {
@@ -611,6 +676,15 @@
         "id",
         "protocolPackageId",
         "protocolPackageVersion",
+        "campaignId",
+        "assignmentId",
+        "visitId",
+        "objectiveId",
+        "coverageRequirementId",
+        "researcherId",
+        "deviceId",
+        "localTimezone",
+        "captureState",
         "sourceStatementId",
         "originalLanguage",
         "targetLanguage",
@@ -623,6 +697,18 @@
         "id": { "type": "string", "format": "uuid" },
         "protocolPackageId": { "type": "string", "pattern": "^field-protocol-[a-z0-9-]+$" },
         "protocolPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "campaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
+        "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
+        "visitId": { "type": "string", "format": "uuid" },
+        "objectiveId": { "type": "string", "pattern": "^objective_[a-z0-9_]+$" },
+        "coverageRequirementId": {
+          "type": "string",
+          "pattern": "^coverage_[a-z0-9_]+$"
+        },
+        "researcherId": { "type": "string", "minLength": 1 },
+        "deviceId": { "type": "string", "minLength": 1 },
+        "localTimezone": { "const": "Asia/Manila" },
+        "captureState": { "enum": ["draft", "captured"] },
         "sourceStatementId": { "type": "string", "format": "uuid" },
         "originalLanguage": { "type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$" },
         "targetLanguage": { "type": "string", "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$" },
@@ -662,6 +748,7 @@
         "recordedAt",
         "localTimezone",
         "captureState",
+        "captureWindowIds",
         "assetKind",
         "byteSize",
         "mediaType",
@@ -694,6 +781,12 @@
         },
         "localTimezone": { "const": "Asia/Manila" },
         "captureState": { "enum": ["draft", "captured"] },
+        "captureWindowIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
         "supersedesId": { "type": "string", "format": "uuid" },
         "assetKind": { "enum": ["photo", "receipt_scan", "document_scan"] },
         "byteSize": { "type": "integer", "minimum": 1 },
@@ -788,6 +881,7 @@
         },
         "localTimezone": { "const": "Asia/Manila" },
         "captureState": { "enum": ["draft", "captured"] },
+        "supersedesId": { "type": "string", "format": "uuid" },
         "reason": {
           "enum": [
             "access_denied",
@@ -851,6 +945,7 @@
         },
         "localTimezone": { "const": "Asia/Manila" },
         "captureState": { "enum": ["draft", "captured"] },
+        "supersedesId": { "type": "string", "format": "uuid" },
         "subject": {
           "oneOf": [
             {
@@ -883,6 +978,274 @@
         "description": { "type": "string", "minLength": 1, "maxLength": 1000 },
         "assetId": { "type": "string", "format": "uuid" },
         "resolutionState": { "const": "blocked_pending_protocol" }
+      }
+    },
+    "objectiveCoverage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://asksiargao.com/schemas/objective-coverage.v1.json",
+      "title": "ObjectiveCoverage",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "protocolPackageId",
+        "protocolPackageVersion",
+        "campaignId",
+        "assignmentId",
+        "objectiveId",
+        "status",
+        "requirements",
+        "sourceRecordIds",
+        "derivedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "objective-coverage.v1" },
+        "id": { "type": "string", "format": "uuid" },
+        "protocolPackageId": { "type": "string", "pattern": "^field-protocol-[a-z0-9-]+$" },
+        "protocolPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "campaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
+        "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
+        "objectiveId": { "type": "string", "pattern": "^objective_[a-z0-9_]+$" },
+        "status": {
+          "enum": ["unstarted", "in_progress", "satisfied", "blocked", "needs_resolution"]
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "coverageRequirementId",
+              "status",
+              "capturedRecordIds",
+              "requiredRecords",
+              "distinctWindowIds",
+              "requiredDistinctWindows",
+              "supportingAssetIds",
+              "reasonCodes"
+            ],
+            "properties": {
+              "coverageRequirementId": {
+                "type": "string",
+                "pattern": "^coverage_[a-z0-9_]+$"
+              },
+              "status": {
+                "enum": [
+                  "unstarted",
+                  "in_progress",
+                  "satisfied",
+                  "blocked",
+                  "not_applicable",
+                  "needs_resolution"
+                ]
+              },
+              "capturedRecordIds": {
+                "type": "array",
+                "items": { "type": "string", "format": "uuid" },
+                "uniqueItems": true
+              },
+              "requiredRecords": { "type": "integer", "minimum": 1 },
+              "distinctWindowIds": {
+                "type": "array",
+                "items": { "type": "string", "format": "uuid" },
+                "uniqueItems": true
+              },
+              "requiredDistinctWindows": { "type": "integer", "minimum": 1 },
+              "supportingAssetIds": {
+                "type": "array",
+                "items": { "type": "string", "format": "uuid" },
+                "uniqueItems": true
+              },
+              "reasonCodes": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "outside_partial_coverage_set",
+                    "schema_gap",
+                    "provisional_subject",
+                    "unknown_or_not_tested",
+                    "unresolved_contradiction",
+                    "record_threshold",
+                    "distinct_window_threshold",
+                    "supporting_asset_required",
+                    "invalid_capture_window_link",
+                    "invalid_permission_link",
+                    "invalid_asset_link",
+                    "capture_exception",
+                    "not_applicable"
+                  ]
+                },
+                "uniqueItems": true
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "sourceRecordIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true
+        },
+        "derivedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        }
+      }
+    },
+    "assignmentOutcome": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://asksiargao.com/schemas/assignment-outcome.v1.json",
+      "title": "AssignmentOutcome",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "protocolPackageId",
+        "protocolPackageVersion",
+        "campaignId",
+        "assignmentId",
+        "visitIds",
+        "status",
+        "unresolvedRequirementIds",
+        "followUpAssignmentIds",
+        "closedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "assignment-outcome.v1" },
+        "id": { "type": "string", "format": "uuid" },
+        "protocolPackageId": { "type": "string", "pattern": "^field-protocol-[a-z0-9-]+$" },
+        "protocolPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "campaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
+        "assignmentId": { "type": "string", "pattern": "^assignment_[a-z0-9_]+$" },
+        "visitIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true
+        },
+        "status": { "enum": ["complete", "closed_with_gaps", "deferred"] },
+        "unresolvedRequirementIds": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^coverage_[a-z0-9_]+$" },
+          "uniqueItems": true
+        },
+        "followUpAssignmentIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true
+        },
+        "closedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        }
+      }
+    },
+    "followUpAssignment": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://asksiargao.com/schemas/follow-up-assignment.v1.json",
+      "title": "FollowUpAssignment",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "protocolPackageId",
+        "protocolPackageVersion",
+        "campaignId",
+        "originatingAssignmentId",
+        "originatingVisitIds",
+        "coverageRequirementIds",
+        "createdAt",
+        "reason"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "follow-up-assignment.v1" },
+        "id": { "type": "string", "format": "uuid" },
+        "protocolPackageId": { "type": "string", "pattern": "^field-protocol-[a-z0-9-]+$" },
+        "protocolPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "campaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
+        "originatingAssignmentId": {
+          "type": "string",
+          "pattern": "^assignment_[a-z0-9_]+$"
+        },
+        "originatingVisitIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "coverageRequirementIds": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^coverage_[a-z0-9_]+$" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "reason": { "enum": ["closed_with_gaps", "interrupted", "needs_resolution"] }
+      }
+    },
+    "fieldDayClose": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://asksiargao.com/schemas/field-day-close.v1.json",
+      "title": "FieldDayClose",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "id",
+        "protocolPackageId",
+        "protocolPackageVersion",
+        "campaignId",
+        "planSnapshotId",
+        "assignmentOutcomeIds",
+        "followUpAssignmentIds",
+        "unresolvedRecordIds",
+        "permissionIssueRecordIds",
+        "assetIssueRecordIds",
+        "recoveryStatus",
+        "closedAt"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "field-day-close.v1" },
+        "id": { "type": "string", "format": "uuid" },
+        "protocolPackageId": { "type": "string", "pattern": "^field-protocol-[a-z0-9-]+$" },
+        "protocolPackageVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "campaignId": { "type": "string", "pattern": "^campaign_[a-z0-9_]+$" },
+        "planSnapshotId": { "type": "string", "format": "uuid" },
+        "assignmentOutcomeIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true
+        },
+        "followUpAssignmentIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true
+        },
+        "unresolvedRecordIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true
+        },
+        "permissionIssueRecordIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true
+        },
+        "assetIssueRecordIds": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "uniqueItems": true
+        },
+        "recoveryStatus": { "enum": ["recovery_required", "verified"] },
+        "closedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+        }
       }
     },
     "fieldReview": {

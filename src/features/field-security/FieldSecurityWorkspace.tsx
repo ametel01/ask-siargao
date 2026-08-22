@@ -225,6 +225,16 @@ export function FieldSecurityWorkspace() {
         requestPersistentFieldStorage(),
         prepareFieldOfflineShell({ activeVisit: false, buildId: applicationBuildId }),
       ]);
+      await new IndexedDbFieldVault().putMetadata({
+        key: "field-readiness",
+        value: {
+          buildId: applicationBuildId,
+          offlineShellPrepared: true,
+          persisted: storage.persisted,
+          preparedAt: new Date().toISOString(),
+          version: 1,
+        },
+      });
       setState((current) => ({ ...current, offlineShellPrepared: true, storage }));
       setStatus(
         storage.persisted

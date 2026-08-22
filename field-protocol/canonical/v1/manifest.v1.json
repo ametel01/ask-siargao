@@ -1,19 +1,19 @@
 {
   "schemaVersion": "field-protocol-package-manifest.v1",
   "packageId": "field-protocol-siargao-baseline",
-  "packageVersion": "1.0.0",
-  "createdAt": "2026-08-22T00:00:00.000Z",
-  "signerKeyId": "ask-siargao-field-protocol-2026-02",
+  "packageVersion": "1.0.1",
+  "createdAt": "2026-08-23T00:00:00.000Z",
+  "signerKeyId": "ask-siargao-field-protocol-2026-04",
   "componentVersions": {
-    "campaign": "1.0.0",
+    "campaign": "1.0.1",
     "distributionSchemas": "1.0.0",
-    "examples": "1.0.0",
+    "examples": "1.0.1",
     "geography": "1.0.0",
     "help": "1.0.0",
     "methodProfiles": "1.0.0",
-    "migration": "1.0.0",
-    "observationKinds": "1.0.0",
-    "schemas": "1.0.0",
+    "migration": "1.0.1",
+    "observationKinds": "1.0.1",
+    "schemas": "1.0.1",
     "subjects": "1.0.0"
   },
   "compatibility": {
@@ -23,12 +23,12 @@
   "migrationDeclaration": {
     "strategy": "explicit_preview_required",
     "supportedFromVersions": ["0.9.0"],
-    "migrationIds": ["migration_legacy_0_9_0_to_baseline_1_0_0"]
+    "migrationIds": ["migration_legacy_0_9_0_to_baseline_1_0_1"]
   },
   "files": [
     {
       "path": "canonical/v1/campaign-island-baseline.v1.json",
-      "sha256": "c534586923e9454d3866f8d0055fa6fe19c59c2745af2fe8c230ad92b34ba0bf"
+      "sha256": "cd2476eefb82c3de00bbc538189551c0314fee0aa57d1488fb6bb612ea004c92"
     },
     {
       "path": "canonical/v1/distribution-schemas.v1.json",
@@ -36,7 +36,7 @@
     },
     {
       "path": "canonical/v1/examples.v1.json",
-      "sha256": "a8be0c3d6aec9b12dc268bee0bd5496eaaf297ee5b336b64509941f70232db97"
+      "sha256": "ee9a696f4ed0cd550fdb42a61193db5f5e2f3190d5e9d5ce6b05735b439e2a89"
     },
     {
       "path": "canonical/v1/geography.v1.json",
@@ -52,15 +52,15 @@
     },
     {
       "path": "canonical/v1/migration-legacy-0.9.0.v1.json",
-      "sha256": "754e9d551edf346d4caeaa7dd027bf097c007afc18fdc5af67fe3591defaf18f"
+      "sha256": "7285cbe5569da255430a79d8a4ec6428e1fa237633cd746075b95671758f39e7"
     },
     {
       "path": "canonical/v1/observation-kinds.v1.json",
-      "sha256": "23790ca38729ebb0666aa078091065ff4ef0ada9339b6f64320284aad2e88e1f"
+      "sha256": "78a1de3db3a5bdcc3308c2671ac0afec4cffdd0c96f2cad3dc53fab8bbad3cf9"
     },
     {
       "path": "canonical/v1/schemas.v1.json",
-      "sha256": "e178c4fd5c673cce7e202d2d252bbb889b1c556a7856c99f9f1a29116048a31d"
+      "sha256": "4e6ace9742f3603e1f962406260e39df20432d955208b29d0b576c1eb84b0034"
     },
     {
       "path": "canonical/v1/subjects.v1.json",
@@ -69,6 +69,6 @@
   ],
   "signature": {
     "algorithm": "Ed25519",
-    "value": "TrCfArM8UaTAZurHqu13dpjDdXZ9yX3ai1wJAT53lNne2d+C/6TPngSydkUD8vsmqhyEqTQyp0BCG3Fh12K5Cw=="
+    "value": "HLofsQSLfnYIu8upmWMJk6SQcJT08Vw0Oms9YmFPyjEuCEkF9nA6I7d+MowXJSq6XFHt9hQfuHxbXcIMjL70Dg=="
   }
 }

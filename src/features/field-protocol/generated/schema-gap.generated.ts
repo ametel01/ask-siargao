@@ -15,6 +15,7 @@ export interface SchemaGap {
   recordedAt: string;
   localTimezone: "Asia/Manila";
   captureState: "draft" | "captured";
+  supersedesId?: string;
   subject:
     | {
         kind: "governed";

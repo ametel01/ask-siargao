@@ -16,6 +16,10 @@ export interface FieldObservation {
   localTimezone: "Asia/Manila";
   supersedesId?: string;
   captureState: "draft" | "captured";
+  /**
+   * @minItems 1
+   */
+  captureWindowIds: [string, ...string[]];
   subject:
     | {
         kind: "governed";
