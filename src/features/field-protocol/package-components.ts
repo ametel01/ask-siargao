@@ -10,6 +10,3 @@ export const fieldProtocolPackageComponents = [
   { key: "schemas", filename: "schemas.v1.json" },
   { key: "subjects", filename: "subjects.v1.json" },
 ] as const;
-
-export type FieldProtocolPackageComponent = (typeof fieldProtocolPackageComponents)[number];
-export type FieldProtocolPackageComponentKey = FieldProtocolPackageComponent["key"];
