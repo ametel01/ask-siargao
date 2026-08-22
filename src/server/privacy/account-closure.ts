@@ -257,6 +257,7 @@ export async function beginAccountClosure(
        where user_id = $1 and status = 'active'`,
       [input.userId, phaseOneAt],
     );
+    await revokeFieldDeviceTrust(transaction, input.userId, phaseOneAt);
     await transaction.query(
       `
         update trip_pass_orders
@@ -473,6 +474,7 @@ async function convergeExistingClosure(
      where user_id = $1 and status = 'active'`,
     [input.userId, phaseOneAt],
   );
+  await revokeFieldDeviceTrust(transaction, input.userId, phaseOneAt);
   await transaction.query(
     `update trip_pass_orders set user_id = null, email = null, stripe_customer_id = null,
        metadata_json = '{}'::jsonb, closure_tombstone_id = $2,
@@ -845,6 +847,8 @@ async function eraseLocalProductData(
     );
     await transaction.query("delete from saved_trips where user_id = $1", [userId]);
     await transaction.query("delete from user_profiles where user_id = $1", [userId]);
+    await transaction.query("delete from field_offline_grants where account_id = $1", [userId]);
+    await transaction.query("delete from field_authorized_devices where account_id = $1", [userId]);
 
     await transaction.query(
       `delete from llm_tool_calls where llm_run_id in (
@@ -881,6 +885,25 @@ async function eraseLocalProductData(
       [userId],
     );
   });
+}
+
+async function revokeFieldDeviceTrust(
+  transaction: DatabaseQueryClient,
+  accountId: string,
+  now: Date,
+) {
+  await transaction.query(
+    `update field_offline_grants
+     set status = 'revoked', revoked_at = coalesce(revoked_at, $2)
+     where account_id = $1 and status = 'active'`,
+    [accountId, now],
+  );
+  await transaction.query(
+    `update field_authorized_devices
+     set status = 'revoked', revoked_at = coalesce(revoked_at, $2), updated_at = $2
+     where account_id = $1 and status = 'active'`,
+    [accountId, now],
+  );
 }
 
 async function minimizeCommerceData(

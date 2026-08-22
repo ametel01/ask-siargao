@@ -38,6 +38,9 @@ describe("Clerk proxy perimeter", () => {
       "/api/admin/repairs",
       "/api/admin/trip-pass/refunds",
       "/api/me/profile",
+      "/operator/field/security-workspace",
+      "/api/operator/field/devices",
+      "/field-service-worker",
     ]) {
       const auth = protectRecorder();
       const response = await applyEnabledClerkRoutePolicy(auth, pathname);
@@ -166,6 +169,73 @@ describe("Clerk proxy perimeter", () => {
       restoreEnvValue("VERCEL_PROJECT_ID", originalProjectId);
       restoreEnvValue("VERCEL_PROJECT_PRODUCTION_URL", originalProjectProductionUrl);
       restoreEnvValue("VERCEL_URL", originalVercelUrl);
+    }
+  });
+
+  test("limits the production-mode Field Security harness to local field routes", () => {
+    const original = {
+      flag: process.env.PLAYWRIGHT_FIELD_SECURITY_HARNESS,
+      mode: process.env.CLERK_AUTH_MODE,
+      context: process.env.CLERK_DEPLOYMENT_CONTEXT,
+      token: process.env.PLAYWRIGHT_FIELD_SECURITY_HARNESS_TOKEN,
+    };
+    try {
+      process.env.CLERK_AUTH_MODE = "disabled";
+      process.env.CLERK_DEPLOYMENT_CONTEXT = "local";
+      process.env.PLAYWRIGHT_FIELD_SECURITY_HARNESS = "1";
+      process.env.PLAYWRIGHT_FIELD_SECURITY_HARNESS_TOKEN =
+        "ask-siargao-field-security-production-harness-2026";
+      const headers = {
+        "x-ask-siargao-field-security-harness": "1",
+        "x-ask-siargao-field-security-harness-token":
+          "ask-siargao-field-security-production-harness-2026",
+      };
+      expect(
+        applyDisabledClerkRoutePolicy(
+          new NextRequest("https://asksiargao.test/operator/field/offline-shell", { headers }),
+        ).status,
+      ).toBe(200);
+      expect(
+        applyDisabledClerkRoutePolicy(
+          new NextRequest("https://asksiargao.test/settings", { headers }),
+        ).status,
+      ).toBe(404);
+    } finally {
+      restoreEnvValue("PLAYWRIGHT_FIELD_SECURITY_HARNESS", original.flag);
+      restoreEnvValue("CLERK_AUTH_MODE", original.mode);
+      restoreEnvValue("CLERK_DEPLOYMENT_CONTEXT", original.context);
+      restoreEnvValue("PLAYWRIGHT_FIELD_SECURITY_HARNESS_TOKEN", original.token);
+    }
+  });
+
+  test("accepts the local harness cookie on a service-worker shell fetch", () => {
+    const original = {
+      flag: process.env.PLAYWRIGHT_FIELD_SECURITY_HARNESS,
+      mode: process.env.CLERK_AUTH_MODE,
+      context: process.env.CLERK_DEPLOYMENT_CONTEXT,
+      token: process.env.PLAYWRIGHT_FIELD_SECURITY_HARNESS_TOKEN,
+    };
+    try {
+      process.env.CLERK_AUTH_MODE = "disabled";
+      process.env.CLERK_DEPLOYMENT_CONTEXT = "local";
+      process.env.PLAYWRIGHT_FIELD_SECURITY_HARNESS = "1";
+      process.env.PLAYWRIGHT_FIELD_SECURITY_HARNESS_TOKEN =
+        "ask-siargao-field-security-production-harness-2026";
+      expect(
+        applyDisabledClerkRoutePolicy(
+          new NextRequest("https://asksiargao.test/operator/field/offline-shell", {
+            headers: {
+              cookie:
+                "ask_siargao_field_security_harness=ask-siargao-field-security-production-harness-2026",
+            },
+          }),
+        ).status,
+      ).toBe(200);
+    } finally {
+      restoreEnvValue("PLAYWRIGHT_FIELD_SECURITY_HARNESS", original.flag);
+      restoreEnvValue("CLERK_AUTH_MODE", original.mode);
+      restoreEnvValue("CLERK_DEPLOYMENT_CONTEXT", original.context);
+      restoreEnvValue("PLAYWRIGHT_FIELD_SECURITY_HARNESS_TOKEN", original.token);
     }
   });
 

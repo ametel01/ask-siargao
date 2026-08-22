@@ -32,6 +32,7 @@ Use these pages when working on the Ask Siargao codebase.
 - [Improving AI answer quality beyond general assistants](explanation/improving-ai-answer-quality-beyond-general-assistants.md): prioritized gaps and product investments for making Siargao answers measurably better than general-assistant responses.
 - [Qualified Discovery strategy](explanation/qualified-discovery-strategy.md): approved product identity, editorial trust, search representation, privacy-safe attribution, and evidence-gated visibility rollout.
 - [Deterministic Field Workspace](explanation/deterministic-field-workspace.md): why planning, typed capture, review, recovery, and future ingestion are separate product boundaries.
+- [Field Workspace security threat model](explanation/field-workspace-security-threat-model.md): device-bound grants, encrypted local storage, recovery, service-worker, writer, purge, and residual physical-device boundaries.
 - [On-demand Reality Check lifecycle](explanation/on-demand-reality-check-lifecycle.md): how explicit requests, evidence ordering, validation, public projection, persistence, and provider failure form one synchronous chat turn.
 - [Siargao chatbot data pipeline](explanation/siargao-chatbot-data-pipeline.md): product direction and lazy fact acquisition model for the chat-first tour-operator assistant.
 - [Web research layer](explanation/web-research-layer.md): background on public-web evidence, source scoring, provider failure, and how `research_web` complements Places, weather, and memory.
