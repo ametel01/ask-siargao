@@ -3,10 +3,9 @@
 Use this playbook to prepare and execute comparable first-hand fieldwork through the deterministic
 Field Workspace accepted in [issue #237](https://github.com/ametel01/ask-siargao/issues/237).
 
-> **Implementation status:** the Field Workspace is not implemented yet. The production
-> `/admin/field-ingestion` page is a legacy JSON compatibility tool, not a capture workflow. Do not
-> hand-author JSON, build a replacement Apple Shortcut, or treat the legacy page as satisfying this
-> playbook.
+> **Capture boundary:** use `/operator/field/plan` and `/operator/field/capture` for new work. The
+> exceptional Legacy Capture workflow under Diagnostics and Recovery preserves PR #226 artifacts; it
+> is not a capture shortcut and cannot make historical JSON Ready for Desk or Export.
 
 The procedure ends at private review and protected export. It does not make an observation a Fact,
 publish a guide claim, prove residence or local expertise, or authorize server ingestion.
@@ -209,5 +208,5 @@ No Coverage Requirement is worth creating harm.
 
 - [Deterministic Field Workspace](../explanation/deterministic-field-workspace.md)
 - [Field research data model](../reference/field-research-data-model.md)
-- [Legacy field import recovery](use-offline-field-ingestion-desk.md)
+- [Recover Legacy Capture](recover-legacy-capture.md)
 - [Siargao fieldwork official source pack](../reference/siargao-fieldwork-source-pack-2026-08-16.md)

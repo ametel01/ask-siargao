@@ -2,7 +2,9 @@ export const fieldTextEncoder = new TextEncoder();
 export const fieldTextDecoder = new TextDecoder("utf-8", { fatal: true });
 
 export function encodeBase64Url(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64url");
+  if (typeof window === "undefined" && typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64url");
+  }
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
@@ -10,7 +12,9 @@ export function encodeBase64Url(bytes: Uint8Array): string {
 
 export function decodeBase64Url(value: string): Uint8Array {
   if (!/^[A-Za-z0-9_-]+$/u.test(value)) throw new Error("invalid_base64url");
-  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(value, "base64url"));
+  if (typeof window === "undefined" && typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(value, "base64url"));
+  }
   const padded = value
     .replaceAll("-", "+")
     .replaceAll("_", "/")

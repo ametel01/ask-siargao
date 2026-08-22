@@ -9,6 +9,7 @@ import type { FieldEncryptedEnvelope } from "@/features/field-security/types";
 import {
   type FieldRestoreQuarantineRow,
   IndexedDbFieldVault,
+  type LegacyCaptureVaultHeader,
 } from "@/features/field-security/vault";
 import {
   FIELD_RESTORE_PREVIEW_VERSION,
@@ -86,6 +87,7 @@ export async function commitConfirmedRestore(input: {
   confirmedPreviewSha256: string;
   incoming: readonly RestoreImmutableItem[];
   key: Uint8Array;
+  legacyCaptureHeaders?: readonly LegacyCaptureVaultHeader[];
   now: string;
   preview: RestorePreview;
   vault?: IndexedDbFieldVault;
@@ -120,6 +122,7 @@ export async function commitConfirmedRestore(input: {
   await (input.vault ?? new IndexedDbFieldVault()).commitRestore({
     additions,
     auditEnvelope,
+    legacyCaptureHeaders: input.legacyCaptureHeaders,
     quarantines,
   });
   return {

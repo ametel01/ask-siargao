@@ -3,16 +3,18 @@
 The Field Workspace is the accepted product architecture for collecting first-hand Siargao evidence
 without asking a Field Researcher to design forms, hand-author JSON, or improvise a daily itinerary.
 Implementation is tracked by [GitHub issue #237](https://github.com/ametel01/ask-siargao/issues/237).
-The current `/admin/field-ingestion` page is a legacy compatibility tool and does not implement this
-architecture.
+The ordinary product areas are Plan, Capture, Review, and Exports. Legacy Capture lives separately at
+`/operator/field/diagnostics-recovery/legacy-import`; `/admin/field-ingestion` is only a temporary
+redirect or controlled recovery fallback to that same compatibility component.
 
 ## Why the import desk is not the recorder
 
-PR #226 delivered a protected browser queue that accepts JSON and JSON Lines, performs limited local
-checks, and exports a deterministic record envelope. That boundary is useful for recovery experiments,
-but it assumes that another tool already created correct structured records.
+PR #226 delivered a protected browser queue that accepted JSON and JSON Lines, performed limited local
+checks, and exported an embedded record envelope. The maintained compatibility island preserves exact
+historical sources in encrypted quarantine and previews the signed `0.9.0` to `1.0.1` migration, but it
+still assumes that another historical tool created the records.
 
-The missing product responsibility sits upstream: decide what fieldwork is worth doing, group nearby
+The Recorder responsibility sits upstream: decide what fieldwork is worth doing, group nearby
 work into a realistic outing, prompt for the exact required data, preserve explicit omissions, and
 derive whether coverage is complete. File validation cannot provide that behavior after capture.
 
@@ -132,7 +134,9 @@ records. It may span outings while retaining Campaign, Assignment, Visit, resear
 reviewer, correction, and asset lineage.
 
 These artifacts have different schemas, filenames, recipients, receipts, and restore/import actions.
-Neither is created through a generic “Export validated batch” control.
+Neither is created through a generic “Export validated batch” control. Legacy Capture indexes and
+their opaque encrypted envelopes belong only in Field Recovery Export; they never enter a reviewed
+Field Batch.
 
 ## Offline custody
 

@@ -87,6 +87,14 @@ export async function createFieldRecoveryExport(input: {
       ],
     },
     {
+      path: "legacy-capture-index.jsonl",
+      recordType: "legacyCaptureHeader",
+      records: mapAsync(vault.iterateLegacyCaptureHeaders(), (value) => ({
+        id: value.sourceId,
+        ...value,
+      })),
+    },
+    {
       path: "opaque-envelopes.jsonl",
       recordType: "opaqueEnvelope",
       records: filterMapAsync(vault.iterateEnvelopes(), (value) =>

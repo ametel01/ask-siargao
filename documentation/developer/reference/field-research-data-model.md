@@ -4,11 +4,11 @@ This reference defines the accepted contract for deterministic offline field pla
 review, recovery, and batch export. The implementation programme is
 [issue #237](https://github.com/ametel01/ask-siargao/issues/237).
 
-The accepted contract is only partly implemented. Issue #238 provides the signed canonical Field
-Protocol Package, generated bindings, baseline Campaign, record validators, and migration preview.
-The Field Workspace product, encrypted local custody, and server boundary remain separate work.
-PR #226's `field-record.v1` and embedded-record `field-batch.v1` shapes are Legacy Capture and are not
-authoritative for new work.
+The local contract is implemented through protected planning, Recorder, Desk, export, restore, and
+Legacy Capture recovery surfaces. The active signed package is
+`field-protocol-siargao-baseline@1.0.1`. PR #226's `field-record.v1` and embedded-record
+`field-batch.v1` shapes remain Legacy Capture and are not authoritative for new work. Server Field
+Ingestion and physical iPad/Mac acceptance remain separate boundaries.
 
 ## Authority and scope
 
@@ -343,7 +343,8 @@ Private Context Notes, and unredacted assets.
 
 A Field Recovery Export is a private authenticated-encrypted backup. It may contain Drafts, Captured
 records, unresolved work, Capture Exceptions, Schema Gaps, assets, protocol packages, plan snapshots,
-and writer/recovery metadata needed for restoration.
+Legacy Capture indexes and opaque encrypted source/preview/decision envelopes, and writer/recovery
+metadata needed for restoration.
 
 Its unencrypted outer receipt is limited to format version, encrypted bytes, ciphertext hash,
 creation time at the minimum necessary precision, encryption/key identifiers, and restore instructions.
@@ -386,13 +387,29 @@ Device revocation prevents future trust without remotely erasing local evidence.
 
 ## Legacy Capture
 
-The current PR #226 validator uses a passthrough schema, arbitrary observation kinds and methods,
-unknown values, and an incompatible embedded-record `field-batch.v1` envelope. Records and exports from
-that surface are Legacy Capture.
+The canonical compatibility route is
+`/operator/field/diagnostics-recovery/legacy-import`. It recognizes only exact `field-record.v1`
+records, arrays or JSONL containing only that version, and an internally consistent embedded-record
+`field-batch.v1`. It rejects missing, unknown, or mixed versions, current `field-batch.v2`, current
+encrypted receipts, and generic record envelopes. `field-batch.v1` is historical embedded-record
+transport; `field-batch.v2` is the current reviewed graph schema.
 
-Legacy Capture requires explicit migration preview and mapping. Unknown or ambiguous values become
-Schema Gaps or Needs resolution. Same-ID/different-content remains quarantined. No legacy **Ready**
-state automatically maps to Ready for Desk or Ready for Export.
+Every accepted source is encrypted before protected custody. The deterministic
+`legacy-capture-preview.v1` records the signed migration ID, exact source and target versions, source
+artifact and canonical-corpus hashes, stable source-record hashes, destination-state hash, additions,
+exact replays, same-ID conflicts, rejections, exact mappings, omissions, reference gaps, rights gaps,
+validation gaps, Schema Gap candidates, candidate target hashes, and a preview hash. States are
+`mappable_preview`, `needs_resolution`, `quarantined_conflict`, and `rejected`; promotion is always
+`quarantined_only`.
+
+Historical permission claims cannot grant current LLM, article, quotation, or public use. The same
+immutable ID with different canonical content preserves every variant and quarantines the whole
+identity. Decisions are append-only and fail if their preview or destination state is stale. No Legacy
+Capture becomes Ready for Desk or Ready for Export.
+
+The read-only PR #226 IndexedDB adapter can preserve discoverable rows in encrypted custody. Because
+the old database never stored original source bytes, migrated lineage explicitly records
+`original_bytes_unavailable`; it never invents an original file hash.
 
 ## Future server boundary
 
@@ -405,18 +422,9 @@ states. No successful local operation implies a later state.
 
 ## Current implementation status
 
-Implemented by PR #226:
+Implemented by issue #238 and extended through issue #241:
 
-- protected `/admin/field-ingestion` route;
-- ordinary IndexedDB queue;
-- JSON/JSONL parsing and limited local checks;
-- same-ID conflict preservation;
-- deterministic embedded-record envelope hash;
-- synthetic offline browser test.
-
-Implemented by issue #238:
-
-- signed `field-protocol-siargao-baseline@1.0.0` manifest with component hashes, application
+- signed `field-protocol-siargao-baseline@1.0.1` manifest with component hashes, application
   compatibility, and explicit migration declaration;
 - canonical schemas for Field Visit, Field Observation, Route Run, Source Statement, Statement
   Translation, Evidence Asset, Capture Exception, Schema Gap, Field Review, Field Recovery Export,
@@ -431,8 +439,6 @@ Implemented by issue #238:
 - fail-closed record validation, package verification, exact-version work resolution, and explicit
   Protocol Migration previews that preserve originals and quarantine ambiguity.
 
-Extended by issue #241 in `field-protocol-siargao-baseline@1.0.1`:
-
 - Visit-governed local-hour Capture Windows and non-empty window lineage on countable evidence;
 - signed positive, satisfying-negative, and unknown coverage dispositions for all 19 Observation
   Kinds, with negative evidence counting toward record minimums;
@@ -441,24 +447,37 @@ Extended by issue #241 in `field-protocol-siargao-baseline@1.0.1`:
 - correction lineage for Capture Exception, Schema Gap, and Statement Translation;
 - exact pinned-package record validation and the shared Route Run condition vocabulary.
 
-Not implemented:
+Implemented by issues #239, #240, #241, #242, and #243:
 
-- `/operator/field` Field Workspace;
-- flexible deterministic planner;
-- guided Recorder and typed Observation Kind forms;
-- encrypted local protected store, Offline Field Grant, recovery secret, or authorized device keys;
-- derived Objective Coverage and Assignment outcomes;
-- immutable Field Review workflow;
-- Field Recovery Export creation/restoration or Field Batch creation beyond their canonical schemas;
-- physical iPad/Mac acceptance;
-- server Field Ingestion, PostgreSQL capture tables, Fact Admission, or publication.
+- Field Researcher/Operator account authorization, Authorized Field Devices, device-bound WebAuthn,
+  72-hour Offline Field Grants, encrypted local custody, recovery secret verification, clock rollback
+  and inactivity locks, storage readiness, and the deny-by-default offline shell;
+- deterministic, capacity-bounded unscheduled Field Day planning with stable explanations, explicit
+  adjustments, immutable snapshots, and Recorder handoff;
+- guided Recorder coverage for every governed record branch and all 19 typed Observation Kinds,
+  encrypted autosave/media, immutable capture, derived coverage/outcomes/follow-ups, and Field Day
+  Close;
+- atomic Recorder-to-Desk custody, append-only Include/Exclude/Needs more evidence/Correct by
+  supersession decisions, and distinct reviewed Field Batch and complete Field Recovery artifacts;
+- bounded authenticated encryption, recipient-device ECDH, incremental hashes, signed transfer
+  receipts, replay prevention, restore preview, exact replay, and quarantine;
+- exceptional Legacy Capture preservation, signed migration preview, encrypted source lineage,
+  append-only decisions, old-browser discovery, Recovery index/restore, and the temporary protected
+  `/admin/field-ingestion` redirect/rollback alias.
 
-Until issue #237 is accepted, do not hand-author JSON as production field capture, do not treat the
-legacy **Ready** label as review, and do not insert field material directly into production facts.
+Not implemented or not yet accepted:
+
+- physical iPad/Mac usability, Files/AirDrop transfer, recovery, accessibility, and cross-device
+  evidence required by issue #244;
+- independent security/privacy/rights review and eligible non-author maintainer approval;
+- server Field Ingestion, PostgreSQL capture tables, Fact Admission, agent retrieval, or publication.
+
+Do not hand-author JSON as production field capture and do not insert field material directly into
+production facts.
 
 ## Related documentation
 
 - [Run Siargao field research](../how-to-guides/run-siargao-field-research.md)
 - [Deterministic Field Workspace](../explanation/deterministic-field-workspace.md)
-- [Legacy field import recovery](../how-to-guides/use-offline-field-ingestion-desk.md)
+- [Recover Legacy Capture](../how-to-guides/recover-legacy-capture.md)
 - [Siargao fieldwork official source pack](siargao-fieldwork-source-pack-2026-08-16.md)

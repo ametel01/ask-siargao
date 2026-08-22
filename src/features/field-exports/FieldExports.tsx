@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 
 export function FieldExports(props: { harness?: boolean }) {
@@ -25,17 +24,6 @@ export function FieldExports(props: { harness?: boolean }) {
             <h1 className="text-2xl font-semibold">Protected exports</h1>
             <p className="mt-1 text-sm text-[#d8d5f4]">Two formats, two eligibility contracts</p>
           </div>
-          <nav aria-label="Field Workspace areas" className="flex gap-2 text-sm font-bold">
-            <Link
-              className="rounded-lg border border-white/30 px-4 py-3"
-              href="/operator/field/review"
-            >
-              Review
-            </Link>
-            <span aria-current="page" className="rounded-lg bg-[#f5f3ff] px-4 py-3 text-[#271776]">
-              Exports
-            </span>
-          </nav>
         </header>
         <div className="grid gap-0 lg:grid-cols-2" id="export-workflows">
           <section className="border-b border-[#ddd8ef] p-6 lg:border-b-0 lg:border-r sm:p-8">

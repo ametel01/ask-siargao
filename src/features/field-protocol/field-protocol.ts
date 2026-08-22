@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { parseFieldFile } from "@/features/field-ingestion/field-capture";
+import { parseLegacyFieldRecord } from "@/features/field-ingestion/legacy-field-capture";
 import { canonicalStringify } from "@/features/field-protocol/canonical-json";
 import {
   type AssignmentOutcome,
@@ -1359,12 +1359,13 @@ function previewLegacyCaptureMigration(
   original: unknown,
   legacyVisits: ReadonlyMap<string, Record<string, unknown>>,
 ): MigrationPreviewResult {
-  const parsedLegacy = parseFieldFile("legacy-field-record.json", JSON.stringify(record));
-  if (parsedLegacy.issues.length > 0 || parsedLegacy.records.length !== 1) {
+  try {
+    parseLegacyFieldRecord(record);
+  } catch {
     return {
       original,
       status: "failed",
-      reason: parsedLegacy.issues[0]?.message ?? "Legacy Capture did not validate.",
+      reason: "Legacy Capture did not validate against the exact historical record schema.",
     };
   }
   if (record.recordType !== "observation") {
@@ -1372,6 +1373,18 @@ function previewLegacyCaptureMigration(
       original,
       status: "needs_resolution",
       reason: `Legacy ${String(record.recordType)} records require an explicit record-type mapping.`,
+    };
+  }
+
+  if (
+    record.llmUseAllowed === true ||
+    record.articleUseAllowed === true ||
+    record.publicRepublishAllowed === true
+  ) {
+    return {
+      original,
+      status: "needs_resolution",
+      reason: "Historical permission claims cannot grant current LLM, article, or public use.",
     };
   }
 
