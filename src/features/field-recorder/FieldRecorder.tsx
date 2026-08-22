@@ -25,6 +25,7 @@ import type {
   RecorderWork,
 } from "@/features/field-recorder/field-recorder-types";
 import type { RecorderProtocol } from "@/features/field-recorder/load-recorder-protocol";
+import { FieldMain } from "@/features/field-workspace/FieldMain";
 
 import { CaptureForms } from "./forms/CaptureForms";
 import {
@@ -64,6 +65,7 @@ export type FieldRecorderActions = Readonly<{
 
 export function FieldRecorder(props: {
   actions: FieldRecorderActions;
+  landmark?: boolean;
   protocol: RecorderProtocol;
   runtime: RecorderRuntimeStatus;
   work: RecorderWork;
@@ -154,11 +156,14 @@ export function FieldRecorder(props: {
         </div>
       </header>
 
-      <main
+      <FieldMain
         className="h-[calc(100dvh-69px)] overflow-y-auto px-4 py-5 sm:px-6"
-        id="field-recorder-scroll-owner"
+        landmark={props.landmark}
       >
-        <div className="mx-auto grid max-w-7xl gap-5 md:grid-cols-[18rem_minmax(0,1fr)]">
+        <div
+          className="mx-auto grid max-w-7xl gap-5 md:grid-cols-[18rem_minmax(0,1fr)]"
+          id="field-recorder-scroll-owner"
+        >
           <aside
             className="space-y-4 md:sticky md:top-0 md:self-start"
             aria-label="Assignment status and sequence"
@@ -334,7 +339,7 @@ export function FieldRecorder(props: {
             </Card>
           </section>
         </div>
-      </main>
+      </FieldMain>
     </div>
   );
 }

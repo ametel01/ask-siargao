@@ -13,6 +13,7 @@ import {
   notifyFieldVisitState,
 } from "@/features/field-security/service-worker-client";
 import { estimateFieldStorage, IndexedDbFieldVault } from "@/features/field-security/vault";
+import { FieldMain } from "@/features/field-workspace/FieldMain";
 
 import { FieldRecorder, type FieldRecorderActions } from "./FieldRecorder";
 import { prepareRecorderMedia } from "./field-media-store";
@@ -46,15 +47,19 @@ const writerLeaseMs = 2 * 60_000;
 
 type PendingCommit = () => Promise<void>;
 
-export function FieldRecorderController(props: { protocol: RecorderProtocol }) {
+export function FieldRecorderController(props: { landmark?: boolean; protocol: RecorderProtocol }) {
   const security = useFieldSecuritySession();
   if (security.status !== "unlocked") {
-    return <OfflineFieldUnlock />;
+    const unlock = <OfflineFieldUnlock />;
+    return props.landmark === false ? unlock : <FieldMain>{unlock}</FieldMain>;
   }
-  return <UnlockedFieldRecorderController protocol={props.protocol} />;
+  return <UnlockedFieldRecorderController landmark={props.landmark} protocol={props.protocol} />;
 }
 
-function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) {
+function UnlockedFieldRecorderController(props: {
+  landmark?: boolean;
+  protocol: RecorderProtocol;
+}) {
   const security = useFieldSecuritySession();
   const repository = useMemo(() => new FieldRecorderRepository({ applicationVersion }), []);
   const vault = useMemo(() => new IndexedDbFieldVault(), []);
@@ -396,7 +401,7 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
 
   if (loadError) {
     return (
-      <main className="mx-auto max-w-2xl px-4 py-12">
+      <FieldMain className="mx-auto max-w-2xl px-4 py-12" landmark={props.landmark}>
         <Alert variant="destructive">
           <AlertTitle>Recorder resume blocked</AlertTitle>
           <AlertDescription>{loadError} Encrypted local data was not changed.</AlertDescription>
@@ -404,17 +409,23 @@ function UnlockedFieldRecorderController(props: { protocol: RecorderProtocol }) 
         <Button asChild className="mt-5 min-h-11" variant="outline">
           <a href="/operator/field/plan">Return to Field Day Planner</a>
         </Button>
-      </main>
+      </FieldMain>
     );
   }
   if (!work)
     return (
-      <main className="p-8" role="status">
+      <FieldMain className="p-8" landmark={props.landmark} role="status">
         Loading encrypted Recorder work…
-      </main>
+      </FieldMain>
     );
   return (
-    <FieldRecorder actions={actions} protocol={props.protocol} runtime={runtime} work={work} />
+    <FieldRecorder
+      actions={actions}
+      landmark={props.landmark}
+      protocol={props.protocol}
+      runtime={runtime}
+      work={work}
+    />
   );
 }
 

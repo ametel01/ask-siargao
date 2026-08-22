@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+
+import { FieldMain } from "@/features/field-workspace/FieldMain";
+
 import { FieldPlanExplanation, formatConsequences } from "./FieldPlanExplanation";
 import { applyFieldPlanAdjustment } from "./field-plan-adjustments";
 import { confirmFieldPlanSnapshotAndHandoff } from "./field-plan-snapshot";
@@ -173,7 +176,7 @@ export function FieldDayPlanner({
       className="min-h-screen bg-[var(--surface-soft)] px-4 py-8 sm:px-8"
       data-field-planner-ready="false"
     >
-      <main className="mx-auto max-w-5xl space-y-8">
+      <FieldMain className="mx-auto max-w-5xl space-y-8">
         <header className="rounded-2xl bg-[var(--brand-navy-950)] p-6 text-[var(--text-on-dark)] shadow-[var(--shadow-panel)]">
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-lagoon-300)]">
             Field Workspace · Offline package ready
@@ -208,7 +211,7 @@ export function FieldDayPlanner({
             onConfirm={confirmPlan}
           />
         </section>
-      </main>
+      </FieldMain>
     </div>
   );
 }

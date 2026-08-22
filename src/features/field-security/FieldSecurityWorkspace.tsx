@@ -20,6 +20,7 @@ import {
   requestPersistentFieldStorage,
 } from "@/features/field-security/vault";
 import type { DeviceBoundCredentialEvidence } from "@/features/field-security/webauthn";
+import { FieldMain } from "@/features/field-workspace/FieldMain";
 
 const applicationVersion = "0.1.0";
 const applicationBuildId = process.env.NEXT_PUBLIC_FIELD_CACHE_GENERATION ?? "unconfigured";
@@ -253,7 +254,7 @@ export function FieldSecurityWorkspace() {
   }
 
   return (
-    <main className="mx-auto min-h-screen max-w-3xl bg-stone-50 px-6 py-12 text-stone-950">
+    <FieldMain className="mx-auto min-h-screen max-w-3xl bg-stone-50 px-6 py-12 text-stone-950">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-800">
         Field Workspace · Security boundary
       </p>
@@ -354,7 +355,7 @@ export function FieldSecurityWorkspace() {
           </button>
         </SetupStep>
       </ol>
-    </main>
+    </FieldMain>
   );
 }
 
