@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { createHash, createPrivateKey, createPublicKey, sign } from "node:crypto";
 
+import { canonicalStringify } from "@/features/field-protocol/canonical-json";
 import {
   activateFieldProtocolPackage,
   baselineFieldProtocolPackage,
@@ -9,6 +11,61 @@ import {
   validateFieldProtocolRecord,
   verifyFieldProtocolPackage,
 } from "@/features/field-protocol/field-protocol";
+import type {
+  FieldProtocolPackageManifest,
+  ProtocolMigration,
+} from "@/features/field-protocol/generated";
+
+type TestFieldProtocolBundle = {
+  campaign: { campaignId: string };
+  manifest: FieldProtocolPackageManifest;
+  migration: ProtocolMigration;
+};
+
+const testSignerPrivateKey = createPrivateKey({
+  key: Buffer.from(
+    "302e020100300506032b657004220420000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "hex",
+  ),
+  format: "der",
+  type: "pkcs8",
+});
+const testSignerKeyId = "ask-siargao-field-protocol-test";
+const testSignerPublicKey = createPublicKey(testSignerPrivateKey)
+  .export({ format: "der", type: "spki" })
+  .toString("base64");
+
+function authenticateTestBundle(bundle: TestFieldProtocolBundle) {
+  const migrationFile = bundle.manifest.files.find((file) =>
+    file.path.endsWith("migration-legacy-0.9.0.v1.json"),
+  );
+  if (!migrationFile) throw new Error("Test bundle is missing its migration artifact entry.");
+  migrationFile.sha256 = createHash("sha256")
+    .update(canonicalStringify(bundle.migration))
+    .digest("hex");
+  bundle.manifest.signerKeyId = testSignerKeyId;
+  const unsignedManifest: Record<string, unknown> = { ...bundle.manifest };
+  delete unsignedManifest.signature;
+  bundle.manifest.signature = {
+    algorithm: "Ed25519",
+    value: sign(
+      null,
+      Buffer.from(canonicalStringify(unsignedManifest)),
+      testSignerPrivateKey,
+    ).toString("base64"),
+  };
+  return {
+    schemaVersion: "field-protocol-trusted-signers.v1",
+    signers: [
+      {
+        keyId: testSignerKeyId,
+        algorithm: "Ed25519",
+        publicKeySpkiBase64: testSignerPublicKey,
+        status: "trusted",
+      },
+    ],
+  } as const;
+}
 
 describe("canonical field protocol records", () => {
   test("validates every generated baseline example through its canonical schema", () => {
@@ -628,6 +685,69 @@ describe("baseline Field Protocol Package", () => {
         [manifestOnly],
       ),
     ).rejects.toThrow("is not verified");
+  });
+
+  test("rejects authenticated migration declarations that disagree with the pinned migration", async () => {
+    const mismatches: Array<{
+      name: string;
+      mutate: (bundle: TestFieldProtocolBundle) => void;
+    }> = [
+      {
+        name: "migration strategy",
+        mutate: (bundle) => {
+          bundle.manifest.migrationDeclaration.strategy = "initial_install";
+        },
+      },
+      {
+        name: "migration ID",
+        mutate: (bundle) => {
+          bundle.manifest.migrationDeclaration.migrationIds = ["migration_other"];
+        },
+      },
+      {
+        name: "source package version",
+        mutate: (bundle) => {
+          bundle.manifest.migrationDeclaration.supportedFromVersions = ["0.8.0"];
+        },
+      },
+      {
+        name: "target package",
+        mutate: (bundle) => {
+          bundle.migration.targetProtocolPackageId = "field-protocol-other";
+        },
+      },
+      {
+        name: "target package version",
+        mutate: (bundle) => {
+          bundle.migration.toPackageVersion = "2.0.0";
+        },
+      },
+      {
+        name: "target campaign",
+        mutate: (bundle) => {
+          bundle.migration.targetCampaignId = "campaign_other";
+        },
+      },
+    ];
+
+    for (const mismatch of mismatches) {
+      const bundle = structuredClone(
+        baselineFieldProtocolPackage,
+      ) as unknown as TestFieldProtocolBundle;
+      mismatch.mutate(bundle);
+      const trustedSigners = authenticateTestBundle(bundle);
+
+      const verification = await verifyFieldProtocolPackage({
+        applicationVersion: "0.1.0",
+        bundle,
+        trustedSigners,
+      });
+
+      expect(verification, mismatch.name).toMatchObject({
+        success: false,
+        code: "invalid_package",
+      });
+    }
   });
 });
 

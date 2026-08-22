@@ -259,6 +259,9 @@ export async function verifyFieldProtocolPackage(input: {
     };
   }
 
+  const migrationDeclarationFailure = verifyMigrationDeclaration(typedManifest, components);
+  if (migrationDeclarationFailure) return migrationDeclarationFailure;
+
   return {
     success: true,
     packageId: typedManifest.packageId,
@@ -987,6 +990,54 @@ function packageComponents(
   return Object.fromEntries(
     fieldProtocolPackageComponents.map(({ key }) => [key, asObject(bundle[key])]),
   );
+}
+
+function verifyMigrationDeclaration(
+  manifest: FieldProtocolPackageManifest,
+  components: Record<string, Record<string, unknown> | undefined>,
+): ProtocolVerificationFailure | undefined {
+  const parsedMigration = schemaFromArtifact(distributionSchemas.protocolMigration).safeParse(
+    components.migration,
+  );
+  if (!parsedMigration.success) {
+    return invalidPackage(
+      `The pinned Protocol Migration is invalid: ${parsedMigration.error.issues[0]?.message ?? "unknown schema error"}`,
+    );
+  }
+  const migration = parsedMigration.data as ProtocolMigration;
+  const declaration = manifest.migrationDeclaration;
+  if (declaration.strategy !== "explicit_preview_required") {
+    return invalidPackage(
+      "The migration declaration must require an explicit preview for the pinned migration.",
+    );
+  }
+  if (
+    declaration.migrationIds.length !== 1 ||
+    declaration.migrationIds[0] !== migration.migrationId
+  ) {
+    return invalidPackage("The migration declaration does not identify the pinned migration.");
+  }
+  if (
+    declaration.supportedFromVersions.length !== 1 ||
+    declaration.supportedFromVersions[0] !== migration.fromPackageVersion
+  ) {
+    return invalidPackage(
+      "The migration declaration source versions do not match the pinned migration.",
+    );
+  }
+  if (
+    migration.targetProtocolPackageId !== manifest.packageId ||
+    migration.toPackageVersion !== manifest.packageVersion
+  ) {
+    return invalidPackage(
+      "The pinned migration target does not match the package ID and version in the manifest.",
+    );
+  }
+  if (migration.targetCampaignId !== components.campaign?.campaignId) {
+    return invalidPackage(
+      "The pinned migration target campaign does not match the package campaign.",
+    );
+  }
 }
 
 function artifactForManifestPath(bundle: Record<string, unknown>, path: string) {
