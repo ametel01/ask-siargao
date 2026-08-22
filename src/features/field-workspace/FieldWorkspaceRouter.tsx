@@ -8,11 +8,13 @@ import { IndexedDbFieldVault } from "@/features/field-security/vault";
 
 export type FieldWorkspaceDestination =
   | "/operator/field/capture"
+  | "/operator/field/review"
   | "/operator/field/plan"
   | "/operator/field/security-workspace";
 
 type FieldWorkspaceRoutingDiscovery = {
   discoverPreparedDevice: () => Promise<{ prepared: boolean }>;
+  getDeviceRole: () => Promise<"desk" | "recorder" | undefined>;
   getRecorderPointer: () => Promise<unknown | undefined>;
 };
 
@@ -22,6 +24,8 @@ export async function discoverFieldWorkspaceDestination(
   try {
     const device = await discovery.discoverPreparedDevice();
     if (!device.prepared) return "/operator/field/security-workspace";
+    const role = await discovery.getDeviceRole();
+    if (role === "desk") return "/operator/field/review";
 
     const pointer = await discovery.getRecorderPointer();
     return pointer ? "/operator/field/capture" : "/operator/field/plan";
@@ -61,6 +65,7 @@ function createBrowserDiscovery(): FieldWorkspaceRoutingDiscovery {
   const vault = new IndexedDbFieldVault();
   return {
     discoverPreparedDevice: () => discoverPreparedFieldDevice(vault),
+    getDeviceRole: async () => (await vault.getMetadata("device-role"))?.value.role,
     getRecorderPointer: () => vault.getRecorderPointer(),
   };
 }

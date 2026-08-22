@@ -7,6 +7,7 @@ describe("FieldWorkspaceRouter", () => {
     let pointerReads = 0;
     const destination = await discoverFieldWorkspaceDestination({
       discoverPreparedDevice: async () => ({ prepared: false }),
+      getDeviceRole: async () => "recorder",
       getRecorderPointer: async () => {
         pointerReads += 1;
         return { opaqueRecordKey: "must-not-be-read" };
@@ -20,6 +21,7 @@ describe("FieldWorkspaceRouter", () => {
   test("routes prepared devices without recorder state to planning", async () => {
     const destination = await discoverFieldWorkspaceDestination({
       discoverPreparedDevice: async () => ({ prepared: true }),
+      getDeviceRole: async () => "recorder",
       getRecorderPointer: async () => undefined,
     });
 
@@ -29,6 +31,7 @@ describe("FieldWorkspaceRouter", () => {
   test("routes prepared devices with recorder state to capture", async () => {
     const destination = await discoverFieldWorkspaceDestination({
       discoverPreparedDevice: async () => ({ prepared: true }),
+      getDeviceRole: async () => "recorder",
       getRecorderPointer: async () => ({ opaqueRecordKey: "opaque" }),
     });
 
@@ -40,9 +43,20 @@ describe("FieldWorkspaceRouter", () => {
       discoverPreparedDevice: async () => {
         throw new Error("IndexedDB unavailable");
       },
+      getDeviceRole: async () => undefined,
       getRecorderPointer: async () => undefined,
     });
 
     expect(destination).toBe("/operator/field/security-workspace");
+  });
+
+  test("routes a prepared Desk to review instead of sending it to Plan", async () => {
+    const destination = await discoverFieldWorkspaceDestination({
+      discoverPreparedDevice: async () => ({ prepared: true }),
+      getDeviceRole: async () => "desk",
+      getRecorderPointer: async () => undefined,
+    });
+
+    expect(destination).toBe("/operator/field/review");
   });
 });

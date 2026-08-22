@@ -62,6 +62,9 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
     };
   });
   expect(browserStorage.cacheBodies.join("\n")).toContain("Evidence station");
+  expect(browserStorage.cacheBodies.join("\n")).toContain(
+    "Prepared offline areas: Recorder, Review, and Exports",
+  );
   expect(JSON.stringify(browserStorage)).not.toContain(protectedSentinel);
   expect(requests.join("\n")).not.toContain(protectedSentinel);
 

@@ -90,6 +90,20 @@ export const clerkRoutePolicyEntries = [
     "Field Researcher authorization and device-bound local unlock remain required",
   ),
   page(
+    "src/app/operator/field/review/page.tsx",
+    "/operator/field/review",
+    "protected",
+    "Assignment-centred immutable Field Desk review",
+    "Desk authorization and device-bound local unlock remain required",
+  ),
+  page(
+    "src/app/operator/field/exports/page.tsx",
+    "/operator/field/exports",
+    "protected",
+    "distinct protected Recovery and reviewed Field Batch workflows",
+    "Desk authorization and verified recipient authority remain required",
+  ),
+  page(
     "src/app/audits/[auditRequestId]/status/page.tsx",
     "/audits/audit_123/status",
     "protected",

@@ -1,5 +1,9 @@
 export const fieldSecurityErrorCodes = [
   "field_authorization_required",
+  "field_artifact_incomplete",
+  "field_artifact_invalid",
+  "field_artifact_recipient_invalid",
+  "field_artifact_replay",
   "field_ciphertext_tampered",
   "field_clock_rollback_detected",
   "field_device_not_authorized",
@@ -17,6 +21,7 @@ export const fieldSecurityErrorCodes = [
   "field_recorder_revision_conflict",
   "field_recovery_not_verified",
   "field_storage_unavailable",
+  "field_transfer_receipt_invalid",
   "field_unlock_credential_ineligible",
   "field_unlock_failed",
   "field_writer_conflict",
