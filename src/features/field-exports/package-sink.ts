@@ -14,6 +14,7 @@ type SavePickerWindow = Window & {
 
 export class OpfsStagedArtifactSink implements StagedArtifactSink {
   private writable?: FileSystemWritableFileStream;
+  private destinationWritable?: FileSystemWritableFileStream;
   private closed = false;
 
   private constructor(
@@ -95,11 +96,15 @@ export class OpfsStagedArtifactSink implements StagedArtifactSink {
         ],
       });
       const writable = await destination.createWritable({ keepExistingData: false });
+      this.destinationWritable = writable;
       for await (const bytes of this.reopen()) await writable.write(new Uint8Array(bytes));
       await writable.close();
+      this.destinationWritable = undefined;
       await this.dispose();
       return "published";
     } catch (error) {
+      await this.destinationWritable?.abort().catch(() => undefined);
+      this.destinationWritable = undefined;
       await this.dispose();
       throw error;
     }

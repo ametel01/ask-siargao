@@ -21,16 +21,13 @@ import type {
   ArtifactPreamble,
   AuthenticatedRegistrySnapshot,
   RestorePreview,
-  TransferReceipt,
 } from "./artifact-schemas";
-import { transferReceiptSchema } from "./artifact-schemas";
 import { createFieldBatchExport, deriveFieldBatchGraph } from "./field-batch";
 import { openCanonicalArtifact } from "./package-format";
 import { OpfsStagedArtifactSink } from "./package-sink";
 import { openRecipientContentKey } from "./recipient-envelope";
 import { createFieldRecoveryExport } from "./recovery-export";
 import { commitConfirmedRestore, createRestorePreview, type RestoreImmutableItem } from "./restore";
-import { verifyDestinationTransferReceipt } from "./transfer-receipt";
 
 type PendingRestore = {
   incoming: readonly RestoreImmutableItem[];
@@ -54,7 +51,6 @@ function ProductionExports() {
   );
   const [pendingRestore, setPendingRestore] = useState<PendingRestore>();
   const [transferId, setTransferId] = useState<string>();
-  const [receiptState, setReceiptState] = useState("No destination receipt verified.");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const locked = security.status !== "unlocked";
@@ -332,34 +328,6 @@ function ProductionExports() {
     }
   }
 
-  async function verifyReceipt(file: File) {
-    setReceiptState("Verifying the machine-generated destination receipt…");
-    try {
-      const receipt = transferReceiptSchema.parse(JSON.parse(await file.text())) as TransferReceipt;
-      await security.withVaultKey(async () => {
-        const snapshot = await registry();
-        const recipient = snapshot.devices.find(
-          (device) => device.id === receipt.recipientDeviceId,
-        );
-        if (!recipient) throw new Error("field_transfer_receipt_invalid");
-        const vault = new IndexedDbFieldVault();
-        const outstanding = await vault.getTransfer(receipt.transferId);
-        if (!outstanding) throw new Error("field_transfer_receipt_invalid");
-        await verifyDestinationTransferReceipt({ outstanding, receipt, recipient });
-        await vault.acceptTransfer({
-          receiptId: receipt.receiptId,
-          transferId: receipt.transferId,
-        });
-      });
-      setTransferId(undefined);
-      setReceiptState(`Destination receipt verified: ${receipt.receiptId}.`);
-    } catch (error) {
-      setReceiptState(
-        `Receipt rejected (${error instanceof Error ? error.message : "invalid receipt"}).`,
-      );
-    }
-  }
-
   if (locked)
     return (
       <>
@@ -450,24 +418,12 @@ function ProductionExports() {
             </button>
             <p className="mt-6 text-sm font-bold">Destination receipt verification</p>
             <p className="mt-2 text-sm text-[#5f5f87]">
-              Destination verification is completed on the authorized recipient device and returned
-              as a machine-generated receipt.
+              The authorized recipient device must decrypt, integrity-check, reference-check, and
+              sign the transfer. Source acceptance remains blocked until that external handoff is
+              completed.
             </p>
-            <label className="mt-3 block text-sm font-bold" htmlFor="transfer-receipt">
-              Import machine-generated destination receipt
-              <input
-                accept="application/json,.json"
-                className="mt-2 block w-full rounded-lg border p-3 font-normal"
-                id="transfer-receipt"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void verifyReceipt(file);
-                }}
-                type="file"
-              />
-            </label>
             <p className="mt-3 text-sm" role="status">
-              {receiptState}
+              Destination receipt pending.
               {transferId ? ` Transfer ${transferId} remains outstanding until accepted.` : ""}
             </p>
             <a

@@ -6,6 +6,7 @@ import type { FieldDeskRecoveryAudit } from "./desk-schemas";
 import {
   FIELD_DESK_REVIEW_VERSION,
   type FieldDeskReviewEntry,
+  fieldDeskCorrectionNoteSchema,
   fieldDeskRecoveryAuditSchema,
   fieldDeskReviewEntrySchema,
 } from "./desk-schemas";
@@ -222,6 +223,13 @@ function validateCorrection(
     if (left !== undefined && right !== undefined && left !== right) {
       throw new Error("A correction must preserve immutable capture lineage.");
     }
+  }
+  if (successor.kind === "fieldObservation") {
+    const note = successor.value.value.fieldDeskCorrection;
+    if (typeof note !== "string") {
+      throw new Error("A correction requires a typed correction note.");
+    }
+    fieldDeskCorrectionNoteSchema.parse(note);
   }
   return successor;
 }

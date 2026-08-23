@@ -84,6 +84,27 @@ describe("append-only Field Desk review", () => {
     ).rejects.toThrow("does not match");
   });
 
+  test("rejects an unbounded or untyped correction note", async () => {
+    const work = await deskWork();
+    await expect(
+      appendFieldReview({
+        work,
+        review: {
+          ...baseReview({ decision: "correct_by_supersession" }),
+          supersedingRecord: {
+            kind: "fieldObservation",
+            value: {
+              ...structuredClone(exampleObservation),
+              id: ids.correction,
+              supersedesId: exampleObservation.id,
+              value: { ...exampleObservation.value, fieldDeskCorrection: "\u0000" },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow("control characters");
+  });
+
   test("retains the complete effective-review chain", async () => {
     const first = await appendFieldReview({
       work: await deskWork(),
@@ -190,7 +211,7 @@ function correctedObservation(): RecorderRecord {
       ...structuredClone(exampleObservation),
       id: ids.correction,
       supersedesId: exampleObservation.id,
-      value: { ...exampleObservation.value, corrected: true },
+      value: { ...exampleObservation.value, fieldDeskCorrection: "Corrected observation note." },
     },
   };
 }
