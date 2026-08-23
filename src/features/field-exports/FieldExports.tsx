@@ -75,6 +75,7 @@ function ProductionExports(props: { embedded?: boolean }) {
   const [pendingPublication, setPendingPublication] = useState<PendingPublication>();
   const [transferId, setTransferId] = useState<string>();
   const [sourceBatchReceipt, setSourceBatchReceipt] = useState<FieldBatchOuterReceipt>();
+  const [sourceBatchChallenge, setSourceBatchChallenge] = useState<string>();
   const [receivedBatchFile, setReceivedBatchFile] = useState<File>();
   const [receivedSourceReceiptFile, setReceivedSourceReceiptFile] = useState<File>();
   const [receivedChallenge, setReceivedChallenge] = useState("");
@@ -231,6 +232,7 @@ function ProductionExports(props: { embedded?: boolean }) {
       });
       setPendingPublication(result);
       setSourceBatchReceipt(result.outerReceipt);
+      setSourceBatchChallenge(result.nonce);
       setBatchState(
         `Created ${result.filename} in protected staging. Choose Save reviewed Field Batch to publish it.`,
       );
@@ -668,6 +670,11 @@ function ProductionExports(props: { embedded?: boolean }) {
               >
                 Download source Field Batch receipt
               </button>
+            ) : null}
+            {sourceBatchChallenge ? (
+              <p className="mt-3 break-all rounded-lg bg-[#fbf6e8] p-3 text-xs" role="status">
+                Source transfer challenge: <code>{sourceBatchChallenge}</code>
+              </p>
             ) : null}
             <fieldset className="mt-7 border-t border-[#ddd8ef] pt-5">
               <legend className="text-sm font-bold">
