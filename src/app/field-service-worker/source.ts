@@ -1,6 +1,8 @@
 export const serviceWorkerSource = String.raw`
 const FIELD_CACHE_PREFIX = "ask-siargao-field-shell-";
 const FIELD_SHELL_PATH = "/operator/field/offline-shell";
+const FIELD_ACTIVE_BUILD_CACHE = FIELD_CACHE_PREFIX + "active";
+const FIELD_ACTIVE_BUILD_PATH = "/__ask-siargao-active-field-build__";
 let activeVisit = true;
 
 self.addEventListener("install", () => {
@@ -21,6 +23,7 @@ self.addEventListener("message", (event) => {
     /^[A-Za-z0-9._-]{1,200}$/.test(data.buildId)
   ) {
     activeVisit = data.activeVisit;
+    event.waitUntil(selectPreparedBuild(data.buildId));
     return;
   }
   if (
@@ -30,7 +33,7 @@ self.addEventListener("message", (event) => {
     !/^[A-Za-z0-9._-]{1,200}$/.test(data.buildId)
   ) return;
   activeVisit = data.activeVisit === true;
-  event.waitUntil(prepareShell(data.buildId));
+  event.waitUntil(prepareShell(data.buildId).then(() => selectPreparedBuild(data.buildId)));
 });
 
 self.addEventListener("fetch", (event) => {
@@ -72,15 +75,44 @@ async function prepareShell(buildId) {
 }
 
 async function matchPreparedShell() {
-  const keys = (await caches.keys()).filter((key) => key.startsWith(FIELD_CACHE_PREFIX)).sort();
-  for (const key of keys.reverse()) {
-    const cached = await (await caches.open(key)).match(FIELD_SHELL_PATH);
+  const activeBuildId = await readActiveBuildId();
+  if (activeBuildId) {
+    const cached = await (await caches.open(FIELD_CACHE_PREFIX + activeBuildId)).match(
+      FIELD_SHELL_PATH,
+    );
     if (cached) return cached;
   }
   return new Response("Field offline shell unavailable", {
     headers: { "content-type": "text/plain; charset=utf-8" },
     status: 503,
   });
+}
+
+async function selectPreparedBuild(buildId) {
+  if (!/^[A-Za-z0-9._-]{1,200}$/.test(buildId)) return;
+  const preparedCache = await caches.open(FIELD_CACHE_PREFIX + buildId);
+  if (!(await preparedCache.match(FIELD_SHELL_PATH))) return;
+  const activeCache = await caches.open(FIELD_ACTIVE_BUILD_CACHE);
+  await activeCache.put(
+    FIELD_ACTIVE_BUILD_PATH,
+    new Response(JSON.stringify({ buildId }), {
+      headers: { "content-type": "application/json" },
+    }),
+  );
+}
+
+async function readActiveBuildId() {
+  const activeCache = await caches.open(FIELD_ACTIVE_BUILD_CACHE);
+  const response = await activeCache.match(FIELD_ACTIVE_BUILD_PATH);
+  if (!response) return undefined;
+  try {
+    const data = await response.json();
+    return typeof data.buildId === "string" && /^[A-Za-z0-9._-]{1,200}$/.test(data.buildId)
+      ? data.buildId
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isSafeStaticRequest(request) {

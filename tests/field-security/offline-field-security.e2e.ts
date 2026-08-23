@@ -50,6 +50,15 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
       }),
     )
     .toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const cache = await caches.open("ask-siargao-field-shell-active");
+        const response = await cache.match("/__ask-siargao-active-field-build__");
+        return response ? ((await response.json()) as { buildId?: string }).buildId : undefined;
+      }),
+    )
+    .toBe("playwright-239");
 
   const browserStorage = await page.evaluate(async () => {
     const cacheBodies: string[] = [];

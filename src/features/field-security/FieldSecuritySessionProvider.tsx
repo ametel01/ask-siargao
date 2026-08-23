@@ -20,6 +20,24 @@ import type { OfflineFieldGrantClaims } from "@/features/field-security/types";
 
 const clockRollbackToleranceMs = 2 * 60 * 1_000;
 
+export function registerFieldSecurityBackgroundLock(input: {
+  documentTarget: EventTarget;
+  getVisibilityState: () => DocumentVisibilityState;
+  lock: (reason: "manual") => void;
+  windowTarget: EventTarget;
+}) {
+  const lockOnBackground: EventListener = () => input.lock("manual");
+  const lockOnVisibilityChange: EventListener = () => {
+    if (input.getVisibilityState() === "hidden") input.lock("manual");
+  };
+  input.windowTarget.addEventListener("pagehide", lockOnBackground);
+  input.documentTarget.addEventListener("visibilitychange", lockOnVisibilityChange);
+  return () => {
+    input.windowTarget.removeEventListener("pagehide", lockOnBackground);
+    input.documentTarget.removeEventListener("visibilitychange", lockOnVisibilityChange);
+  };
+}
+
 export type FieldSecuritySessionValue = {
   claims?: OfflineFieldGrantClaims;
   lock: (reason?: "inactivity" | "grant" | "manual" | "clock") => void;
@@ -95,7 +113,6 @@ export function FieldSecuritySessionProvider(props: {
   useEffect(() => {
     lastObservedWallClockMs.current = Date.now();
     const recordActivity = () => touch();
-    const lockOnPageHide = () => lock("manual");
     const timer = setInterval(() => {
       const nowMs = Date.now();
       if (nowMs + clockRollbackToleranceMs < lastObservedWallClockMs.current) {
@@ -114,14 +131,19 @@ export function FieldSecuritySessionProvider(props: {
     }, 10_000);
     window.addEventListener("pointerdown", recordActivity, { passive: true });
     window.addEventListener("keydown", recordActivity);
-    window.addEventListener("pagehide", lockOnPageHide, { once: true });
+    const releaseBackgroundLock = registerFieldSecurityBackgroundLock({
+      documentTarget: document,
+      getVisibilityState: () => document.visibilityState,
+      lock,
+      windowTarget: window,
+    });
     return () => {
       clearInterval(timer);
       session.lock("manual");
       claims.current = undefined;
       window.removeEventListener("pointerdown", recordActivity);
       window.removeEventListener("keydown", recordActivity);
-      window.removeEventListener("pagehide", lockOnPageHide);
+      releaseBackgroundLock();
     };
   }, [lock, session, touch]);
 
