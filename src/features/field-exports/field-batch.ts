@@ -4,7 +4,9 @@ import {
   canonicalStringify,
   compareCanonicalStrings,
 } from "@/features/field-protocol/canonical-json";
+import { baselineFieldProtocolPackage } from "@/features/field-protocol/field-protocol";
 import type { RecorderRecord } from "@/features/field-recorder/field-recorder-types";
+import { validateRecorderWorkspace } from "@/features/field-recorder/workspace-validation";
 import { fieldTextEncoder, sha256Hex } from "@/features/field-security/encoding";
 import {
   type AuthenticatedRegistrySnapshot,
@@ -100,10 +102,12 @@ export async function createFieldBatchExport(input: {
 }
 
 export async function deriveFieldBatchGraph(input: {
+  applicationVersion?: string;
   batchId: string;
+  installedBundles?: readonly unknown[];
   intendedUse: "research_internal" | "public";
   selectedRecordIds: readonly string[];
-  validateRecorderWork: (
+  validateRecorderWork?: (
     work: FieldDeskWork["recorderWork"],
   ) => Promise<readonly FieldBatchIssue[]>;
   works: readonly FieldDeskWork[];
@@ -111,7 +115,23 @@ export async function deriveFieldBatchGraph(input: {
   const issues: FieldBatchIssue[] = [];
   const recordsById = new Map<string, { record: RecorderRecord; work: FieldDeskWork }>();
   for (const work of input.works) {
-    issues.push(...(await input.validateRecorderWork(work.recorderWork)));
+    const validation = await validateRecorderWorkspace({
+      applicationVersion: input.applicationVersion ?? "0.1.0",
+      committedAssets: work.recorderWork.mediaReceipts.map((receipt) => ({
+        assetId: receipt.assetId,
+        byteSize: receipt.byteSize,
+        sha256: receipt.sha256,
+      })),
+      installedBundles: input.installedBundles ?? [baselineFieldProtocolPackage],
+      protocol: baselineFieldProtocolPackage,
+      protocolPackageId: work.recorderWork.protocolPackageId,
+      protocolPackageVersion: work.recorderWork.protocolPackageVersion,
+      records: allRecords(work),
+    });
+    issues.push(...validation.issues);
+    if (input.validateRecorderWork) {
+      issues.push(...(await input.validateRecorderWork(work.recorderWork)));
+    }
     for (const record of allRecords(work)) {
       const existing = recordsById.get(record.value.id);
       if (existing && canonicalStringify(existing.record) !== canonicalStringify(record)) {
@@ -194,6 +214,9 @@ export async function deriveFieldBatchGraph(input: {
           break;
         }
         reviewIds.add(historical.id);
+        if (historical.followUpAssignmentId) {
+          followUpIds.add(historical.followUpAssignmentId);
+        }
         previous = historical.previousReviewId;
       }
       if (review.followUpAssignmentId) followUpIds.add(review.followUpAssignmentId);

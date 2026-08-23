@@ -337,7 +337,8 @@ function alignedVisit(record: MatrixRecord): FieldVisit {
 }
 
 function exampleAsset(): EvidenceAsset {
-  return structuredClone(examples.evidenceAsset) as unknown as EvidenceAsset;
+  const asset = structuredClone(examples.evidenceAsset) as unknown as EvidenceAsset;
+  return { ...asset, recordIds: [] };
 }
 
 function exampleStatement(): SourceStatement {

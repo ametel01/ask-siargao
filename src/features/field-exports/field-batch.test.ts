@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { appendFieldReview, createFieldDeskWork } from "@/features/field-desk/field-desk-state";
 import type { FieldDeskWork } from "@/features/field-desk/field-desk-types";
+import type { FollowUpAssignment } from "@/features/field-protocol/generated";
 import type { RecorderWork } from "@/features/field-recorder/field-recorder-types";
 import {
   exampleObservation,
@@ -104,6 +105,89 @@ describe("review-derived Field Batch graph", () => {
       expect(result.files).toEqual([]);
     });
   }
+
+  test("cannot bypass pinned Recorder validation with a no-op additional validator", async () => {
+    const work = await includedWork();
+    const invalid: FieldDeskWork = {
+      ...work,
+      recorderWork: {
+        ...work.recorderWork,
+        records: work.recorderWork.records.map((record) =>
+          record.kind === "fieldObservation"
+            ? {
+                ...record,
+                value: { ...record.value, protocolPackageVersion: "9.9.9" },
+              }
+            : record,
+        ),
+      },
+    };
+    const result = await deriveFieldBatchGraph({
+      batchId: ids.batch,
+      intendedUse: "research_internal",
+      selectedRecordIds: [exampleObservation.id],
+      validateRecorderWork: async () => [],
+      works: [invalid],
+    });
+
+    expect(result.issues.map((entry) => entry.code)).toContain("record_protocol_mismatch");
+    expect(result.files).toEqual([]);
+  });
+
+  test("includes follow-ups linked by historical reviews in the effective review chain", async () => {
+    const followUp: FollowUpAssignment = {
+      campaignId: exampleObservation.campaignId,
+      coverageRequirementIds: [exampleObservation.coverageRequirementId],
+      createdAt: "2026-08-23T02:04:00.000Z",
+      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1535",
+      originatingAssignmentId: exampleObservation.assignmentId,
+      originatingVisitIds: [exampleObservation.visitId],
+      protocolPackageId: exampleObservation.protocolPackageId,
+      protocolPackageVersion: exampleObservation.protocolPackageVersion,
+      reason: "needs_resolution",
+      schemaVersion: "follow-up-assignment.v1",
+    };
+    let work = await baseDeskWork();
+    work = await appendFieldReview({
+      review: {
+        decision: "needs_more_evidence",
+        followUp,
+        id: "0192f060-4f41-7aa1-b322-4aa9fc9f1536",
+        reason: "Historical review requested one governed follow-up.",
+        recordId: exampleObservation.id,
+        reviewedAt: "2026-08-23T02:04:00.000Z",
+        reviewerId: "reviewer_desk",
+        reviewerMatchesResearcher: false,
+      },
+      work,
+    });
+    work = await appendFieldReview({
+      review: {
+        decision: "include",
+        id: ids.review,
+        recordId: exampleObservation.id,
+        reviewedAt: "2026-08-23T02:05:00.000Z",
+        reviewerId: "reviewer_desk",
+        reviewerMatchesResearcher: false,
+      },
+      work,
+    });
+
+    const result = await deriveFieldBatchGraph({
+      batchId: ids.batch,
+      intendedUse: "research_internal",
+      selectedRecordIds: [exampleObservation.id],
+      works: [work],
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.files.find((file) => file.path === "field-reviews.jsonl")?.records).toHaveLength(
+      2,
+    );
+    expect(
+      result.files.find((file) => file.path === "follow-up-assignments.jsonl")?.records,
+    ).toEqual([followUp]);
+  });
 });
 
 async function includedWork(input?: {
