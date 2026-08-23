@@ -142,4 +142,18 @@ describe("FieldRecorder", () => {
     expect(html).not.toContain('name="unit" type="text"');
     expect(html).not.toContain('name="conditions" type="text"');
   });
+
+  test("renders protocol-fixed currency as read-only", () => {
+    for (const kind of ["price", "menu_item"] as const) {
+      const html = renderToStaticMarkup(
+        <ObservationForm
+          allowedKinds={[kind]}
+          governedSubjects={[{ id: "subject_area_del_carmen", label: "Del Carmen" }]}
+          onSubmit={() => {}}
+        />,
+      );
+      expect(html).toContain('name="currency"');
+      expect(html).toContain("readOnly");
+    }
+  });
 });

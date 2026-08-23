@@ -382,7 +382,7 @@ function ObservationValueFields(props: {
       return (
         <>
           <TextField label="Amount" name="amount" required />
-          <TextField label="Currency" name="currency" defaultValue="PHP" required />
+          <TextField label="Currency" name="currency" defaultValue="PHP" readOnly required />
           <TextField label="Item or service" name="item" required />
           <SelectField
             label="Pricing unit"
@@ -700,7 +700,7 @@ function ObservationValueFields(props: {
         <>
           <TextField label="Menu item" name="itemName" required />
           <TextField label="Amount" name="amount" required />
-          <TextField label="Currency" name="currency" defaultValue="PHP" required />
+          <TextField label="Currency" name="currency" defaultValue="PHP" readOnly required />
           <SelectField
             label="Availability"
             name="availability"

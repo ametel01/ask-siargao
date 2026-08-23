@@ -25,6 +25,7 @@ export function TextField(props: {
   hint?: string;
   label: string;
   name: string;
+  readOnly?: boolean;
   required?: boolean;
   type?: "date" | "datetime-local" | "email" | "number" | "text" | "url";
 }) {
@@ -36,6 +37,7 @@ export function TextField(props: {
         defaultValue={props.defaultValue}
         id={props.name}
         name={props.name}
+        readOnly={props.readOnly}
         required={props.required}
         type={props.type ?? "text"}
       />
