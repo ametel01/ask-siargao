@@ -16,6 +16,24 @@ const examples = baselineFieldProtocolPackage.examples.examples;
 
 const work = {
   recorderWork: {
+    assignments: [
+      {
+        assignmentId: exampleObservation.assignmentId,
+        outcomeId: "outcome-1",
+        status: "closed_with_gaps",
+        unresolvedRequirementIds: [exampleObservation.coverageRequirementId],
+        visitIds: [exampleVisit.id],
+      },
+    ],
+    assignmentOutcomes: [
+      {
+        id: "outcome-1",
+        assignmentId: exampleObservation.assignmentId,
+        status: "closed_with_gaps",
+        unresolvedRequirementIds: [exampleObservation.coverageRequirementId],
+        followUpAssignmentIds: ["follow-up-1"],
+      },
+    ],
     objectiveCoverage: [
       {
         objectiveId: exampleObservation.objectiveId,
@@ -53,6 +71,9 @@ describe("Field Desk record context", () => {
     );
 
     expect(html).toContain("Coverage status");
+    expect(html).toContain("Assignment status");
+    expect(html).toContain("Assignment outcome");
+    expect(html).toContain("Objective status");
     expect(html).toContain("Captured / required");
     expect(html).toContain("Windows / required");
     expect(html).toContain("Visit started");

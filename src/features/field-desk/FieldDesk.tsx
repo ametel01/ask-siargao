@@ -422,6 +422,21 @@ export function RecordSummary(props: {
         (candidate) => candidate.kind === "fieldVisit" && candidate.value.id === value.visitId,
       )
     : undefined;
+  const assignment = value.assignmentId
+    ? work?.recorderWork.assignments?.find(
+        (candidate) => candidate.assignmentId === value.assignmentId,
+      )
+    : undefined;
+  const assignmentOutcome = assignment?.outcomeId
+    ? work?.recorderWork.assignmentOutcomes.find(
+        (candidate) => candidate.id === assignment.outcomeId,
+      )
+    : undefined;
+  const objective = value.objectiveId
+    ? work?.recorderWork.objectiveCoverage.find(
+        (candidate) => candidate.objectiveId === value.objectiveId,
+      )
+    : undefined;
   const fields: Array<[string, unknown]> = [
     ["Record type", record.kind],
     ["Record ID", value.id],
@@ -482,6 +497,33 @@ export function RecordSummary(props: {
       ["Coverage reason codes", coverage.reasonCodes.join(", ") || "None"],
     );
   }
+  if (assignment) {
+    fields.push(
+      ["Assignment status", assignment.status],
+      [
+        "Assignment unresolved requirements",
+        assignment.unresolvedRequirementIds.join(", ") || "None",
+      ],
+      ["Assignment linked Visits", assignment.visitIds.join(", ") || "None"],
+    );
+  }
+  if (assignmentOutcome) {
+    fields.push(
+      ["Assignment outcome", assignmentOutcome.status],
+      [
+        "Outcome unresolved requirements",
+        assignmentOutcome.unresolvedRequirementIds.join(", ") || "None",
+      ],
+      ["Outcome follow-ups", assignmentOutcome.followUpAssignmentIds.join(", ") || "None"],
+    );
+  }
+  if (objective) {
+    fields.push(
+      ["Objective status", objective.status],
+      ["Objective source records", objective.sourceRecordIds.join(", ") || "None"],
+      ["Objective requirements", objective.requirements.length],
+    );
+  }
   if (visit?.kind === "fieldVisit") {
     fields.push(
       ["Visit started", visit.value.startedAt],
@@ -502,6 +544,7 @@ export function RecordSummary(props: {
       ["Observation caveat", record.value.caveat],
       ["Review due", record.value.reviewDueAt],
       ["Conflicts", record.value.contradictsObservationIds?.length ?? 0],
+      ["Conflict record IDs", record.value.contradictsObservationIds?.join(", ") || "None"],
     );
   } else if (record.kind === "evidenceAsset") {
     fields.push(
