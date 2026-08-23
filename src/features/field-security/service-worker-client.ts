@@ -27,9 +27,21 @@ export async function prepareFieldOfflineShell(input: {
 async function waitForPreparedShell(buildId: string): Promise<void> {
   if (typeof caches === "undefined") throw new Error("field_offline_shell_unavailable");
   const cacheName = `ask-siargao-field-shell-${buildId}`;
+  const activeCache = await caches.open("ask-siargao-field-shell-active");
   for (let attempt = 0; attempt < 150; attempt += 1) {
     const cache = await caches.open(cacheName);
-    if (await cache.match(fieldOfflineShellPath)) return;
+    const [shell, marker] = await Promise.all([
+      cache.match(fieldOfflineShellPath),
+      activeCache.match("/__ask-siargao-active-field-build__"),
+    ]);
+    if (shell && marker) {
+      try {
+        const selected = (await marker.json()) as { buildId?: string };
+        if (selected.buildId === buildId) return;
+      } catch {
+        // Keep waiting for the service worker to publish a complete marker.
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("field_offline_shell_prepare_timeout");

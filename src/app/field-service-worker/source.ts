@@ -70,7 +70,8 @@ async function prepareShell(buildId) {
     .filter((path) => !path.includes(".."));
   await Promise.all([...new Set(staticPaths)].map(async (path) => {
     const asset = await fetch(path, { cache: "reload", credentials: "omit" });
-    if (asset.ok) await cache.put(path, asset);
+    if (!asset.ok) throw new Error("field_static_asset_prepare_failed");
+    await cache.put(path, asset);
   }));
 }
 
