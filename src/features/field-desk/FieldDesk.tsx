@@ -39,11 +39,11 @@ export function availableFieldDeskDecisions(
   });
 }
 
-export function FieldDesk(props: { harness?: boolean }) {
-  return props.harness ? <HarnessFieldDesk /> : <ProductionFieldDesk />;
+export function FieldDesk(props: { embedded?: boolean; harness?: boolean }) {
+  return props.harness ? <HarnessFieldDesk /> : <ProductionFieldDesk embedded={props.embedded} />;
 }
 
-function ProductionFieldDesk() {
+function ProductionFieldDesk(props: { embedded?: boolean }) {
   const security = useFieldSecuritySession();
   const [works, setWorks] = useState<readonly FieldDeskWork[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState<string>();
@@ -100,17 +100,25 @@ function ProductionFieldDesk() {
     return (
       <>
         <OfflineFieldUnlock />
-        <LockedDeskState />
+        <LockedDeskState embedded={props.embedded} />
       </>
     );
   }
   if (!selected)
-    return <EmptyDeskState loading={loading} message={status} onReload={loadCustody} />;
+    return (
+      <EmptyDeskState
+        embedded={props.embedded}
+        loading={loading}
+        message={status}
+        onReload={loadCustody}
+      />
+    );
   return (
     <DeskReviewSurface
       key={selected.archiveId}
       status={status}
       work={selected}
+      embedded={props.embedded}
       onReload={loadCustody}
       onSave={async (next) => {
         await security.withVaultKey((key) =>
@@ -125,6 +133,7 @@ function ProductionFieldDesk() {
 }
 
 function DeskReviewSurface(props: {
+  embedded?: boolean;
   status: string;
   work: FieldDeskWork;
   onReload: () => Promise<void>;
@@ -197,7 +206,10 @@ function DeskReviewSurface(props: {
   }, [decision, record?.kind]);
 
   return (
-    <FieldMain className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6">
+    <FieldMain
+      landmark={!props.embedded}
+      className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6"
+    >
       <a
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:p-3"
         href="#review-record"
@@ -371,6 +383,21 @@ export function RecordSummary(props: {
         (candidate) => candidate.kind === "fieldVisit" && candidate.value.id === value.visitId,
       )
     : undefined;
+  const assignment = value.assignmentId
+    ? work?.recorderWork.assignments?.find(
+        (candidate) => candidate.assignmentId === value.assignmentId,
+      )
+    : undefined;
+  const assignmentOutcome = assignment?.outcomeId
+    ? work?.recorderWork.assignmentOutcomes.find(
+        (candidate) => candidate.id === assignment.outcomeId,
+      )
+    : undefined;
+  const objective = value.objectiveId
+    ? work?.recorderWork.objectiveCoverage.find(
+        (candidate) => candidate.objectiveId === value.objectiveId,
+      )
+    : undefined;
   const fields: Array<[string, unknown]> = [
     ["Record type", record.kind],
     ["Record ID", value.id],
@@ -432,6 +459,33 @@ export function RecordSummary(props: {
       ["Coverage reason codes", coverage.reasonCodes.join(", ") || "None"],
     );
   }
+  if (assignment) {
+    fields.push(
+      ["Assignment status", assignment.status],
+      [
+        "Assignment unresolved requirements",
+        assignment.unresolvedRequirementIds.join(", ") || "None",
+      ],
+      ["Assignment linked Visits", assignment.visitIds.join(", ") || "None"],
+    );
+  }
+  if (assignmentOutcome) {
+    fields.push(
+      ["Assignment outcome", assignmentOutcome.status],
+      [
+        "Outcome unresolved requirements",
+        assignmentOutcome.unresolvedRequirementIds.join(", ") || "None",
+      ],
+      ["Outcome follow-ups", assignmentOutcome.followUpAssignmentIds.join(", ") || "None"],
+    );
+  }
+  if (objective) {
+    fields.push(
+      ["Objective status", objective.status],
+      ["Objective source records", objective.sourceRecordIds.join(", ") || "None"],
+      ["Objective requirements", objective.requirements.length],
+    );
+  }
   if (visit?.kind === "fieldVisit") {
     fields.push(
       ["Visit started", visit.value.startedAt],
@@ -452,6 +506,7 @@ export function RecordSummary(props: {
       ["Observation caveat", record.value.caveat],
       ["Review due", record.value.reviewDueAt],
       ["Conflicts", record.value.contradictsObservationIds?.length ?? 0],
+      ["Conflict record IDs", record.value.contradictsObservationIds?.join(", ") || "None"],
     );
   } else if (record.kind === "evidenceAsset") {
     fields.push(
@@ -546,9 +601,9 @@ function reviewSafeObservationValue(value: Readonly<Record<string, unknown>>): s
     : "No non-sensitive value fields available";
 }
 
-function LockedDeskState() {
+function LockedDeskState(props: { embedded?: boolean }) {
   return (
-    <FieldMain className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
+    <FieldMain landmark={!props.embedded} className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
       <section className="mx-auto max-w-2xl rounded-xl bg-[#fffdf7] p-8">
         <h1 className="text-2xl font-semibold">Field review locked</h1>
         <p className="mt-2 text-[#5f5f87]">
@@ -560,12 +615,13 @@ function LockedDeskState() {
   );
 }
 function EmptyDeskState(props: {
+  embedded?: boolean;
   loading: boolean;
   message: string;
   onReload: () => Promise<void>;
 }) {
   return (
-    <FieldMain className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
+    <FieldMain landmark={!props.embedded} className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
       <section className="mx-auto max-w-2xl rounded-xl bg-[#fffdf7] p-8">
         <h1 className="text-2xl font-semibold">
           {props.loading ? "Loading Desk custody…" : "No closed outing is waiting"}
