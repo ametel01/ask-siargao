@@ -20,6 +20,7 @@ type ShareNavigator = Navigator & {
 export class OpfsStagedArtifactSink implements StagedArtifactSink {
   private writable?: FileSystemWritableFileStream;
   private destinationWritable?: FileSystemWritableFileStream;
+  private shareFile?: File;
   private closed = false;
 
   private constructor(
@@ -58,6 +59,7 @@ export class OpfsStagedArtifactSink implements StagedArtifactSink {
     if (this.writable && !this.closed) await this.writable.abort().catch(() => undefined);
     this.writable = undefined;
     this.closed = false;
+    this.shareFile = undefined;
     await this.directory.removeEntry(this.temporaryName).catch(() => undefined);
   }
 
@@ -75,6 +77,12 @@ export class OpfsStagedArtifactSink implements StagedArtifactSink {
     }
   }
 
+  async prepareShareFile(filename: string): Promise<void> {
+    if (!this.closed) throw new FieldSecurityError("field_artifact_incomplete");
+    const staged = await this.handle.getFile();
+    this.shareFile = new File([staged], filename, { type: "application/octet-stream" });
+  }
+
   async publishVerified(input: {
     filename: string;
     kind: "field_batch" | "field_recovery";
@@ -88,10 +96,11 @@ export class OpfsStagedArtifactSink implements StagedArtifactSink {
     }
     try {
       if (!picker.showSaveFilePicker) {
-        // The OPFS-backed File is a Blob part, not a byte-array copy. This keeps share fallback
-        // bounded for large exports while still presenting the governed filename to iPadOS.
-        const staged = await this.handle.getFile();
-        const file = new File([staged], input.filename, { type: "application/octet-stream" });
+        const file = this.shareFile;
+        if (!file) {
+          await this.dispose();
+          return "physical_handoff_required";
+        }
         if (sharing.canShare && !sharing.canShare({ files: [file] })) {
           await this.dispose();
           return "physical_handoff_required";

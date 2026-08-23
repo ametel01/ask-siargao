@@ -166,7 +166,14 @@ export async function deriveFieldBatchGraph(input: {
     if (!recordId) continue;
     const located = recordsById.get(recordId);
     if (!located) continue;
-    includeRequiredReferences(located.record, located.work, includeRecord, edges, issues);
+    includeRequiredReferences(
+      located.record,
+      located.work,
+      includeRecord,
+      edges,
+      issues,
+      reviewIds,
+    );
     validateRecordBlockers(
       located.record,
       located.work,
@@ -217,11 +224,19 @@ function includeRequiredReferences(
   includeRecord: (recordId: string, edge?: string) => void,
   edges: Set<string>,
   issues: FieldBatchIssue[],
+  reviewIds: Set<string>,
 ) {
   const value = record.value as unknown as Record<string, unknown>;
   for (const key of ["visitId", "sourceStatementId", "supersedesId"] as const) {
     if (typeof value[key] === "string") {
-      includeRecord(String(value[key]), `${record.value.id}:${key}->${String(value[key])}`);
+      includeReviewedReference(
+        String(value[key]),
+        `${record.value.id}:${key}->${String(value[key])}`,
+        work,
+        includeRecord,
+        reviewIds,
+        issues,
+      );
     }
   }
   const referencedIds = new Set<string>();
@@ -234,7 +249,14 @@ function includeRequiredReferences(
     referencedIds.add(record.value.price.receiptAssetId);
   }
   for (const id of referencedIds) {
-    includeRecord(id, `${record.value.id}:reference->${id}`);
+    includeReviewedReference(
+      id,
+      `${record.value.id}:reference->${id}`,
+      work,
+      includeRecord,
+      reviewIds,
+      issues,
+    );
   }
   if (typeof value.assignmentId === "string") {
     const assignment = work.recorderWork.assignments.find(
@@ -253,6 +275,23 @@ function includeRequiredReferences(
     if (typeof value[key] === "string")
       edges.add(`${record.value.id}:${key}->${String(value[key])}`);
   }
+}
+
+function includeReviewedReference(
+  recordId: string,
+  edge: string,
+  work: FieldDeskWork,
+  includeRecord: (recordId: string, edge?: string) => void,
+  reviewIds: Set<string>,
+  issues: FieldBatchIssue[],
+) {
+  const review = effectiveReview(work, recordId);
+  if (review?.decision !== "include") {
+    issues.push(issue("referenced_record_not_reviewed_include", recordId));
+    return;
+  }
+  reviewIds.add(review.id);
+  includeRecord(recordId, edge);
 }
 
 function validateRecordBlockers(

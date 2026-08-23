@@ -1,12 +1,14 @@
 "use client";
 
 import { startRegistration } from "@simplewebauthn/browser";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { baselineFieldProtocolPackage } from "@/features/field-protocol/field-protocol";
 import {
   createFieldRecoverySecret,
   createFieldVaultKey,
+  decryptFieldValue,
   encryptFieldValue,
+  unwrapFieldVaultKeyForDevice,
   verifyFieldRecoveryExercise,
   wrapFieldVaultKey,
   wrapFieldVaultKeyForDevice,
@@ -76,7 +78,14 @@ export function FieldSecurityWorkspace() {
   const [confirmation, setConfirmation] = useState("");
   const [status, setStatus] = useState("Locked. No Protected Field Data is available.");
   const [authorizationInFlight, setAuthorizationInFlight] = useState(false);
+  const [deviceCustodyPresent, setDeviceCustodyPresent] = useState(false);
   const authorizationPromise = useRef<Promise<void> | null>(null);
+  useEffect(() => {
+    void new IndexedDbFieldVault()
+      .hasDeviceKeys()
+      .then(setDeviceCustodyPresent)
+      .catch(() => setDeviceCustodyPresent(false));
+  }, []);
   const readiness = evaluateFieldReadiness({
     availableBytes: state.storage?.availableBytes ?? 0,
     grantUsable: state.deviceAuthorized,
@@ -174,6 +183,10 @@ export function FieldSecurityWorkspace() {
         });
         if (!grantResponse.ok) throw new Error("grant_failed");
         const grantResponseBody: unknown = await grantResponse.json();
+        await vault.putMetadata({
+          key: "device-id",
+          value: { deviceId: registered.device.id, version: 1 },
+        });
         setState((current) => ({
           ...current,
           pendingAuthorization: {
@@ -194,6 +207,62 @@ export function FieldSecurityWorkspace() {
         );
       } catch {
         setStatus("Device authorization failed closed. No offline grant was created.");
+      }
+    });
+    try {
+      await attempt;
+    } finally {
+      setAuthorizationInFlight(false);
+    }
+  }
+
+  async function renewDeviceGrant() {
+    if (authorizationPromise.current) return authorizationPromise.current;
+    setAuthorizationInFlight(true);
+    const attempt = runFieldAuthorizationSingleFlight(authorizationPromise, async () => {
+      let vaultKey: Uint8Array | undefined;
+      try {
+        setStatus("Requesting a fresh verified Offline Field Grant…");
+        const vault = new IndexedDbFieldVault();
+        const deviceWrap = await vault.getMetadata("device-wrap");
+        const pointer = await vault.getMetadata("authorization-envelope");
+        if (!deviceWrap || !pointer) throw new Error("field_key_unavailable");
+        const envelope = await vault.getEnvelope(pointer.value.opaqueRecordKey);
+        if (!envelope) throw new Error("field_key_unavailable");
+        vaultKey = await unwrapFieldVaultKeyForDevice({
+          agreementPrivateKey: await vault.getDeviceKey("agreement-private"),
+          wrap: deviceWrap.value,
+        });
+        const authorization = decryptFieldValue<StoredFieldAuthorization>(envelope, vaultKey);
+        const deviceId =
+          (await vault.getMetadata("device-id"))?.value.deviceId ?? authorization.device.id;
+        if (authorization.device.id !== deviceId) throw new Error("field_device_not_authorized");
+        const grantResponse = await fetch("/api/operator/field/grants", {
+          body: JSON.stringify({
+            applicationBuildId,
+            applicationVersion,
+            deviceId,
+            protocolPackageId: baselineFieldProtocolPackage.manifest.packageId,
+            protocolPackageVersion: baselineFieldProtocolPackage.manifest.packageVersion,
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        });
+        if (!grantResponse.ok) throw new Error("grant_renewal_failed");
+        const grantResponseBody: unknown = await grantResponse.json();
+        const renewedEnvelope = encryptFieldValue({
+          applicationVersion,
+          key: vaultKey,
+          opaqueRecordKey: envelope.opaqueRecordKey,
+          value: { ...authorization, grantResponse: grantResponseBody },
+        });
+        await vault.putEnvelopeBatch([renewedEnvelope]);
+        setState((current) => ({ ...current, deviceAuthorized: true }));
+        setStatus("Offline Field Grant renewed. Existing encrypted custody was preserved.");
+      } catch {
+        setStatus("Grant renewal failed closed. Existing encrypted custody was preserved.");
+      } finally {
+        vaultKey?.fill(0);
       }
     });
     try {
@@ -354,6 +423,16 @@ export function FieldSecurityWorkspace() {
           >
             {authorizationInFlight ? "Verifying…" : "Verify and authorize"}
           </button>
+          {deviceCustodyPresent ? (
+            <button
+              className="mt-3 ml-2 rounded-lg border border-stone-400 px-4 py-2 text-sm"
+              disabled={authorizationInFlight}
+              onClick={() => void renewDeviceGrant()}
+              type="button"
+            >
+              Renew existing grant
+            </button>
+          ) : null}
         </SetupStep>
         <SetupStep number="2" title="Establish recovery">
           <p>

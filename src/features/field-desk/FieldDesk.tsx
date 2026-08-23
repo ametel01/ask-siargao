@@ -132,6 +132,9 @@ function DeskReviewSurface(props: {
   const [decision, setDecision] = useState<(typeof decisions)[number][0]>("include");
   const [reason, setReason] = useState("");
   const [correction, setCorrection] = useState("");
+  const [conflictDisposition, setConflictDisposition] = useState<
+    "resolved" | "intentional_repetition" | "unresolved"
+  >("unresolved");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const records = allRecords(props.work);
@@ -139,11 +142,24 @@ function DeskReviewSurface(props: {
   const prior = record ? effectiveReview(props.work, record.value.id) : undefined;
   const parsedCorrection = fieldDeskCorrectionNoteSchema.safeParse(correction);
   const followUpSupported = record ? canCreateDeskFollowUp(record) : false;
+  const conflictReviewRequired =
+    record?.kind === "fieldObservation" &&
+    (record.value.contradictsObservationIds?.length ?? 0) > 0;
   const canSubmit =
-    decision === "include" ||
-    (decision === "correct_by_supersession"
-      ? parsedCorrection.success
-      : reason.trim().length > 0 && (decision !== "needs_more_evidence" || followUpSupported));
+    (!conflictReviewRequired || conflictDisposition !== "unresolved") &&
+    (decision === "include" ||
+      (decision === "correct_by_supersession"
+        ? parsedCorrection.success
+        : reason.trim().length > 0 && (decision !== "needs_more_evidence" || followUpSupported)));
+
+  useEffect(() => {
+    const disposition = prior?.conflictDisposition;
+    setConflictDisposition(
+      disposition === "resolved" || disposition === "intentional_repetition"
+        ? disposition
+        : "unresolved",
+    );
+  }, [prior?.conflictDisposition, record?.value.id]);
 
   async function saveDecision() {
     if (!record || !canSubmit || saving) return;
@@ -183,6 +199,7 @@ function DeskReviewSurface(props: {
           ...(decision === "exclude" || decision === "needs_more_evidence" ? { reason } : {}),
           ...(supersedingRecord ? { supersedingRecord } : {}),
           ...(followUp ? { followUp } : {}),
+          ...(conflictReviewRequired ? { conflictDisposition } : {}),
         },
         work: props.work,
       });
@@ -320,6 +337,25 @@ function DeskReviewSurface(props: {
                 >
                   1–500 characters; control characters are rejected. {correction.length}/500
                 </span>
+              </label>
+            ) : null}
+            {conflictReviewRequired ? (
+              <label className="mt-5 block font-bold" htmlFor="conflict-disposition">
+                Conflict disposition
+                <select
+                  className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
+                  id="conflict-disposition"
+                  onChange={(event) =>
+                    setConflictDisposition(
+                      event.target.value as "resolved" | "intentional_repetition" | "unresolved",
+                    )
+                  }
+                  value={conflictDisposition}
+                >
+                  <option value="unresolved">Unresolved — keep export blocked</option>
+                  <option value="resolved">Resolved conflict</option>
+                  <option value="intentional_repetition">Intentional repetition</option>
+                </select>
               </label>
             ) : null}
             <button

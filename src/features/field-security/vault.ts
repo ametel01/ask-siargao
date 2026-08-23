@@ -101,6 +101,7 @@ export type FieldVaultMetadata =
     }
   | { key: "recorder-pointer"; value: FieldRecorderPointer }
   | { key: "device-wrap"; value: FieldDeviceWrap }
+  | { key: "device-id"; value: { deviceId: string; version: 1 } }
   | { key: "device-role"; value: { role: "desk" | "recorder"; version: 1 } }
   | { key: "unlock-credential"; value: DeviceBoundCredentialEvidence };
 

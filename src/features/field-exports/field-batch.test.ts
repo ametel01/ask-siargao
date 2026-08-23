@@ -14,6 +14,7 @@ const ids = {
   batch: "0192f060-4f41-7aa1-b322-4aa9fc9f1531",
   close: "0192f060-4f41-7aa1-b322-4aa9fc9f1532",
   review: "0192f060-4f41-7aa1-b322-4aa9fc9f1533",
+  visitReview: "0192f060-4f41-7aa1-b322-4aa9fc9f1535",
   work: "0192f060-4f41-7aa1-b322-4aa9fc9f1534",
 } as const;
 
@@ -35,6 +36,20 @@ describe("review-derived Field Batch graph", () => {
       "field-visits.jsonl",
     ]);
     expect(result.referentialClosureSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  test("rejects a referenced Visit unless its effective Desk review includes it", async () => {
+    const result = await deriveFieldBatchGraph({
+      batchId: ids.batch,
+      intendedUse: "research_internal",
+      selectedRecordIds: [exampleObservation.id],
+      validateRecorderWork: async () => [],
+      works: [await baseDeskWorkWithObservationReview()],
+    });
+    expect(result.issues.map((issue) => issue.code)).toContain(
+      "referenced_record_not_reviewed_include",
+    );
+    expect(result.files).toEqual([]);
   });
 
   const blockerCases: Array<{
@@ -95,6 +110,32 @@ async function includedWork(input?: {
   observation?: typeof exampleObservation;
 }): Promise<FieldDeskWork> {
   const base = await baseDeskWork(input?.observation);
+  const observationReviewed = await appendFieldReview({
+    work: base,
+    review: {
+      id: ids.review,
+      recordId: exampleObservation.id,
+      reviewerId: "reviewer_desk",
+      reviewerMatchesResearcher: false,
+      reviewedAt: "2026-08-23T02:05:00.000Z",
+      decision: "include",
+    },
+  });
+  return appendFieldReview({
+    work: observationReviewed,
+    review: {
+      id: ids.visitReview,
+      recordId: exampleObservation.visitId,
+      reviewerId: "reviewer_desk",
+      reviewerMatchesResearcher: false,
+      reviewedAt: "2026-08-23T02:06:00.000Z",
+      decision: "include",
+    },
+  });
+}
+
+async function baseDeskWorkWithObservationReview() {
+  const base = await baseDeskWork();
   return appendFieldReview({
     work: base,
     review: {
