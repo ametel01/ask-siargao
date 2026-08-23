@@ -54,9 +54,7 @@ function ProductionExports() {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const locked = security.status !== "unlocked";
-  const physicalHandoffAvailable =
-    typeof window !== "undefined" &&
-    ("showSaveFilePicker" in window || typeof navigator.share === "function");
+  const physicalHandoffAvailable = typeof window !== "undefined" && "showSaveFilePicker" in window;
 
   async function registry(): Promise<AuthenticatedRegistrySnapshot> {
     const response = await fetch("/api/operator/field/devices", { cache: "no-store" });

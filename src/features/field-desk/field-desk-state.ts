@@ -225,7 +225,7 @@ function validateCorrection(
     }
   }
   if (successor.kind === "fieldObservation") {
-    const note = successor.value.value.fieldDeskCorrection;
+    const note = successor.value.captureConfidenceReason;
     if (typeof note !== "string") {
       throw new Error("A correction requires a typed correction note.");
     }

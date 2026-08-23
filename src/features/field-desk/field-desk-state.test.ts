@@ -97,7 +97,7 @@ describe("append-only Field Desk review", () => {
               ...structuredClone(exampleObservation),
               id: ids.correction,
               supersedesId: exampleObservation.id,
-              value: { ...exampleObservation.value, fieldDeskCorrection: "\u0000" },
+              captureConfidenceReason: "\u0000",
             },
           },
         },
@@ -211,7 +211,7 @@ function correctedObservation(): RecorderRecord {
       ...structuredClone(exampleObservation),
       id: ids.correction,
       supersedesId: exampleObservation.id,
-      value: { ...exampleObservation.value, fieldDeskCorrection: "Corrected observation note." },
+      captureConfidenceReason: "Corrected observation note.",
     },
   };
 }
