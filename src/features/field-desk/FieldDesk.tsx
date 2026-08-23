@@ -152,6 +152,7 @@ function DeskReviewSurface(props: {
   const [message, setMessage] = useState("");
   const records = allRecords(props.work);
   const record = records[recordIndex] ?? records[0];
+  const recordId = record?.value.id;
   const prior = record ? effectiveReview(props.work, record.value.id) : undefined;
   const followUpSupported = record ? canCreateDeskFollowUp(record) : false;
   const availableDecisions = availableFieldDeskDecisions(record?.kind).filter(
@@ -226,13 +227,17 @@ function DeskReviewSurface(props: {
   }, [decision, record?.kind]);
 
   useEffect(() => {
+    if (!recordId) {
+      setConflictDisposition("unresolved");
+      return;
+    }
     const disposition = prior?.conflictDisposition;
     setConflictDisposition(
       disposition === "resolved" || disposition === "intentional_repetition"
         ? disposition
         : "unresolved",
     );
-  }, [prior?.conflictDisposition]);
+  }, [prior?.conflictDisposition, recordId]);
 
   return (
     <FieldMain

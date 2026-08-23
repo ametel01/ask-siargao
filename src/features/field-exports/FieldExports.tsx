@@ -130,6 +130,9 @@ function ProductionExports(props: { embedded?: boolean }) {
             vaultKey: key,
           });
           const parsed = await readPreambleFromStream(sink.reopen());
+          if (!("showSaveFilePicker" in window) && typeof navigator.share === "function") {
+            await sink.prepareShareFile(receipt.filename);
+          }
           return {
             artifactKind: "field_recovery" as const,
             ciphertextSha256: receipt.ciphertextSha256,
@@ -198,6 +201,9 @@ function ProductionExports(props: { embedded?: boolean }) {
             transferId: transfer,
           });
           const parsed = await readPreambleFromStream(sink.reopen());
+          if (!("showSaveFilePicker" in window) && typeof navigator.share === "function") {
+            await sink.prepareShareFile(receipt.filename);
+          }
           return {
             artifactKind: "field_batch" as const,
             ciphertextSha256: receipt.ciphertextSha256,

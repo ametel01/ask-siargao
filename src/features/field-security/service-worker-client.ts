@@ -16,11 +16,23 @@ export async function prepareFieldOfflineShell(input: {
     shellPath: fieldOfflineShellPath,
     type: "PREPARE_FIELD_OFFLINE",
   });
+  await waitForPreparedShell(input.buildId);
   const persistentStorageRequested = await navigator.storage?.persist?.().catch(() => false);
   return {
     persistentStorageRequested: persistentStorageRequested === true,
     waitingForSafeUpdate: Boolean(registration.waiting && input.activeVisit),
   };
+}
+
+async function waitForPreparedShell(buildId: string): Promise<void> {
+  if (typeof caches === "undefined") throw new Error("field_offline_shell_unavailable");
+  const cacheName = `ask-siargao-field-shell-${buildId}`;
+  for (let attempt = 0; attempt < 150; attempt += 1) {
+    const cache = await caches.open(cacheName);
+    if (await cache.match(fieldOfflineShellPath)) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("field_offline_shell_prepare_timeout");
 }
 
 export async function notifyFieldVisitState(input: {
