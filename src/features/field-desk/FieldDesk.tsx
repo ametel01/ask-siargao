@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FollowUpAssignment } from "@/features/field-protocol/generated";
 import type { RecorderRecord } from "@/features/field-recorder/field-recorder-types";
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
@@ -137,6 +138,35 @@ function DeskReviewSurface(props: {
     try {
       const id = crypto.randomUUID();
       let supersedingRecord: RecorderRecord | undefined;
+      let followUp: FollowUpAssignment | undefined;
+      if (decision === "needs_more_evidence") {
+        const value = record.value as unknown as Record<string, unknown>;
+        const assignmentId = value.assignmentId;
+        const visitId = value.visitId;
+        const coverageRequirementId = value.coverageRequirementId;
+        if (
+          typeof assignmentId !== "string" ||
+          typeof visitId !== "string" ||
+          typeof coverageRequirementId !== "string" ||
+          typeof value.protocolPackageId !== "string" ||
+          typeof value.protocolPackageVersion !== "string" ||
+          typeof value.campaignId !== "string"
+        ) {
+          throw new Error("Needs more evidence requires a linked assignment and coverage target.");
+        }
+        followUp = {
+          schemaVersion: "follow-up-assignment.v1",
+          id: crypto.randomUUID(),
+          protocolPackageId: value.protocolPackageId,
+          protocolPackageVersion: value.protocolPackageVersion,
+          campaignId: value.campaignId,
+          originatingAssignmentId: assignmentId,
+          originatingVisitIds: [visitId],
+          coverageRequirementIds: [coverageRequirementId],
+          createdAt: new Date().toISOString(),
+          reason: "needs_resolution",
+        };
+      }
       if (decision === "correct_by_supersession") {
         if (record.kind !== "fieldObservation") {
           throw new Error("Typed correction is currently available for observations only.");
@@ -161,6 +191,7 @@ function DeskReviewSurface(props: {
           reviewedAt: new Date().toISOString(),
           ...(decision === "exclude" || decision === "needs_more_evidence" ? { reason } : {}),
           ...(supersedingRecord ? { supersedingRecord } : {}),
+          ...(followUp ? { followUp } : {}),
         },
         work: props.work,
       });
