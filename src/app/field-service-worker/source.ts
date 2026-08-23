@@ -30,10 +30,14 @@ self.addEventListener("message", (event) => {
     data.type !== "PREPARE_FIELD_OFFLINE" ||
     data.shellPath !== FIELD_SHELL_PATH ||
     typeof data.buildId !== "string" ||
-    !/^[A-Za-z0-9._-]{1,200}$/.test(data.buildId)
+    !/^[A-Za-z0-9._-]{1,200}$/.test(data.buildId) ||
+    typeof data.preparationId !== "string" ||
+    !/^[A-Za-z0-9-]{16,200}$/.test(data.preparationId)
   ) return;
   activeVisit = data.activeVisit === true;
-  event.waitUntil(prepareShell(data.buildId).then(() => selectPreparedBuild(data.buildId)));
+  event.waitUntil(
+    prepareShell(data.buildId).then(() => selectPreparedBuild(data.buildId, data.preparationId)),
+  );
 });
 
 self.addEventListener("fetch", (event) => {
@@ -89,14 +93,14 @@ async function matchPreparedShell() {
   });
 }
 
-async function selectPreparedBuild(buildId) {
+async function selectPreparedBuild(buildId, preparationId) {
   if (!/^[A-Za-z0-9._-]{1,200}$/.test(buildId)) return;
   const preparedCache = await caches.open(FIELD_CACHE_PREFIX + buildId);
   if (!(await preparedCache.match(FIELD_SHELL_PATH))) return;
   const activeCache = await caches.open(FIELD_ACTIVE_BUILD_CACHE);
   await activeCache.put(
     FIELD_ACTIVE_BUILD_PATH,
-    new Response(JSON.stringify({ buildId }), {
+    new Response(JSON.stringify({ buildId, preparationId }), {
       headers: { "content-type": "application/json" },
     }),
   );

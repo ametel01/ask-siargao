@@ -7,7 +7,7 @@ test("selects the explicitly prepared field build instead of lexical cache order
     'const FIELD_ACTIVE_BUILD_CACHE = FIELD_CACHE_PREFIX + "active"',
   );
   expect(serviceWorkerSource).toContain(
-    "prepareShell(data.buildId).then(() => selectPreparedBuild(data.buildId))",
+    "prepareShell(data.buildId).then(() => selectPreparedBuild(data.buildId, data.preparationId))",
   );
   expect(serviceWorkerSource).toContain("const activeBuildId = await readActiveBuildId()");
   expect(serviceWorkerSource).not.toContain("keys.reverse()");

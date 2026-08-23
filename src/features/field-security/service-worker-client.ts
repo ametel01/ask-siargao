@@ -10,13 +10,15 @@ export async function prepareFieldOfflineShell(input: {
     scope: "/",
   });
   await navigator.serviceWorker.ready;
+  const preparationId = crypto.randomUUID();
   postToFieldWorkers(registration, {
     activeVisit: input.activeVisit,
     buildId: input.buildId,
+    preparationId,
     shellPath: fieldOfflineShellPath,
     type: "PREPARE_FIELD_OFFLINE",
   });
-  await waitForPreparedShell(input.buildId);
+  await waitForPreparedShell(input.buildId, preparationId);
   const persistentStorageRequested = await navigator.storage?.persist?.().catch(() => false);
   return {
     persistentStorageRequested: persistentStorageRequested === true,
@@ -24,7 +26,7 @@ export async function prepareFieldOfflineShell(input: {
   };
 }
 
-async function waitForPreparedShell(buildId: string): Promise<void> {
+async function waitForPreparedShell(buildId: string, preparationId: string): Promise<void> {
   if (typeof caches === "undefined") throw new Error("field_offline_shell_unavailable");
   const cacheName = `ask-siargao-field-shell-${buildId}`;
   const activeCache = await caches.open("ask-siargao-field-shell-active");
@@ -36,8 +38,11 @@ async function waitForPreparedShell(buildId: string): Promise<void> {
     ]);
     if (shell && marker) {
       try {
-        const selected = (await marker.json()) as { buildId?: string };
-        if (selected.buildId === buildId) return;
+        const selected = (await marker.json()) as {
+          buildId?: string;
+          preparationId?: string;
+        };
+        if (selected.buildId === buildId && selected.preparationId === preparationId) return;
       } catch {
         // Keep waiting for the service worker to publish a complete marker.
       }
