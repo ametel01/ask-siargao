@@ -1,4 +1,4 @@
-import { IndexedDbFieldVault } from "@/features/field-security/vault";
+import { type FieldReadinessEvidence, IndexedDbFieldVault } from "@/features/field-security/vault";
 
 export type PreparedFieldDeviceDiscovery = {
   hasAuthorization: boolean;
@@ -39,9 +39,24 @@ export async function discoverPreparedFieldDevice(
 }
 
 async function hasLivePreparedShell(
-  readiness: { buildId: string; offlineShellPrepared: boolean; persisted: boolean } | undefined,
+  readiness:
+    | {
+        buildId: string;
+        offlineShellPrepared: boolean;
+        persisted: boolean;
+        readinessEvidence?: FieldReadinessEvidence;
+      }
+    | undefined,
 ): Promise<boolean> {
-  if (!readiness?.offlineShellPrepared) return false;
+  if (
+    !readiness?.offlineShellPrepared ||
+    !readiness.readinessEvidence?.permissionsVerified ||
+    !readiness.readinessEvidence.sampleCaptureVerified ||
+    !readiness.readinessEvidence.restoreVerified ||
+    !readiness.readinessEvidence.offlineReloadVerified
+  ) {
+    return false;
+  }
   if (
     typeof navigator === "undefined" ||
     !("serviceWorker" in navigator) ||

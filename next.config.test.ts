@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import nextConfig, {
   contentSecurityPolicyReportOnly,
   createFieldWorkspaceContentSecurityPolicy,
-  fieldWorkspaceContentSecurityPolicy,
 } from "./next.config";
 
 describe("mobile rendering performance", () => {
@@ -51,14 +50,16 @@ describe("security response headers", () => {
     );
 
     expect(values["cache-control"]).toBe("private, no-store");
-    expect(values["content-security-policy"]).toBe(fieldWorkspaceContentSecurityPolicy);
+    expect(values["content-security-policy"]).toBeUndefined();
     expect(values["permissions-policy"]).toContain("camera=(self)");
-    expect(fieldWorkspaceContentSecurityPolicy).toContain("connect-src 'self'");
-    expect(fieldWorkspaceContentSecurityPolicy).not.toContain("posthog");
-    expect(fieldWorkspaceContentSecurityPolicy).not.toContain("sentry");
-    expect(fieldWorkspaceContentSecurityPolicy).not.toContain("api.openai.com");
-    expect(createFieldWorkspaceContentSecurityPolicy("development")).toContain("'unsafe-eval'");
-    expect(createFieldWorkspaceContentSecurityPolicy("production")).not.toContain("'unsafe-eval'");
+    const productionCsp = createFieldWorkspaceContentSecurityPolicy("test-nonce", "production");
+    const developmentCsp = createFieldWorkspaceContentSecurityPolicy("test-nonce", "development");
+    expect(productionCsp).toContain("connect-src 'self'");
+    expect(productionCsp).toContain("'nonce-test-nonce'");
+    expect(productionCsp).not.toContain("unsafe-inline");
+    expect(productionCsp).not.toContain("unsafe-eval");
+    expect(developmentCsp).toContain("'unsafe-eval'");
+    expect(developmentCsp).not.toContain("unsafe-inline");
   });
 });
 

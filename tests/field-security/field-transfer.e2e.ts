@@ -9,7 +9,10 @@ test("production Desk routes remain private, no-store, and visibly distinguish t
   const review = await page.goto("/operator/field/review");
   expect(review?.status()).toBe(200);
   expect(review?.headers()["cache-control"]).toContain("no-store");
-  expect(review?.headers()["content-security-policy"]).toContain("connect-src 'self'");
+  const reviewCsp = review?.headers()["content-security-policy"] ?? "";
+  expect(reviewCsp).toContain("connect-src 'self'");
+  expect(reviewCsp).toMatch(/'nonce-[A-Za-z0-9]+'/);
+  expect(reviewCsp).not.toContain("unsafe-inline");
   await expect(page.getByRole("heading", { name: "Field review" })).toBeVisible();
 
   await page.evaluate((sentinel) => {

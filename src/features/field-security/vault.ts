@@ -67,6 +67,17 @@ export type FieldRecorderPointer = {
   version: 1;
 };
 
+/**
+ * First-use acceptance evidence is deliberately explicit. A device must not
+ * become Field Ready from authorization and storage preparation alone.
+ */
+export type FieldReadinessEvidence = Readonly<{
+  offlineReloadVerified: boolean;
+  permissionsVerified: boolean;
+  restoreVerified: boolean;
+  sampleCaptureVerified: boolean;
+}>;
+
 export type FieldWriterLease = {
   expiresAt: number;
   revision: number;
@@ -84,9 +95,10 @@ export type FieldVaultMetadata =
       value: {
         buildId: string;
         offlineShellPrepared: boolean;
+        readinessEvidence: FieldReadinessEvidence;
         persisted: boolean;
         preparedAt: string;
-        version: 1;
+        version: 2;
       };
     }
   | {
@@ -757,6 +769,7 @@ export function evaluateFieldReadiness(input: {
   offlineShellPrepared: boolean;
   persisted: boolean;
   protocolVerified: boolean;
+  readinessEvidence: FieldReadinessEvidence;
   recoveryVerified: boolean;
 }): { ready: boolean; reasons: string[] } {
   const reasons: string[] = [];
@@ -765,6 +778,10 @@ export function evaluateFieldReadiness(input: {
   if (!input.recoveryVerified) reasons.push("recovery_unverified");
   if (!input.offlineShellPrepared) reasons.push("offline_shell_unprepared");
   if (!input.persisted) reasons.push("persistent_storage_unavailable");
+  if (!input.readinessEvidence.permissionsVerified) reasons.push("permissions_unverified");
+  if (!input.readinessEvidence.sampleCaptureVerified) reasons.push("sample_capture_unverified");
+  if (!input.readinessEvidence.restoreVerified) reasons.push("restore_unverified");
+  if (!input.readinessEvidence.offlineReloadVerified) reasons.push("offline_reload_unverified");
   if (input.availableBytes < (input.minimumAvailableBytes ?? 50 * 1024 * 1024)) {
     reasons.push("storage_headroom_insufficient");
   }

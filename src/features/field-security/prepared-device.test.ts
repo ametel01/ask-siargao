@@ -19,7 +19,18 @@ describe("prepared field device discovery", () => {
           ? {
               key,
               value:
-                key === "field-readiness" ? { offlineShellPrepared: true, persisted: true } : true,
+                key === "field-readiness"
+                  ? {
+                      offlineShellPrepared: true,
+                      persisted: true,
+                      readinessEvidence: {
+                        offlineReloadVerified: true,
+                        permissionsVerified: true,
+                        restoreVerified: true,
+                        sampleCaptureVerified: true,
+                      },
+                    }
+                  : true,
             }
           : undefined,
       hasDeviceKeys: async () => true,

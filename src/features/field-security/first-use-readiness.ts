@@ -8,7 +8,11 @@ import {
   type OfflineFieldGrantClaims,
   signedOfflineFieldGrantSchema,
 } from "@/features/field-security/types";
-import { evaluateFieldReadiness, type FieldVaultMetadata } from "@/features/field-security/vault";
+import {
+  evaluateFieldReadiness,
+  type FieldReadinessEvidence,
+  type FieldVaultMetadata,
+} from "@/features/field-security/vault";
 
 type FieldReadinessMetadata = Extract<FieldVaultMetadata, { key: "field-readiness" }>;
 
@@ -68,6 +72,7 @@ export function completeFirstUseFieldReadiness(input: {
   persisted: boolean;
   preparedAt: string;
   protocolVerified: boolean;
+  readinessEvidence: FieldReadinessEvidence;
   recoveryVerified: boolean;
 }): { ready: false; reasons: string[] } | { ready: true; metadata: FieldReadinessMetadata } {
   const readiness = evaluateFieldReadiness(input);
@@ -79,9 +84,10 @@ export function completeFirstUseFieldReadiness(input: {
       value: {
         buildId: input.buildId,
         offlineShellPrepared: true,
+        readinessEvidence: input.readinessEvidence,
         persisted: true,
         preparedAt: input.preparedAt,
-        version: 1,
+        version: 2,
       },
     },
   };

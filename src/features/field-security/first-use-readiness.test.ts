@@ -70,6 +70,12 @@ describe("first-use Field Readiness authority", () => {
       persisted: true,
       preparedAt: "2026-08-24T00:00:00.000Z",
       protocolVerified: true,
+      readinessEvidence: {
+        offlineReloadVerified: true,
+        permissionsVerified: true,
+        restoreVerified: true,
+        sampleCaptureVerified: true,
+      },
       recoveryVerified: true,
     };
     expect(completeFirstUseFieldReadiness(ready)).toEqual({
@@ -79,9 +85,10 @@ describe("first-use Field Readiness authority", () => {
         value: {
           buildId: ready.buildId,
           offlineShellPrepared: true,
+          readinessEvidence: ready.readinessEvidence,
           persisted: true,
           preparedAt: ready.preparedAt,
-          version: 1,
+          version: 2,
         },
       },
     });

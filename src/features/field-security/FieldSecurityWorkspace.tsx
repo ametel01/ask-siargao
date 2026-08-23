@@ -23,6 +23,7 @@ import { prepareFieldOfflineShell } from "@/features/field-security/service-work
 import type { StoredFieldAuthorization } from "@/features/field-security/unlock";
 import {
   evaluateFieldReadiness,
+  type FieldReadinessEvidence,
   IndexedDbFieldVault,
   requestPersistentFieldStorage,
 } from "@/features/field-security/vault";
@@ -38,6 +39,7 @@ type SetupState = {
   grantExpiresAt?: string;
   offlineShellPrepared: boolean;
   protocolVerified: boolean;
+  readinessEvidence: FieldReadinessEvidence;
   recoverySecret?: string;
   recoveryVerified: boolean;
   storage?: { availableBytes: number; persisted: boolean };
@@ -81,6 +83,12 @@ export function FieldSecurityWorkspace() {
     deviceAuthorized: false,
     offlineShellPrepared: false,
     protocolVerified: false,
+    readinessEvidence: {
+      offlineReloadVerified: false,
+      permissionsVerified: false,
+      restoreVerified: false,
+      sampleCaptureVerified: false,
+    },
     recoveryVerified: false,
   });
   const [confirmation, setConfirmation] = useState("");
@@ -100,6 +108,7 @@ export function FieldSecurityWorkspace() {
     offlineShellPrepared: state.offlineShellPrepared,
     persisted: state.storage?.persisted ?? false,
     protocolVerified: state.protocolVerified,
+    readinessEvidence: state.readinessEvidence,
     recoveryVerified: state.recoveryVerified,
   });
 
@@ -386,6 +395,7 @@ export function FieldSecurityWorkspace() {
         persisted: storage.persisted,
         preparedAt: new Date().toISOString(),
         protocolVerified: state.protocolVerified,
+        readinessEvidence: state.readinessEvidence,
         recoveryVerified: state.recoveryVerified,
       });
       setState((current) => ({ ...current, offlineShellPrepared: true, storage }));
@@ -395,7 +405,7 @@ export function FieldSecurityWorkspace() {
       }
       await new IndexedDbFieldVault().putMetadata(verifiedReadiness.metadata);
       setStatus(
-        "Offline shell prepared and the complete first-use Field Readiness contract was verified.",
+        "Offline shell prepared. First-use Field Readiness is verified only after the recorded acceptance evidence is complete.",
       );
     } catch {
       setStatus("Offline preparation failed. Field Readiness is blocked.");
@@ -515,6 +525,13 @@ export function FieldSecurityWorkspace() {
           >
             Prepare offline shell
           </button>
+        </SetupStep>
+        <SetupStep number="4" title="Complete first-use acceptance evidence">
+          <p>
+            Field Readiness stays blocked until a separate acceptance run records successful
+            permission checks, sample capture, encrypted restore, and an offline reload. These
+            proofs are not inferred from authorization, storage, or a prepared shell.
+          </p>
         </SetupStep>
       </ol>
     </FieldMain>

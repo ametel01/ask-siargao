@@ -12,7 +12,10 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
   const response = await page.goto("/operator/field/security-workspace");
   expect(response?.status()).toBe(200);
   expect(response?.headers()["cache-control"]).toContain("no-store");
-  expect(response?.headers()["content-security-policy"]).toContain("connect-src 'self'");
+  const responseCsp = response?.headers()["content-security-policy"] ?? "";
+  expect(responseCsp).toContain("connect-src 'self'");
+  expect(responseCsp).toMatch(/'nonce-[A-Za-z0-9]+'/);
+  expect(responseCsp).not.toContain("unsafe-inline");
   await expect(page.getByRole("heading", { name: "Prepare this field device" })).toBeVisible();
   const readinessAccessibility = await new AxeBuilder({ page }).include("main").analyze();
   expect(readinessAccessibility.violations).toEqual([]);
@@ -78,7 +81,7 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
   });
   expect(browserStorage.cacheBodies.join("\n")).toContain("Evidence station");
   expect(browserStorage.cacheBodies.join("\n")).toContain(
-    "Prepared offline areas: Recorder, Review, and Exports",
+    "Prepared offline areas: Recorder, Review, Exports, and Diagnostics and Recovery",
   );
   expect(JSON.stringify(browserStorage)).not.toContain(protectedSentinel);
   expect(requests.join("\n")).not.toContain(protectedSentinel);

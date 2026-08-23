@@ -1,6 +1,5 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
-import type { NextFetchEvent, NextRequest } from "next/server";
-import { NextResponse } from "next/server";
+import { type NextFetchEvent, NextRequest, NextResponse } from "next/server";
 
 import {
   formatClerkConfigErrors,
@@ -9,6 +8,7 @@ import {
 import { getClerkRoutePolicy } from "@/server/auth/clerk-route-policy";
 import { isProtectedUiHarnessRequest } from "@/server/auth/protected-ui-harness";
 import { isFieldSecurityProductionHarnessRequest } from "@/server/field-security/test-harness";
+import { createFieldWorkspaceContentSecurityPolicy } from "@/server/security/field-workspace-csp";
 
 type ClerkProxyAuth = {
   protect: () => Promise<unknown>;
@@ -27,17 +27,68 @@ const enabledClerkProxy = clerkMiddleware(
 );
 
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
+  const fieldRequest = withFieldWorkspaceCsp(request);
   const config = readClerkDeploymentConfig();
 
   if (!config.ok) {
-    return clerkConfigurationFailure(config.errors);
+    return applyFieldWorkspaceCsp(fieldRequest, clerkConfigurationFailure(config.errors));
   }
 
   if (config.config.mode === "disabled") {
-    return applyDisabledClerkRoutePolicy(request);
+    return applyFieldWorkspaceCsp(
+      fieldRequest,
+      applyDisabledClerkRoutePolicy(fieldRequest.request),
+    );
   }
 
-  return enabledClerkProxy(request, event);
+  return applyFieldWorkspaceCsp(fieldRequest, enabledClerkProxy(fieldRequest.request, event));
+}
+
+function isFieldWorkspacePath(pathname: string) {
+  return (
+    pathname === "/operator/field" ||
+    pathname.startsWith("/operator/field/") ||
+    pathname.startsWith("/api/operator/field/")
+  );
+}
+
+function withFieldWorkspaceCsp(request: NextRequest) {
+  if (!isFieldWorkspacePath(request.nextUrl.pathname)) return { request, nonce: undefined };
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const contentSecurityPolicy = createFieldWorkspaceContentSecurityPolicy(nonce);
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("Content-Security-Policy", contentSecurityPolicy);
+  requestHeaders.set("x-nonce", nonce);
+  return {
+    nonce,
+    request: new NextRequest(request, { headers: requestHeaders }),
+  };
+}
+
+function applyFieldWorkspaceCsp<T>(
+  fieldRequest: { nonce?: string },
+  response: T | Promise<T>,
+): T | Promise<T> {
+  if (response instanceof Promise) {
+    return response.then((resolved) => setFieldWorkspaceCsp(fieldRequest, resolved));
+  }
+  return setFieldWorkspaceCsp(fieldRequest, response);
+}
+
+function setFieldWorkspaceCsp<T>(fieldRequest: { nonce?: string }, response: T): T {
+  if (
+    fieldRequest.nonce &&
+    response !== null &&
+    typeof response === "object" &&
+    "headers" in response &&
+    response.headers instanceof Headers
+  ) {
+    response.headers.set(
+      "Content-Security-Policy",
+      createFieldWorkspaceContentSecurityPolicy(fieldRequest.nonce),
+    );
+  }
+  return response;
 }
 
 export async function applyEnabledClerkRoutePolicy(
@@ -54,7 +105,10 @@ export async function applyEnabledClerkRoutePolicy(
     await auth.protect();
   }
 
-  return NextResponse.next();
+  return NextResponse.next({
+    request:
+      typeof requestOrPathname === "string" ? undefined : { headers: requestOrPathname.headers },
+  });
 }
 
 export function applyDisabledClerkRoutePolicy(requestOrPathname: NextRequest | string) {
@@ -66,7 +120,10 @@ export function applyDisabledClerkRoutePolicy(requestOrPathname: NextRequest | s
       (isProtectedUiHarnessProxyRequest(requestOrPathname) ||
         isFieldSecurityHarnessRequest(requestOrPathname)))
   ) {
-    return NextResponse.next();
+    return NextResponse.next({
+      request:
+        typeof requestOrPathname === "string" ? undefined : { headers: requestOrPathname.headers },
+    });
   }
 
   return denyClerkPerimeter(

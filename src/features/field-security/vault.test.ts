@@ -155,9 +155,42 @@ describe("encrypted IndexedDB vault", () => {
         offlineShellPrepared: true,
         persisted: true,
         protocolVerified: true,
+        readinessEvidence: {
+          offlineReloadVerified: true,
+          permissionsVerified: true,
+          restoreVerified: true,
+          sampleCaptureVerified: true,
+        },
         recoveryVerified: false,
       }),
     ).toEqual({ ready: false, reasons: ["recovery_unverified"] });
+  });
+
+  test("fails closed until first-use acceptance evidence is recorded", () => {
+    expect(
+      evaluateFieldReadiness({
+        availableBytes: 100_000_000,
+        grantUsable: true,
+        offlineShellPrepared: true,
+        persisted: true,
+        protocolVerified: true,
+        readinessEvidence: {
+          offlineReloadVerified: false,
+          permissionsVerified: false,
+          restoreVerified: false,
+          sampleCaptureVerified: false,
+        },
+        recoveryVerified: true,
+      }),
+    ).toEqual({
+      ready: false,
+      reasons: [
+        "permissions_unverified",
+        "sample_capture_unverified",
+        "restore_unverified",
+        "offline_reload_unverified",
+      ],
+    });
   });
 
   test("atomically advances one opaque Recorder root and retains the last good revision", async () => {
