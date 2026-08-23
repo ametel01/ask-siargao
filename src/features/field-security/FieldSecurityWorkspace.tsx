@@ -14,6 +14,11 @@ import {
   wrapFieldVaultKeyForDevice,
 } from "@/features/field-security/crypto";
 import { sha256Hex } from "@/features/field-security/encoding";
+import {
+  completeFirstUseFieldReadiness,
+  isVerifiedFieldGrantUsable,
+  verifyFirstUseFieldAuthority,
+} from "@/features/field-security/first-use-readiness";
 import { prepareFieldOfflineShell } from "@/features/field-security/service-worker-client";
 import type { StoredFieldAuthorization } from "@/features/field-security/unlock";
 import {
@@ -30,7 +35,9 @@ const applicationBuildId = process.env.NEXT_PUBLIC_FIELD_CACHE_GENERATION ?? "un
 type SetupState = {
   deviceRole: "desk" | "recorder";
   deviceAuthorized: boolean;
+  grantExpiresAt?: string;
   offlineShellPrepared: boolean;
+  protocolVerified: boolean;
   recoverySecret?: string;
   recoveryVerified: boolean;
   storage?: { availableBytes: number; persisted: boolean };
@@ -73,6 +80,7 @@ export function FieldSecurityWorkspace() {
     deviceRole: "recorder",
     deviceAuthorized: false,
     offlineShellPrepared: false,
+    protocolVerified: false,
     recoveryVerified: false,
   });
   const [confirmation, setConfirmation] = useState("");
@@ -88,10 +96,10 @@ export function FieldSecurityWorkspace() {
   }, []);
   const readiness = evaluateFieldReadiness({
     availableBytes: state.storage?.availableBytes ?? 0,
-    grantUsable: state.deviceAuthorized,
+    grantUsable: state.deviceAuthorized && isVerifiedFieldGrantUsable(state.grantExpiresAt),
     offlineShellPrepared: state.offlineShellPrepared,
     persisted: state.storage?.persisted ?? false,
-    protocolVerified: true,
+    protocolVerified: state.protocolVerified,
     recoveryVerified: state.recoveryVerified,
   });
 
@@ -166,10 +174,6 @@ export function FieldSecurityWorkspace() {
             unlockCredential: DeviceBoundCredentialEvidence;
           };
         };
-        await vault.putDeviceKeys({
-          agreementPrivateKey: agreementKeys.privateKey,
-          signingPrivateKey: signingKeys.privateKey,
-        });
         const grantResponse = await fetch("/api/operator/field/grants", {
           body: JSON.stringify({
             applicationBuildId,
@@ -183,12 +187,24 @@ export function FieldSecurityWorkspace() {
         });
         if (!grantResponse.ok) throw new Error("grant_failed");
         const grantResponseBody: unknown = await grantResponse.json();
+        const verifiedGrant = await verifyFirstUseFieldAuthority({
+          applicationBuildId,
+          applicationVersion,
+          deviceId: registered.device.id,
+          devicePublicKeyFingerprint: registered.device.signingPublicKeyFingerprint,
+          grantResponse: grantResponseBody,
+        });
+        await vault.putDeviceKeys({
+          agreementPrivateKey: agreementKeys.privateKey,
+          signingPrivateKey: signingKeys.privateKey,
+        });
         await vault.putMetadata({
           key: "device-id",
           value: { deviceId: registered.device.id, version: 1 },
         });
         setState((current) => ({
           ...current,
+          grantExpiresAt: verifiedGrant.expiresAt,
           pendingAuthorization: {
             authorization: {
               device: {
@@ -201,6 +217,7 @@ export function FieldSecurityWorkspace() {
             },
             unlockCredential: registered.device.unlockCredential,
           },
+          protocolVerified: true,
         }));
         setStatus(
           "Authorized Field Device and Offline Field Grant created. Establish recovery next.",
@@ -250,6 +267,13 @@ export function FieldSecurityWorkspace() {
         });
         if (!grantResponse.ok) throw new Error("grant_renewal_failed");
         const grantResponseBody: unknown = await grantResponse.json();
+        const verifiedGrant = await verifyFirstUseFieldAuthority({
+          applicationBuildId,
+          applicationVersion,
+          deviceId,
+          devicePublicKeyFingerprint: authorization.device.signingPublicKeyFingerprint,
+          grantResponse: grantResponseBody,
+        });
         const renewedEnvelope = encryptFieldValue({
           applicationVersion,
           key: vaultKey,
@@ -257,7 +281,12 @@ export function FieldSecurityWorkspace() {
           value: { ...authorization, grantResponse: grantResponseBody },
         });
         await vault.putEnvelopeBatch([renewedEnvelope]);
-        setState((current) => ({ ...current, deviceAuthorized: true }));
+        setState((current) => ({
+          ...current,
+          deviceAuthorized: true,
+          grantExpiresAt: verifiedGrant.expiresAt,
+          protocolVerified: true,
+        }));
         setStatus("Offline Field Grant renewed. Existing encrypted custody was preserved.");
       } catch {
         setStatus("Grant renewal failed closed. Existing encrypted custody was preserved.");
@@ -349,21 +378,24 @@ export function FieldSecurityWorkspace() {
         requestPersistentFieldStorage(),
         prepareFieldOfflineShell({ activeVisit: false, buildId: applicationBuildId }),
       ]);
-      await new IndexedDbFieldVault().putMetadata({
-        key: "field-readiness",
-        value: {
-          buildId: applicationBuildId,
-          offlineShellPrepared: true,
-          persisted: storage.persisted,
-          preparedAt: new Date().toISOString(),
-          version: 1,
-        },
+      const verifiedReadiness = completeFirstUseFieldReadiness({
+        availableBytes: storage.availableBytes,
+        buildId: applicationBuildId,
+        grantUsable: state.deviceAuthorized && isVerifiedFieldGrantUsable(state.grantExpiresAt),
+        offlineShellPrepared: true,
+        persisted: storage.persisted,
+        preparedAt: new Date().toISOString(),
+        protocolVerified: state.protocolVerified,
+        recoveryVerified: state.recoveryVerified,
       });
       setState((current) => ({ ...current, offlineShellPrepared: true, storage }));
+      if (!verifiedReadiness.ready) {
+        setStatus(`Field Readiness blocked. Missing: ${verifiedReadiness.reasons.join(", ")}.`);
+        return;
+      }
+      await new IndexedDbFieldVault().putMetadata(verifiedReadiness.metadata);
       setStatus(
-        storage.persisted
-          ? "Offline shell prepared and persistent storage requested. Eviction is still possible."
-          : "Offline shell prepared, but persistent storage was denied. Field Readiness is blocked.",
+        "Offline shell prepared and the complete first-use Field Readiness contract was verified.",
       );
     } catch {
       setStatus("Offline preparation failed. Field Readiness is blocked.");
