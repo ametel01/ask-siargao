@@ -13,6 +13,7 @@ import type {
 import {
   type FieldPlannerReadinessHandoff,
   loadPlannerReadiness,
+  producePlannerReadinessFromCustody,
 } from "@/features/field-planning/planner-readiness-vault";
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
@@ -45,14 +46,24 @@ export function FieldPlanRecorderBridge(props: {
     if (security.status !== "unlocked" || readiness) return;
     let mounted = true;
     void security
-      .withVaultKey((key) => loadPlannerReadiness(props.protocol, key))
+      .withVaultKey(async (key) => {
+        const existing = await loadPlannerReadiness(props.protocol, key);
+        if (existing) return existing;
+        try {
+          return await producePlannerReadinessFromCustody(props.protocol, key);
+        } catch {
+          return undefined;
+        }
+      })
       .then((handoff) => {
         if (!mounted) return;
         if (handoff) {
           setReadiness({ coverageSnapshot: handoff.coverageSnapshot, inputs: handoff.inputs });
           setReadinessState(`Approved local readiness ${handoff.source.id} loaded.`);
         } else {
-          setReadinessState("Unlock the vault, then import an approved Field Readiness handoff.");
+          setReadinessState(
+            "No protected plan or Desk custody is available to establish Field Readiness. Planning remains blocked.",
+          );
         }
       })
       .catch(() => {

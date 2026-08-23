@@ -1,3 +1,5 @@
+import { FieldDeskRepository } from "@/features/field-desk/field-desk-repository";
+import { FieldRecorderRepository } from "@/features/field-recorder/field-recorder-repository";
 import { decryptFieldValue, encryptFieldValue } from "@/features/field-security/crypto";
 import { FieldSecurityError } from "@/features/field-security/errors";
 import { IndexedDbFieldVault } from "@/features/field-security/vault";
@@ -13,6 +15,34 @@ export type FieldPlannerReadinessHandoff = Readonly<{
   coverageSnapshot: FieldCoverageSnapshot;
   inputs: PlannerInputs;
 }>;
+
+export async function producePlannerReadinessFromCustody(
+  protocol: PlannerProtocol,
+  key: Uint8Array,
+  vault = new IndexedDbFieldVault(),
+): Promise<FieldPlannerReadinessHandoff> {
+  const recorder = await new FieldRecorderRepository({ applicationVersion: "0.1.0", vault }).load(
+    key,
+  );
+  const deskWorks = await new FieldDeskRepository("0.1.0", vault).list(key);
+  const snapshot = recorder?.planSnapshot ?? deskWorks.at(-1)?.recorderWork.planSnapshot;
+  if (!snapshot) throw new FieldSecurityError("field_key_unavailable");
+  const handoff: FieldPlannerReadinessHandoff = {
+    version: 1,
+    handoffId: crypto.randomUUID(),
+    handedOffAt: new Date().toISOString(),
+    source: {
+      kind: "approved_local_handoff",
+      id: `field_readiness_vault_${crypto.randomUUID().replaceAll("-", "")}`,
+    },
+    protocolPackageId: snapshot.protocol.packageId,
+    protocolPackageVersion: snapshot.protocol.packageVersion,
+    coverageSnapshot: snapshot.coverageSnapshot,
+    inputs: snapshot.inputs,
+  };
+  await savePlannerReadiness(handoff, protocol, key, vault);
+  return handoff;
+}
 
 export async function loadPlannerReadiness(
   protocol: PlannerProtocol,

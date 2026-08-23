@@ -45,7 +45,12 @@ export class OpfsStagedArtifactSink implements StagedArtifactSink {
   }
 
   async abort(): Promise<void> {
-    await this.writable?.abort().catch(() => undefined);
+    await this.dispose();
+  }
+
+  async dispose(): Promise<void> {
+    if (this.writable && !this.closed) await this.writable.abort().catch(() => undefined);
+    this.writable = undefined;
     this.closed = false;
     await this.directory.removeEntry(this.temporaryName).catch(() => undefined);
   }
@@ -70,28 +75,32 @@ export class OpfsStagedArtifactSink implements StagedArtifactSink {
   }): Promise<"published" | "physical_handoff_required"> {
     if (!this.closed) throw new FieldSecurityError("field_artifact_incomplete");
     const picker = window as SavePickerWindow;
-    if (!picker.showSaveFilePicker) return "physical_handoff_required";
-    const destination = await picker.showSaveFilePicker({
-      suggestedName: input.filename,
-      types: [
-        {
-          accept: {
-            "application/octet-stream": [
-              input.kind === "field_recovery" ? ".asfrecovery" : ".asfbatch",
-            ],
-          },
-          description:
-            input.kind === "field_recovery" ? "Field Recovery Export" : "Reviewed Field Batch",
-        },
-      ],
-    });
-    const writable = await destination.createWritable({ keepExistingData: false });
+    if (!picker.showSaveFilePicker) {
+      await this.dispose();
+      return "physical_handoff_required";
+    }
     try {
+      const destination = await picker.showSaveFilePicker({
+        suggestedName: input.filename,
+        types: [
+          {
+            accept: {
+              "application/octet-stream": [
+                input.kind === "field_recovery" ? ".asfrecovery" : ".asfbatch",
+              ],
+            },
+            description:
+              input.kind === "field_recovery" ? "Field Recovery Export" : "Reviewed Field Batch",
+          },
+        ],
+      });
+      const writable = await destination.createWritable({ keepExistingData: false });
       for await (const bytes of this.reopen()) await writable.write(new Uint8Array(bytes));
       await writable.close();
+      await this.dispose();
       return "published";
     } catch (error) {
-      await writable.abort().catch(() => undefined);
+      await this.dispose();
       throw error;
     }
   }

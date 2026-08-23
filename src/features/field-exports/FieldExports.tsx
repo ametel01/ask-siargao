@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { FieldDeskArchiveHeader } from "@/features/field-desk/desk-schemas";
 import { FieldDeskRepository } from "@/features/field-desk/field-desk-repository";
 import { allRecords, effectiveReview } from "@/features/field-desk/field-desk-state";
@@ -21,13 +21,16 @@ import type {
   ArtifactPreamble,
   AuthenticatedRegistrySnapshot,
   RestorePreview,
+  TransferReceipt,
 } from "./artifact-schemas";
+import { transferReceiptSchema } from "./artifact-schemas";
 import { createFieldBatchExport, deriveFieldBatchGraph } from "./field-batch";
 import { openCanonicalArtifact } from "./package-format";
 import { OpfsStagedArtifactSink } from "./package-sink";
 import { openRecipientContentKey } from "./recipient-envelope";
 import { createFieldRecoveryExport } from "./recovery-export";
 import { commitConfirmedRestore, createRestorePreview, type RestoreImmutableItem } from "./restore";
+import { verifyDestinationTransferReceipt } from "./transfer-receipt";
 
 type PendingRestore = {
   incoming: readonly RestoreImmutableItem[];
@@ -51,7 +54,9 @@ function ProductionExports() {
   );
   const [pendingRestore, setPendingRestore] = useState<PendingRestore>();
   const [transferId, setTransferId] = useState<string>();
-  const [receiptState] = useState("No destination receipt verified.");
+  const [receiptState, setReceiptState] = useState("No destination receipt verified.");
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const locked = security.status !== "unlocked";
 
   async function registry(): Promise<AuthenticatedRegistrySnapshot> {
@@ -76,6 +81,9 @@ function ProductionExports() {
   }
 
   async function createRecovery() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
     setRecoveryState("Creating encrypted Recovery Export from local custody…");
     try {
       const transfer = crypto.randomUUID();
@@ -85,34 +93,39 @@ function ProductionExports() {
         if (!wrap) throw new Error("field_key_unavailable");
         const recipient = await deskRecipient(await registry());
         const sink = await OpfsStagedArtifactSink.create();
-        const receipt = await createFieldRecoveryExport({
-          artifactId: crypto.randomUUID(),
-          contentKey: randomFieldBytes(32),
-          createdAt: new Date(),
-          recipientDeviceId: recipient.id,
-          recoveryWrap: wrap.value,
-          registry: await registry(),
-          sink,
-          transferId: transfer,
-          vault,
-          vaultKey: key,
-        });
-        const parsed = await readPreambleFromStream(sink.reopen());
-        await vault.putOutstandingTransfer({
-          artifactKind: "field_recovery",
-          ciphertextSha256: receipt.ciphertextSha256,
-          createdAt: new Date().toISOString(),
-          nonce: parsed.contentKeyEnvelope.nonce,
-          recipientDeviceId: recipient.id,
-          state: "outstanding",
-          transferId: transfer,
-        });
-        const publication = await sink.publishVerified({
-          filename: receipt.filename,
-          kind: "field_recovery",
-        });
-        if (publication !== "published") throw new Error("field_physical_handoff_required");
-        return receipt;
+        try {
+          const receipt = await createFieldRecoveryExport({
+            artifactId: crypto.randomUUID(),
+            contentKey: randomFieldBytes(32),
+            createdAt: new Date(),
+            recipientDeviceId: recipient.id,
+            recoveryWrap: wrap.value,
+            registry: await registry(),
+            sink,
+            transferId: transfer,
+            vault,
+            vaultKey: key,
+          });
+          const parsed = await readPreambleFromStream(sink.reopen());
+          const publication = await sink.publishVerified({
+            filename: receipt.filename,
+            kind: "field_recovery",
+          });
+          if (publication !== "published") throw new Error("field_physical_handoff_required");
+          await vault.putOutstandingTransfer({
+            artifactKind: "field_recovery",
+            ciphertextSha256: receipt.ciphertextSha256,
+            createdAt: new Date().toISOString(),
+            nonce: parsed.contentKeyEnvelope.nonce,
+            recipientDeviceId: recipient.id,
+            state: "outstanding",
+            transferId: transfer,
+          });
+          return receipt;
+        } catch (error) {
+          await sink.dispose();
+          throw error;
+        }
       });
       setTransferId(transfer);
       setRecoveryState(
@@ -122,10 +135,16 @@ function ProductionExports() {
       setRecoveryState(
         `Recovery Export blocked (${error instanceof Error ? error.message : "authorization unavailable"}).`,
       );
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
   }
 
   async function createBatch() {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
     setBatchState("Deriving reviewed referential closure from local Desk custody…");
     try {
       const result = await security.withVaultKey(async (key) => {
@@ -149,32 +168,37 @@ function ProductionExports() {
         const recipient = await deskRecipient(snapshot);
         const transfer = crypto.randomUUID();
         const sink = await OpfsStagedArtifactSink.create();
-        const receipt = await createFieldBatchExport({
-          artifactId: crypto.randomUUID(),
-          contentKey: randomFieldBytes(32),
-          createdAt: new Date(),
-          graph,
-          recipientDeviceId: recipient.id,
-          registry: snapshot,
-          sink,
-          transferId: transfer,
-        });
-        const parsed = await readPreambleFromStream(sink.reopen());
-        await new IndexedDbFieldVault().putOutstandingTransfer({
-          artifactKind: "field_batch",
-          ciphertextSha256: receipt.ciphertextSha256,
-          createdAt: new Date().toISOString(),
-          nonce: parsed.contentKeyEnvelope.nonce,
-          recipientDeviceId: recipient.id,
-          state: "outstanding",
-          transferId: transfer,
-        });
-        const publication = await sink.publishVerified({
-          filename: receipt.filename,
-          kind: "field_batch",
-        });
-        if (publication !== "published") throw new Error("field_physical_handoff_required");
-        return { receipt, transfer };
+        try {
+          const receipt = await createFieldBatchExport({
+            artifactId: crypto.randomUUID(),
+            contentKey: randomFieldBytes(32),
+            createdAt: new Date(),
+            graph,
+            recipientDeviceId: recipient.id,
+            registry: snapshot,
+            sink,
+            transferId: transfer,
+          });
+          const parsed = await readPreambleFromStream(sink.reopen());
+          const publication = await sink.publishVerified({
+            filename: receipt.filename,
+            kind: "field_batch",
+          });
+          if (publication !== "published") throw new Error("field_physical_handoff_required");
+          await new IndexedDbFieldVault().putOutstandingTransfer({
+            artifactKind: "field_batch",
+            ciphertextSha256: receipt.ciphertextSha256,
+            createdAt: new Date().toISOString(),
+            nonce: parsed.contentKeyEnvelope.nonce,
+            recipientDeviceId: recipient.id,
+            state: "outstanding",
+            transferId: transfer,
+          });
+          return { receipt, transfer };
+        } catch (error) {
+          await sink.dispose();
+          throw error;
+        }
       });
       setTransferId(result.transfer);
       setBatchState(`Created ${result.receipt.filename}. Transfer receipt is still required.`);
@@ -182,6 +206,9 @@ function ProductionExports() {
       setBatchState(
         `Field Batch blocked (${error instanceof Error ? error.message : "reviewed closure unavailable"}).`,
       );
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
   }
 
@@ -305,6 +332,34 @@ function ProductionExports() {
     }
   }
 
+  async function verifyReceipt(file: File) {
+    setReceiptState("Verifying the machine-generated destination receipt…");
+    try {
+      const receipt = transferReceiptSchema.parse(JSON.parse(await file.text())) as TransferReceipt;
+      await security.withVaultKey(async () => {
+        const snapshot = await registry();
+        const recipient = snapshot.devices.find(
+          (device) => device.id === receipt.recipientDeviceId,
+        );
+        if (!recipient) throw new Error("field_transfer_receipt_invalid");
+        const vault = new IndexedDbFieldVault();
+        const outstanding = await vault.getTransfer(receipt.transferId);
+        if (!outstanding) throw new Error("field_transfer_receipt_invalid");
+        await verifyDestinationTransferReceipt({ outstanding, receipt, recipient });
+        await vault.acceptTransfer({
+          receiptId: receipt.receiptId,
+          transferId: receipt.transferId,
+        });
+      });
+      setTransferId(undefined);
+      setReceiptState(`Destination receipt verified: ${receipt.receiptId}.`);
+    } catch (error) {
+      setReceiptState(
+        `Receipt rejected (${error instanceof Error ? error.message : "invalid receipt"}).`,
+      );
+    }
+  }
+
   if (locked)
     return (
       <>
@@ -345,6 +400,7 @@ function ProductionExports() {
             </p>
             <button
               className="mt-4 min-h-11 rounded-lg bg-[#0a6f67] px-5 font-bold text-white"
+              disabled={busy}
               onClick={() => void createRecovery()}
               type="button"
             >
@@ -386,6 +442,7 @@ function ProductionExports() {
             </p>
             <button
               className="mt-4 min-h-11 rounded-lg bg-[#5d3ed1] px-5 font-bold text-white"
+              disabled={busy}
               onClick={() => void createBatch()}
               type="button"
             >
@@ -394,8 +451,21 @@ function ProductionExports() {
             <p className="mt-6 text-sm font-bold">Destination receipt verification</p>
             <p className="mt-2 text-sm text-[#5f5f87]">
               Destination verification is completed on the authorized recipient device and returned
-              through the Diagnostics and Recovery handoff.
+              as a machine-generated receipt.
             </p>
+            <label className="mt-3 block text-sm font-bold" htmlFor="transfer-receipt">
+              Import machine-generated destination receipt
+              <input
+                accept="application/json,.json"
+                className="mt-2 block w-full rounded-lg border p-3 font-normal"
+                id="transfer-receipt"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void verifyReceipt(file);
+                }}
+                type="file"
+              />
+            </label>
             <p className="mt-3 text-sm" role="status">
               {receiptState}
               {transferId ? ` Transfer ${transferId} remains outstanding until accepted.` : ""}
