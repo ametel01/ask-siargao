@@ -72,7 +72,11 @@ async function hasLivePreparedShell(
       buildId?: string;
       preparationId?: string;
     };
-    return selected.buildId === readiness.buildId && typeof selected.preparationId === "string";
+    return (
+      selected.buildId === readiness.buildId &&
+      typeof selected.preparationId === "string" &&
+      /^[A-Za-z0-9-]{16,200}$/.test(selected.preparationId)
+    );
   } catch {
     return false;
   }
