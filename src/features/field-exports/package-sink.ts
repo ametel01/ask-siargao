@@ -88,11 +88,10 @@ export class OpfsStagedArtifactSink implements StagedArtifactSink {
     }
     try {
       if (!picker.showSaveFilePicker) {
-        const chunks: BlobPart[] = [];
-        for await (const bytes of this.reopen()) {
-          chunks.push(new Uint8Array(bytes) as unknown as BlobPart);
-        }
-        const file = new File(chunks, input.filename, { type: "application/octet-stream" });
+        // The OPFS-backed File is a Blob part, not a byte-array copy. This keeps share fallback
+        // bounded for large exports while still presenting the governed filename to iPadOS.
+        const staged = await this.handle.getFile();
+        const file = new File([staged], input.filename, { type: "application/octet-stream" });
         if (sharing.canShare && !sharing.canShare({ files: [file] })) {
           await this.dispose();
           return "physical_handoff_required";
