@@ -17,7 +17,8 @@ export function FieldOfflineAreas(props: { protocol: RecorderProtocol }) {
   return (
     <div data-field-offline-areas="recorder review exports diagnostics-recovery">
       <p className="sr-only">
-        Prepared offline areas: Recorder, Review, Exports, and Diagnostics and Recovery.
+        Prepared offline areas: Recorder, Review, and Exports. Diagnostics and Recovery is an
+        exceptional recovery surface.
       </p>
       <FieldRecorderShell embedded protocol={props.protocol} />
       <section

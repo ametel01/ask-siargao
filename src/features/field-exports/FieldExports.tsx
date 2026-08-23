@@ -54,6 +54,9 @@ function ProductionExports() {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const locked = security.status !== "unlocked";
+  const physicalHandoffAvailable =
+    typeof window !== "undefined" &&
+    ("showSaveFilePicker" in window || typeof navigator.share === "function");
 
   async function registry(): Promise<AuthenticatedRegistrySnapshot> {
     const response = await fetch("/api/operator/field/devices", { cache: "no-store" });
@@ -338,6 +341,21 @@ function ProductionExports() {
             <p className="mt-2 text-[#5f5f87]">
               Unlock an Authorized Desk device before reading or exporting encrypted custody.
             </p>
+            <p className="mt-5 text-sm" role="status">
+              Not created
+            </p>
+            <button
+              className="mt-4 min-h-11 rounded-lg bg-[#0a6f67] px-5 font-bold text-white"
+              disabled
+              type="button"
+            >
+              Create Recovery Export
+            </button>
+            <p className="mt-5 border-t border-[#ddd8ef] pt-5 text-sm text-[#5f5f87]">
+              A copied file is not a Verified Field Transfer. Completion requires recipient decrypt,
+              integrity and reference validation, a destination signature, and source receipt
+              verification.
+            </p>
           </section>
         </FieldMain>
       </>
@@ -368,7 +386,7 @@ function ProductionExports() {
             </p>
             <button
               className="mt-4 min-h-11 rounded-lg bg-[#0a6f67] px-5 font-bold text-white"
-              disabled={busy}
+              disabled={busy || !physicalHandoffAvailable}
               onClick={() => void createRecovery()}
               type="button"
             >
@@ -410,7 +428,7 @@ function ProductionExports() {
             </p>
             <button
               className="mt-4 min-h-11 rounded-lg bg-[#5d3ed1] px-5 font-bold text-white"
-              disabled={busy}
+              disabled={busy || !physicalHandoffAvailable}
               onClick={() => void createBatch()}
               type="button"
             >

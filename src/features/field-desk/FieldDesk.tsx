@@ -147,7 +147,7 @@ function DeskReviewSurface(props: {
             ...record.value,
             id: crypto.randomUUID(),
             supersedesId: record.value.id,
-            value: { ...record.value.value, fieldDeskCorrection: parsedCorrection.data },
+            captureConfidenceReason: parsedCorrection.data,
           },
         };
       }
