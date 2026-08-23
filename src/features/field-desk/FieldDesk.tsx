@@ -641,7 +641,7 @@ export function RecordSummary(props: {
   } else if (record.kind === "sourceStatement") {
     fields.push(
       ["Question asked", record.value.questionAsked],
-      ["Source content", "Original statement withheld from the review summary"],
+      ["Protected source statement", record.value.originalStatement],
       ["Basis of knowledge", record.value.basisOfKnowledge],
       ["Capture context", record.value.captureContext],
       ["Source language", record.value.originalLanguage],

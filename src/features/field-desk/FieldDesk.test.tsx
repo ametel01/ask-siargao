@@ -115,11 +115,11 @@ describe("Field Desk record context", () => {
     expect(assetHtml).toContain("Retention");
     expect(sourceHtml).toContain("Source language");
     expect(sourceHtml).toContain("Question asked");
-    expect(sourceHtml).toContain("Original statement withheld");
+    expect(sourceHtml).toContain("Protected source statement");
     expect(sourceHtml).toContain("Participation consent");
     expect(sourceHtml).toContain("Public-use consent");
     expect(sourceHtml).toContain("Attribution");
-    expect(sourceHtml).not.toContain(examples.sourceStatement.originalStatement);
+    expect(sourceHtml).toContain(examples.sourceStatement.originalStatement);
   });
 
   test("restricts correction and follow-up controls by record kind", () => {
