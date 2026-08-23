@@ -138,11 +138,18 @@ function DeskReviewSurface(props: {
       const id = crypto.randomUUID();
       let supersedingRecord: RecorderRecord | undefined;
       if (decision === "correct_by_supersession") {
-        const corrected = JSON.parse(correction) as typeof record.value;
-        if (!corrected || corrected.id === record.value.id) {
-          throw new Error("A superseding record must have a new immutable ID.");
+        if (record.kind !== "fieldObservation") {
+          throw new Error("Typed correction is currently available for observations only.");
         }
-        supersedingRecord = { ...record, value: corrected } as RecorderRecord;
+        supersedingRecord = {
+          kind: "fieldObservation",
+          value: {
+            ...record.value,
+            id: crypto.randomUUID(),
+            supersedesId: record.value.id,
+            value: { ...record.value.value, fieldDeskCorrection: correction.trim() },
+          },
+        };
       }
       const review = await appendFieldReview({
         review: {
@@ -228,9 +235,7 @@ function DeskReviewSurface(props: {
                 {prior?.decision ?? "Awaiting review"}
               </span>
             </div>
-            <pre className="mt-5 max-h-56 overflow-auto rounded-lg bg-[#fbf6e8] p-4 text-xs">
-              {JSON.stringify(record?.value, null, 2)}
-            </pre>
+            <RecordSummary record={record} />
             <fieldset className="mt-6">
               <legend className="text-base font-bold">Record a Field Review decision</legend>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -268,7 +273,7 @@ function DeskReviewSurface(props: {
             ) : null}
             {decision === "correct_by_supersession" ? (
               <label className="mt-5 block font-bold" htmlFor="corrected-value">
-                Corrected observation value
+                Typed corrected observation note
                 <input
                   className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
                   id="corrected-value"
@@ -319,6 +324,60 @@ function DeskReviewSurface(props: {
       </div>
     </FieldMain>
   );
+}
+
+function RecordSummary({ record }: { record?: RecorderRecord }) {
+  if (!record) return null;
+  const value = record.value as unknown as Record<string, unknown>;
+  const fields: Array<[string, unknown]> = [
+    ["Record type", record.kind],
+    ["Record ID", value.id],
+    ["Assignment", value.assignmentId],
+    ["Visit", value.visitId],
+    ["Recorded", value.recordedAt],
+    ["Capture state", value.captureState],
+  ];
+  if (record.kind === "fieldObservation") {
+    fields.push(
+      ["Observation kind", record.value.observationKind],
+      ["Directness", record.value.directness],
+      ["Observed", record.value.observedAt],
+      ["Confidence", record.value.captureConfidence],
+      ["Subject", record.value.subject.kind],
+    );
+  } else if (record.kind === "fieldVisit") {
+    fields.push(
+      ["Started", record.value.startedAt],
+      ["Ended", record.value.endedAt],
+      ["Location permission", record.value.locationPermissionState],
+      ["Target", record.value.target.kind],
+    );
+  } else if (record.kind === "routeRun") {
+    fields.push(
+      ["Transport", record.value.transportMode],
+      ["Requested", record.value.requestedAt],
+      ["Departed", record.value.departedAt],
+      ["Arrived", record.value.arrivedAt],
+    );
+  }
+  return (
+    <dl className="mt-5 grid gap-3 rounded-lg bg-[#fbf6e8] p-4 text-sm sm:grid-cols-2">
+      {fields.map(([label, field]) => (
+        <div key={label}>
+          <dt className="font-bold">{label}</dt>
+          <dd className="break-words text-[#5f5f87]">{displayField(field)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function displayField(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "Not recorded";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "Structured protected field";
 }
 
 function LockedDeskState() {

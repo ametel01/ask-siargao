@@ -13,10 +13,10 @@ import type {
 import {
   type FieldPlannerReadinessHandoff,
   loadPlannerReadiness,
-  savePlannerReadiness,
 } from "@/features/field-planning/planner-readiness-vault";
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
+import { FieldMain } from "@/features/field-workspace/FieldMain";
 
 import { FieldRecorderRepository } from "./field-recorder-repository";
 import { createRecorderWork } from "./field-recorder-state";
@@ -91,76 +91,33 @@ export function FieldPlanRecorderBridge(props: {
           protocol={props.protocol}
         />
       ) : (
-        <ReadinessHandoffPanel
-          disabled={security.status !== "unlocked"}
-          message={readinessState}
-          onImport={async (handoff) => {
-            await security.withVaultKey((key) =>
-              savePlannerReadiness(handoff, props.protocol, key),
-            );
-            setReadiness({ coverageSnapshot: handoff.coverageSnapshot, inputs: handoff.inputs });
-            setReadinessState(`Approved local readiness ${handoff.source.id} saved.`);
-          }}
-        />
+        <ReadinessHandoffPanel message={readinessState} />
       )}
     </>
   );
 }
 
-function ReadinessHandoffPanel(props: {
-  disabled: boolean;
-  message: string;
-  onImport: (handoff: FieldPlannerReadinessHandoff) => Promise<void>;
-}) {
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+function ReadinessHandoffPanel(props: { message: string }) {
   return (
-    <main className="mx-auto min-h-screen max-w-3xl bg-[var(--surface-soft)] px-6 py-12 text-[var(--text-default)]">
+    <FieldMain className="mx-auto min-h-screen max-w-3xl bg-[var(--surface-soft)] px-6 py-12 text-[var(--text-default)]">
       <section className="rounded-2xl bg-[var(--surface-default)] p-6 shadow-[var(--shadow-panel)]">
         <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-reef-700)]">
           Protected Field Readiness
         </p>
         <h1 className="mt-2 text-3xl font-semibold text-[var(--text-strong)]">
-          Import an approved handoff
+          Field Readiness is unavailable
         </h1>
         <p className="mt-3 text-[var(--text-muted)]">{props.message}</p>
         <p className="mt-3 text-sm text-[var(--text-muted)]">
-          This route accepts only a handoff prepared by an approved Field operator. Unknown or
-          mismatched evidence remains blocked and is never replaced with a fixture.
+          Unknown or mismatched evidence remains blocked and is never replaced with a fixture.
         </p>
-        <label className="mt-6 block text-sm font-semibold" htmlFor="field-readiness-handoff">
-          Readiness handoff JSON
-          <input
-            accept="application/json,.json"
-            className="mt-2 block w-full rounded-lg border border-[var(--border-strong)] bg-[var(--surface-default)] p-3"
-            disabled={props.disabled || busy}
-            id="field-readiness-handoff"
-            onChange={async (event) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              setError("");
-              setBusy(true);
-              try {
-                const handoff = JSON.parse(await file.text()) as FieldPlannerReadinessHandoff;
-                await props.onImport(handoff);
-              } catch {
-                setError(
-                  "Handoff rejected. Verify the approved source, protocol version, and evidence.",
-                );
-              } finally {
-                setBusy(false);
-                event.target.value = "";
-              }
-            }}
-            type="file"
-          />
-        </label>
-        {error ? (
-          <p className="mt-3 text-sm text-red-800" role="alert">
-            {error}
-          </p>
-        ) : null}
+        <a
+          className="mt-6 inline-flex min-h-11 items-center rounded-lg bg-[var(--brand-reef-700)] px-4 py-2 font-semibold text-white"
+          href="/operator/field/diagnostics-recovery/legacy-import"
+        >
+          Open Diagnostics and Recovery
+        </a>
       </section>
-    </main>
+    </FieldMain>
   );
 }

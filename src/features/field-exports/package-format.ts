@@ -158,7 +158,7 @@ export async function packageCanonicalArtifact(input: {
 }
 
 export async function openCanonicalArtifact(input: {
-  expectedCiphertextSha256: string;
+  expectedCiphertextSha256?: string;
   expectedKind: ArtifactKind;
   openContentKey: (preamble: ArtifactPreamble) => Promise<Uint8Array>;
   onRecord: (record: { path: string; recordType: string; value: unknown }) => Promise<void> | void;
@@ -242,7 +242,8 @@ export async function openCanonicalArtifact(input: {
       rootManifest.payloadCiphertextBytes !== payloadCiphertextBytes ||
       rootManifest.payloadCiphertextSha256 !== hex(payloadHash.digest()) ||
       canonicalStringify(rootManifest.files) !== canonicalStringify(lineValidator.manifests()) ||
-      hex(artifactHash.digest()) !== input.expectedCiphertextSha256
+      (input.expectedCiphertextSha256 !== undefined &&
+        hex(artifactHash.digest()) !== input.expectedCiphertextSha256)
     ) {
       throw new FieldSecurityError("field_artifact_invalid");
     }

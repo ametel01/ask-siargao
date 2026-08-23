@@ -37,6 +37,17 @@ export async function savePlannerReadiness(
   key: Uint8Array,
   vault = new IndexedDbFieldVault(),
 ): Promise<void> {
+  const [authorization, fieldReadiness] = await Promise.all([
+    vault.getMetadata("authorization-envelope"),
+    vault.getMetadata("field-readiness"),
+  ]);
+  if (
+    !authorization ||
+    !fieldReadiness?.value.persisted ||
+    !fieldReadiness.value.offlineShellPrepared
+  ) {
+    throw new FieldSecurityError("field_key_unavailable");
+  }
   assertReadinessHandoff(handoff, protocol);
   const envelope = encryptFieldValue({
     applicationVersion: "0.1.0",
@@ -63,23 +74,33 @@ export function assertReadinessHandoff(
   if (
     handoff.version !== 1 ||
     !/^[0-9a-f-]{36}$/iu.test(handoff.handoffId) ||
-    !/^[a-zA-Z0-9._-]{1,200}$/u.test(handoff.source.id) ||
+    !/^field_readiness_[A-Za-z0-9_-]{16,}$/u.test(handoff.source.id) ||
     handoff.source.kind !== "approved_local_handoff" ||
     handoff.protocolPackageId !== protocol.packageId ||
     handoff.protocolPackageVersion !== protocol.packageVersion ||
     handoff.coverageSnapshot.protocolPackageId !== protocol.packageId ||
     handoff.coverageSnapshot.protocolPackageVersion !== protocol.packageVersion ||
-    !Number.isFinite(Date.parse(handoff.handedOffAt))
+    !Number.isFinite(Date.parse(handoff.handedOffAt)) ||
+    Date.parse(handoff.handedOffAt) > Date.now() + 2 * 60_000 ||
+    Date.now() - Date.parse(handoff.handedOffAt) > 24 * 60 * 60_000
   ) {
     throw new FieldSecurityError("field_artifact_invalid");
   }
   for (const gate of handoff.inputs.assignmentGates) {
-    if (!protocol.assignments.some((assignment) => assignment.id === gate.assignmentId)) {
+    if (
+      !protocol.assignments.some((assignment) => assignment.id === gate.assignmentId) ||
+      /^fixture|^test|^preflight$/iu.test(gate.sourceId) ||
+      /^gate-fingerprint-|^fixture|^test/iu.test(gate.fingerprint)
+    ) {
       throw new FieldSecurityError("field_artifact_invalid");
     }
   }
   for (const evidence of handoff.inputs.eligibilityEvidence) {
-    if (!protocol.assignments.some((assignment) => assignment.id === evidence.assignmentId)) {
+    if (
+      !protocol.assignments.some((assignment) => assignment.id === evidence.assignmentId) ||
+      /^fixture|^test|^preflight$/iu.test(evidence.sourceId) ||
+      /^preflight-|^fixture|^test/iu.test(evidence.fingerprint)
+    ) {
       throw new FieldSecurityError("field_artifact_invalid");
     }
   }
