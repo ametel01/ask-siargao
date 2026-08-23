@@ -22,6 +22,7 @@ import {
   TextField,
 } from "./form-controls";
 import type { CaptureFormSubmission } from "./form-types";
+import { optionalInstant } from "./form-values";
 import { ObservationForm } from "./ObservationForm";
 
 const captureModes = [
@@ -731,8 +732,4 @@ function TypedForm(props: {
 
 function instant(data: FormData, name: string): string {
   return new Date(string(data, name)).toISOString();
-}
-function optionalInstant(data: FormData, name: string): string | undefined {
-  const value = string(data, name);
-  return value ? new Date(value).toISOString() : undefined;
 }

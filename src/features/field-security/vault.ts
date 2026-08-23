@@ -456,8 +456,15 @@ export class IndexedDbFieldVault {
   }): Promise<void> {
     await this.withTransaction([deviceKeyStore], "readwrite", async (transaction) => {
       const store = transaction.objectStore(deviceKeyStore);
-      store.put({ key: "agreement-private", value: input.agreementPrivateKey });
-      store.put({ key: "signing-private", value: input.signingPrivateKey });
+      const existing = await Promise.all([
+        requestResult(store.get("agreement-private")),
+        requestResult(store.get("signing-private")),
+      ]);
+      if (existing.some(Boolean)) {
+        throw new FieldSecurityError("field_device_custody_exists");
+      }
+      store.add({ key: "agreement-private", value: input.agreementPrivateKey });
+      store.add({ key: "signing-private", value: input.signingPrivateKey });
     });
   }
 
@@ -584,7 +591,7 @@ export class IndexedDbFieldVault {
         requestResult(store.getKey("agreement-private")),
         requestResult(store.getKey("signing-private")),
       ]);
-      return agreement !== undefined && signing !== undefined;
+      return agreement !== undefined || signing !== undefined;
     });
   }
 

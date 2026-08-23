@@ -1,3 +1,4 @@
+import { deepFreeze } from "./deep-freeze";
 import { proposeFieldDayPlan } from "./field-planner";
 import type {
   FieldCoverageSnapshot,
@@ -123,12 +124,4 @@ function rebuildInOrder(
     plannedReturnMinutes,
     remainingMinutes: usableMinutes - consumedMinutes - plannedReturnMinutes,
   };
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) deepFreeze(child);
-  }
-  return value;
 }

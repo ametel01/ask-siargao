@@ -29,6 +29,47 @@ describe("encrypted IndexedDB vault", () => {
     expect(await vault.getEnvelope(envelopes[0].opaqueRecordKey)).toEqual(envelopes[0]);
   });
 
+  test("never overwrites existing device custody during repeated authorization", async () => {
+    const vault = new IndexedDbFieldVault();
+    const firstAgreement = await crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveBits"],
+    );
+    const firstSigning = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"],
+    );
+    await vault.putDeviceKeys({
+      agreementPrivateKey: firstAgreement.privateKey,
+      signingPrivateKey: firstSigning.privateKey,
+    });
+    expect(await vault.hasDeviceKeys()).toBe(true);
+    const secondAgreement = await crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveBits"],
+    );
+    const secondSigning = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"],
+    );
+    await expect(
+      vault.putDeviceKeys({
+        agreementPrivateKey: secondAgreement.privateKey,
+        signingPrivateKey: secondSigning.privateKey,
+      }),
+    ).rejects.toEqual(new FieldSecurityError("field_device_custody_exists"));
+    expect(
+      await crypto.subtle.exportKey("jwk", await vault.getDeviceKey("agreement-private")),
+    ).toEqual(await crypto.subtle.exportKey("jwk", firstAgreement.privateKey));
+    expect(
+      await crypto.subtle.exportKey("jwk", await vault.getDeviceKey("signing-private")),
+    ).toEqual(await crypto.subtle.exportKey("jwk", firstSigning.privateKey));
+  });
+
   test("denies concurrent writers and requires an encrypted takeover receipt after suspension", async () => {
     const vault = new IndexedDbFieldVault();
     const visitReference = "visit_ref_1234567890123456";

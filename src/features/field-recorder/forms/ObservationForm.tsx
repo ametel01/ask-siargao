@@ -23,6 +23,7 @@ import {
   TextField,
 } from "./form-controls";
 import type { ObservationCaptureSubmission } from "./form-types";
+import { optionalInstant } from "./form-values";
 
 export const observationKinds = [
   "identity",
@@ -953,9 +954,4 @@ function splitComma(data: FormData, name: string): string[] {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-}
-
-function optionalInstant(data: FormData, name: string): string | undefined {
-  const value = string(data, name);
-  return value ? new Date(value).toISOString() : undefined;
 }

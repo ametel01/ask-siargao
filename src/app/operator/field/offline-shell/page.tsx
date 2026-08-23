@@ -1,3 +1,4 @@
+import { loadPlannerProtocol } from "@/features/field-planning/load-planner-protocol";
 import { loadRecorderProtocol } from "@/features/field-recorder/load-recorder-protocol";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
 import { FieldMain } from "@/features/field-workspace/FieldMain";
@@ -20,10 +21,13 @@ function FieldOfflineShell(props: { children?: React.ReactNode }) {
 }
 
 export default async function FieldOfflineShellPage() {
-  const protocol = await loadRecorderProtocol();
+  const [protocol, plannerProtocol] = await Promise.all([
+    loadRecorderProtocol(),
+    loadPlannerProtocol(),
+  ]);
   return (
     <FieldOfflineShell>
-      <FieldOfflineAreas protocol={protocol} />
+      <FieldOfflineAreas plannerProtocol={plannerProtocol} protocol={protocol} />
     </FieldOfflineShell>
   );
 }

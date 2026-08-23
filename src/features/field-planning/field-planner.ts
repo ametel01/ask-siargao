@@ -1,3 +1,4 @@
+import { deepFreeze } from "./deep-freeze";
 import type {
   CoverageConsequence,
   FieldCoverageSnapshot,
@@ -401,12 +402,4 @@ function assertUnique(values: readonly string[], label: string) {
 
 function isFiniteNonNegative(value: number) {
   return Number.isFinite(value) && value >= 0;
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) deepFreeze(child);
-  }
-  return value;
 }

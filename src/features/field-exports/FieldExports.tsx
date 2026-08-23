@@ -38,11 +38,11 @@ type PendingRestore = {
 
 import { FieldMain } from "@/features/field-workspace/FieldMain";
 
-export function FieldExports(props: { harness?: boolean }) {
-  return props.harness ? <HarnessExports /> : <ProductionExports />;
+export function FieldExports(props: { embedded?: boolean; harness?: boolean }) {
+  return props.harness ? <HarnessExports /> : <ProductionExports embedded={props.embedded} />;
 }
 
-function ProductionExports() {
+function ProductionExports(props: { embedded?: boolean }) {
   const security = useFieldSecuritySession();
   const [recoveryState, setRecoveryState] = useState("No Recovery Export created.");
   const [batchState, setBatchState] = useState("No reviewed Field Batch created.");
@@ -54,7 +54,9 @@ function ProductionExports() {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const locked = security.status !== "unlocked";
-  const physicalHandoffAvailable = typeof window !== "undefined" && "showSaveFilePicker" in window;
+  const physicalHandoffAvailable =
+    typeof window !== "undefined" &&
+    ("showSaveFilePicker" in window || typeof navigator.share === "function");
 
   async function registry(): Promise<AuthenticatedRegistrySnapshot> {
     const response = await fetch("/api/operator/field/devices", { cache: "no-store" });
@@ -333,7 +335,10 @@ function ProductionExports() {
     return (
       <>
         <OfflineFieldUnlock />
-        <FieldMain className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
+        <FieldMain
+          landmark={!props.embedded}
+          className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]"
+        >
           <section className="mx-auto max-w-2xl rounded-xl bg-[#fffdf7] p-8">
             <h1 className="text-2xl font-semibold">Protected exports locked</h1>
             <p className="mt-2 text-[#5f5f87]">
@@ -359,7 +364,10 @@ function ProductionExports() {
       </>
     );
   return (
-    <FieldMain className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6">
+    <FieldMain
+      landmark={!props.embedded}
+      className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6"
+    >
       <a
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:p-3"
         href="#export-workflows"

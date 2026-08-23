@@ -1,22 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-
+import type { PlannerProtocol } from "@/features/field-planning/field-planning-types";
 import { baselineFieldProtocolPackage } from "@/features/field-protocol/field-protocol";
 import { FieldSecuritySessionProvider } from "@/features/field-security/FieldSecuritySessionProvider";
 import { FieldOfflineAreas } from "./FieldOfflineAreas";
 
 describe("prepared offline Field Workspace areas", () => {
-  test("includes a locked exceptional Legacy Capture recovery destination", () => {
+  test("advertises every locked offline Workspace area without identity", () => {
     const html = renderToStaticMarkup(
       <FieldSecuritySessionProvider>
-        <FieldOfflineAreas protocol={baselineFieldProtocolPackage} />
+        <FieldOfflineAreas
+          plannerProtocol={baselineFieldProtocolPackage as unknown as PlannerProtocol}
+          protocol={baselineFieldProtocolPackage}
+        />
       </FieldSecuritySessionProvider>,
     );
 
-    expect(html).toContain('id="offline-legacy-import"');
-    expect(html).toContain("Offline Diagnostics and Recovery destination");
-    expect(html).toContain("Legacy import — Diagnostics and Recovery");
-    expect(html).toContain("Protected data locked");
+    expect(html).toContain(
+      'data-field-offline-areas="plan recorder review exports diagnostics-recovery"',
+    );
+    expect(html).toContain(">Plan</button>");
+    expect(html).toContain(">Review</button>");
+    expect(html).toContain(">Exports</button>");
+    expect(html).toContain(">Diagnostics and Recovery</button>");
     expect(html).not.toContain("local admin token");
   });
 });

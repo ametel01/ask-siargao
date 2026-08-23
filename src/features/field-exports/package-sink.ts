@@ -12,6 +12,11 @@ type SavePickerWindow = Window & {
   }) => Promise<FileSystemFileHandle>;
 };
 
+type ShareNavigator = Navigator & {
+  canShare?: (data: ShareData) => boolean;
+  share?: (data: ShareData) => Promise<void>;
+};
+
 export class OpfsStagedArtifactSink implements StagedArtifactSink {
   private writable?: FileSystemWritableFileStream;
   private destinationWritable?: FileSystemWritableFileStream;
@@ -76,11 +81,26 @@ export class OpfsStagedArtifactSink implements StagedArtifactSink {
   }): Promise<"published" | "physical_handoff_required"> {
     if (!this.closed) throw new FieldSecurityError("field_artifact_incomplete");
     const picker = window as SavePickerWindow;
-    if (!picker.showSaveFilePicker) {
+    const sharing = navigator as ShareNavigator;
+    if (!picker.showSaveFilePicker && !sharing.share) {
       await this.dispose();
       return "physical_handoff_required";
     }
     try {
+      if (!picker.showSaveFilePicker) {
+        const chunks: BlobPart[] = [];
+        for await (const bytes of this.reopen()) {
+          chunks.push(new Uint8Array(bytes) as unknown as BlobPart);
+        }
+        const file = new File(chunks, input.filename, { type: "application/octet-stream" });
+        if (sharing.canShare && !sharing.canShare({ files: [file] })) {
+          await this.dispose();
+          return "physical_handoff_required";
+        }
+        await sharing.share?.({ files: [file], title: input.filename });
+        await this.dispose();
+        return "published";
+      }
       const destination = await picker.showSaveFilePicker({
         suggestedName: input.filename,
         types: [

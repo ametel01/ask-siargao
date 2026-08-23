@@ -2,7 +2,7 @@ import {
   baselineFieldProtocolPackage,
   verifyFieldProtocolPackage,
 } from "@/features/field-protocol/field-protocol";
-
+import { deepFreeze } from "./deep-freeze";
 import type {
   EligibilityWindowRule,
   PlannerAssignment,
@@ -53,7 +53,7 @@ export async function loadPlannerProtocol(
     }
   }
 
-  return freeze({
+  return deepFreeze({
     packageId: verification.packageId,
     packageVersion: verification.packageVersion,
     campaignId: string(campaign.campaignId, "campaignId"),
@@ -191,12 +191,4 @@ function positiveNumber(value: unknown, label: string): number {
 
 function assertUnique(values: readonly string[], label: string) {
   if (new Set(values).size !== values.length) throw new Error(`${label} IDs must be unique.`);
-}
-
-function freeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) freeze(child);
-  }
-  return value;
 }

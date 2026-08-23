@@ -92,6 +92,13 @@ export function FieldSecurityWorkspace() {
     const attempt = runFieldAuthorizationSingleFlight(authorizationPromise, async () => {
       setStatus("Waiting for verified device-bound WebAuthn registration…");
       try {
+        const vault = new IndexedDbFieldVault();
+        if (await vault.hasDeviceKeys()) {
+          setStatus(
+            "Existing encrypted device custody is preserved. Unlock or recover this device before reauthorization.",
+          );
+          return;
+        }
         const keyAlgorithm = { name: "ECDSA", namedCurve: "P-256" } as const;
         const signingKeys = await crypto.subtle.generateKey(keyAlgorithm, false, [
           "sign",
@@ -150,7 +157,7 @@ export function FieldSecurityWorkspace() {
             unlockCredential: DeviceBoundCredentialEvidence;
           };
         };
-        await new IndexedDbFieldVault().putDeviceKeys({
+        await vault.putDeviceKeys({
           agreementPrivateKey: agreementKeys.privateKey,
           signingPrivateKey: signingKeys.privateKey,
         });

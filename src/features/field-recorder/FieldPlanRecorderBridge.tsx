@@ -27,6 +27,7 @@ export function FieldPlanRecorderBridge(props: {
   protocol: PlannerProtocol;
   coverageSnapshot?: FieldCoverageSnapshot;
   initialInputs?: PlannerInputs;
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const security = useFieldSecuritySession();
@@ -93,6 +94,7 @@ export function FieldPlanRecorderBridge(props: {
       {security.status !== "unlocked" ? <OfflineFieldUnlock /> : null}
       {readiness ? (
         <FieldDayPlanner
+          embedded={props.embedded}
           confirmationIdentity={
             claims ? { deviceId: claims.deviceId, researcherId: claims.accountId } : undefined
           }
@@ -102,15 +104,18 @@ export function FieldPlanRecorderBridge(props: {
           protocol={props.protocol}
         />
       ) : (
-        <ReadinessHandoffPanel message={readinessState} />
+        <ReadinessHandoffPanel embedded={props.embedded} message={readinessState} />
       )}
     </>
   );
 }
 
-function ReadinessHandoffPanel(props: { message: string }) {
+function ReadinessHandoffPanel(props: { embedded?: boolean; message: string }) {
   return (
-    <FieldMain className="mx-auto min-h-screen max-w-3xl bg-[var(--surface-soft)] px-6 py-12 text-[var(--text-default)]">
+    <FieldMain
+      landmark={!props.embedded}
+      className="mx-auto min-h-screen max-w-3xl bg-[var(--surface-soft)] px-6 py-12 text-[var(--text-default)]"
+    >
       <section className="rounded-2xl bg-[var(--surface-default)] p-6 shadow-[var(--shadow-panel)]">
         <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-reef-700)]">
           Protected Field Readiness

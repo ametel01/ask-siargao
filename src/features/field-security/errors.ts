@@ -7,6 +7,7 @@ export const fieldSecurityErrorCodes = [
   "field_ciphertext_tampered",
   "field_clock_rollback_detected",
   "field_device_not_authorized",
+  "field_device_custody_exists",
   "field_device_revoked",
   "field_grant_expired",
   "field_grant_invalid",

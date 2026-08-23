@@ -37,6 +37,7 @@ const planAdjustmentButtonClassName =
   "min-h-11 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-soft)] px-3 py-2 text-sm font-semibold text-[var(--text-strong)] shadow-sm transition-colors hover:bg-[var(--brand-lagoon-100)] hover:text-[var(--brand-reef-900)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-lagoon-700)] disabled:cursor-not-allowed disabled:opacity-60";
 
 export function FieldDayPlanner({
+  embedded = false,
   protocol,
   coverageSnapshot,
   initialInputs,
@@ -48,6 +49,7 @@ export function FieldDayPlanner({
   initialInputs: PlannerInputs;
   confirmationIdentity?: FieldDayPlannerConfirmationIdentity;
   onConfirm?: (snapshot: FieldPlanSnapshot) => Promise<void>;
+  embedded?: boolean;
 }>) {
   const plannerRoot = useRef<HTMLDivElement>(null);
   const confirmationResult = useRef<HTMLDivElement>(null);
@@ -176,7 +178,7 @@ export function FieldDayPlanner({
       className="min-h-screen bg-[var(--surface-soft)] px-4 py-8 sm:px-8"
       data-field-planner-ready="false"
     >
-      <FieldMain className="mx-auto max-w-5xl space-y-8">
+      <FieldMain landmark={!embedded} className="mx-auto max-w-5xl space-y-8">
         <header className="rounded-2xl bg-[var(--brand-navy-950)] p-6 text-[var(--text-on-dark)] shadow-[var(--shadow-panel)]">
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-lagoon-300)]">
             Field Workspace · Offline package ready

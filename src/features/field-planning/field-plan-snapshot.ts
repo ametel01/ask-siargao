@@ -1,5 +1,5 @@
 import { canonicalStringify } from "@/features/field-protocol/canonical-json";
-
+import { deepFreeze } from "./deep-freeze";
 import { applyFieldPlanAdjustment } from "./field-plan-adjustments";
 import { proposeFieldDayPlan } from "./field-planner";
 import type {
@@ -110,12 +110,4 @@ function changedEvidenceIds(previous: PlannerInputs, current: PlannerInputs): st
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) deepFreeze(child);
-  }
-  return value;
 }
