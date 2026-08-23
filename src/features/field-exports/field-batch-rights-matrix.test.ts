@@ -212,7 +212,7 @@ async function includedWork(record: MatrixRecord): Promise<FieldDeskWork> {
     handedOffAt: fixedAt,
     recorderWork: recorderWork(record),
   });
-  return appendFieldReview({
+  const reviewedRoot = await appendFieldReview({
     review: {
       decision: "include",
       id: "0192f060-4f41-7aa1-b322-4aa9fc9f1703",
@@ -222,6 +222,18 @@ async function includedWork(record: MatrixRecord): Promise<FieldDeskWork> {
       reviewerMatchesResearcher: false,
     },
     work: base,
+  });
+  const visit = alignedVisit(record);
+  return appendFieldReview({
+    review: {
+      decision: "include",
+      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1706",
+      recordId: visit.id,
+      reviewedAt: fixedAt,
+      reviewerId: "reviewer_desk",
+      reviewerMatchesResearcher: false,
+    },
+    work: reviewedRoot,
   });
 }
 

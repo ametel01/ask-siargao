@@ -153,6 +153,10 @@ function DeskReviewSurface(props: {
         : reason.trim().length > 0 && (decision !== "needs_more_evidence" || followUpSupported)));
 
   useEffect(() => {
+    if (!record?.value.id) {
+      setConflictDisposition("unresolved");
+      return;
+    }
     const disposition = prior?.conflictDisposition;
     setConflictDisposition(
       disposition === "resolved" || disposition === "intentional_repetition"
