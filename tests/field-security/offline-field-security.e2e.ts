@@ -26,6 +26,7 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
       (registration.active ?? registration.installing)?.postMessage({
         activeVisit: false,
         buildId: "playwright-239",
+        preparationId: "playwright-preparation-239",
         shellPath: "/operator/field/offline-shell",
         type: "PREPARE_FIELD_OFFLINE",
       });
@@ -55,10 +56,12 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
       page.evaluate(async () => {
         const cache = await caches.open("ask-siargao-field-shell-active");
         const response = await cache.match("/__ask-siargao-active-field-build__");
-        return response ? ((await response.json()) as { buildId?: string }).buildId : undefined;
+        return response
+          ? ((await response.json()) as { buildId?: string; preparationId?: string })
+          : undefined;
       }),
     )
-    .toBe("playwright-239");
+    .toEqual({ buildId: "playwright-239", preparationId: "playwright-preparation-239" });
 
   const browserStorage = await page.evaluate(async () => {
     const cacheBodies: string[] = [];

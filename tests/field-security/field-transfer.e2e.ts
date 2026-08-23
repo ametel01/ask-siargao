@@ -38,6 +38,7 @@ test("hard offline reloads of Review and Exports resolve to the generic locked s
     (registration.active ?? registration.installing)?.postMessage({
       activeVisit: false,
       buildId: "playwright-242",
+      preparationId: "playwright-preparation-242",
       shellPath: "/operator/field/offline-shell",
       type: "PREPARE_FIELD_OFFLINE",
     });
