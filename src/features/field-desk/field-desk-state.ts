@@ -1,4 +1,5 @@
 import { canonicalStringify } from "@/features/field-protocol/canonical-json";
+import { validateFieldProtocolRecord } from "@/features/field-protocol/field-protocol";
 import type { FollowUpAssignment } from "@/features/field-protocol/generated";
 import type { RecorderRecord, RecorderWork } from "@/features/field-recorder/field-recorder-types";
 import { fieldTextEncoder, sha256Hex } from "@/features/field-security/encoding";
@@ -230,6 +231,15 @@ function validateCorrection(
       throw new Error("A correction requires a typed correction note.");
     }
     fieldDeskCorrectionNoteSchema.parse(note);
+    const successorValue = (successor.value as { value: unknown }).value;
+    const originalValue = (original.value as { value: unknown }).value;
+    if (canonicalStringify(successorValue) === canonicalStringify(originalValue)) {
+      throw new Error("A correction must change the typed observation value.");
+    }
+    const validated = validateFieldProtocolRecord("fieldObservation", successor.value);
+    if (!validated.success) {
+      throw new Error("A correction must remain valid under the pinned Field Protocol.");
+    }
   }
   return successor;
 }

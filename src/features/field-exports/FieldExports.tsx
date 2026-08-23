@@ -574,9 +574,6 @@ function ProductionExports(props: { embedded?: boolean }) {
                 type="file"
               />
             </label>
-            <p className="mt-2 text-sm" role="status">
-              {receiptState}
-            </p>
             <a
               className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-[#5d3ed1] px-4 py-2 font-bold text-[#271776]"
               href="/operator/field/diagnostics-recovery/legacy-import"

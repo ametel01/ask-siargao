@@ -29,6 +29,45 @@ const decisions = [
 type DeskDecisionOption = (typeof decisions)[number];
 type DeskDecision = DeskDecisionOption[0];
 
+type DeskCorrectionDescriptor = Readonly<{
+  key: string;
+  label: string;
+  parse: (value: string) => string | number;
+}>;
+
+function deskCorrectionDescriptor(
+  observation: RecorderRecord & { kind: "fieldObservation" },
+): DeskCorrectionDescriptor {
+  const descriptors: Record<string, DeskCorrectionDescriptor> = {
+    identity: { key: "displayedName", label: "Displayed name", parse: String },
+    opening_signal: { key: "state", label: "Opening state", parse: String },
+    price: { key: "amount", label: "Amount", parse: String },
+    route_duration: { key: "durationSeconds", label: "Duration (seconds)", parse: Number },
+    route_wait: { key: "waitSeconds", label: "Wait (seconds)", parse: Number },
+    road_condition: { key: "surface", label: "Surface", parse: String },
+    facility: { key: "state", label: "Facility state", parse: String },
+    accessibility: { key: "feature", label: "Accessibility feature", parse: String },
+    payment_method: { key: "method", label: "Payment method", parse: String },
+    connectivity: { key: "network", label: "Network", parse: String },
+    power: { key: "state", label: "Power state", parse: String },
+    crowd_snapshot: { key: "boundary", label: "Crowd boundary", parse: String },
+    noise_snapshot: { key: "measurementPosition", label: "Measurement position", parse: String },
+    weather_condition: { key: "condition", label: "Weather condition", parse: String },
+    tide_context: { key: "sourceId", label: "Tide source", parse: String },
+    menu_item: { key: "itemName", label: "Menu item", parse: String },
+    service_status: { key: "state", label: "Service state", parse: String },
+    contact_channel: { key: "publicValue", label: "Public contact value", parse: String },
+    local_caveat: { key: "warning", label: "Warning", parse: String },
+  };
+  return (
+    descriptors[observation.value.observationKind] ?? {
+      key: "captureConfidenceReason",
+      label: "Correction note",
+      parse: String,
+    }
+  );
+}
+
 export function availableFieldDeskDecisions(
   recordKind: RecorderRecord["kind"] | undefined,
 ): readonly DeskDecisionOption[] {
@@ -168,11 +207,15 @@ function DeskReviewSurface(props: {
   const availableDecisions = availableFieldDeskDecisions(record?.kind).filter(
     ([value]) => value !== "needs_more_evidence" || followUpSupported,
   );
-  const selectedDecision = normalizeFieldDeskDecision(record?.kind, decision);
+  const selectedDecision = availableDecisions.some(([value]) => value === decision)
+    ? decision
+    : "include";
   const conflictReviewRequired =
     record?.kind === "fieldObservation" &&
     (record.value.contradictsObservationIds?.length ?? 0) > 0;
   const parsedCorrection = fieldDeskCorrectionNoteSchema.safeParse(correction);
+  const correctionDescriptor =
+    record?.kind === "fieldObservation" ? deskCorrectionDescriptor(record) : undefined;
   const canSubmit =
     (!conflictReviewRequired || conflictDisposition !== "unresolved") &&
     (selectedDecision === "include" ||
@@ -196,6 +239,9 @@ function DeskReviewSurface(props: {
         if (record.kind !== "fieldObservation") {
           throw new Error("Typed correction is currently available for observations only.");
         }
+        if (!parsedCorrection.success || !correctionDescriptor) {
+          throw new Error("A typed correction value is required.");
+        }
         supersedingRecord = {
           kind: "fieldObservation",
           value: {
@@ -203,7 +249,10 @@ function DeskReviewSurface(props: {
             id: crypto.randomUUID(),
             supersedesId: record.value.id,
             captureConfidenceReason: parsedCorrection.data,
-            value: { ...record.value.value },
+            value: {
+              ...record.value.value,
+              [correctionDescriptor.key]: correctionDescriptor.parse(parsedCorrection.data),
+            },
           },
         };
       }
@@ -236,9 +285,11 @@ function DeskReviewSurface(props: {
   }
 
   useEffect(() => {
-    const normalized = normalizeFieldDeskDecision(record?.kind, decision);
+    const normalized = availableDecisions.some(([value]) => value === decision)
+      ? decision
+      : "include";
     if (normalized !== decision) setDecision(normalized);
-  }, [decision, record?.kind]);
+  }, [availableDecisions, decision]);
 
   useEffect(() => {
     if (!recordId) {
@@ -352,9 +403,9 @@ function DeskReviewSurface(props: {
                 />
               </label>
             ) : null}
-            {decision === "correct_by_supersession" ? (
+            {selectedDecision === "correct_by_supersession" ? (
               <label className="mt-5 block font-bold" htmlFor="corrected-value">
-                Typed corrected observation note
+                Corrected observation value
                 <input
                   aria-describedby="corrected-value-help"
                   className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
@@ -367,7 +418,8 @@ function DeskReviewSurface(props: {
                   className="mt-1 block text-xs font-normal text-[#5f5f87]"
                   id="corrected-value-help"
                 >
-                  1–500 characters; control characters are rejected. {correction.length}/500
+                  {correctionDescriptor?.label ?? "Typed value"}; use the governed field format.{" "}
+                  {correction.length}/500
                 </span>
               </label>
             ) : null}
