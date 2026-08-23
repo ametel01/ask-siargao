@@ -98,9 +98,19 @@ async function selectPreparedBuild(buildId, preparationId) {
   const preparedCache = await caches.open(FIELD_CACHE_PREFIX + buildId);
   if (!(await isPreparedCacheComplete(preparedCache))) return;
   const activeCache = await caches.open(FIELD_ACTIVE_BUILD_CACHE);
+  let selectedPreparationId = preparationId;
+  if (!selectedPreparationId) {
+    const existing = await activeCache.match(FIELD_ACTIVE_BUILD_PATH);
+    try {
+      const selected = existing ? await existing.json() : undefined;
+      if (selected?.buildId === buildId) selectedPreparationId = selected.preparationId;
+    } catch {
+      // Replace an invalid marker only after complete cache validation succeeds.
+    }
+  }
   await activeCache.put(
     FIELD_ACTIVE_BUILD_PATH,
-    new Response(JSON.stringify({ buildId, preparationId }), {
+    new Response(JSON.stringify({ buildId, preparationId: selectedPreparationId }), {
       headers: { "content-type": "application/json" },
     }),
   );

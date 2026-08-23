@@ -53,7 +53,26 @@ async function hasLivePreparedShell(
     navigator.serviceWorker.getRegistration("/").catch(() => undefined),
     caches.keys().catch((): string[] => []),
   ]);
-  return Boolean(registration && keys.includes(`ask-siargao-field-shell-${readiness.buildId}`));
+  if (!registration || !keys.includes(`ask-siargao-field-shell-${readiness.buildId}`)) return false;
+  const cache = await caches.open(`ask-siargao-field-shell-${readiness.buildId}`);
+  const shell = await cache.match("/operator/field/offline-shell");
+  if (!shell) return false;
+  const html = await shell.clone().text();
+  const staticPaths = [...html.matchAll(/(?:src|href)=["'](\/_next\/static\/[^"']+)["']/g)]
+    .map((match) => match[1])
+    .filter((path) => !path.includes(".."));
+  for (const path of new Set(staticPaths)) {
+    if (!(await cache.match(path))) return false;
+  }
+  const activeCache = await caches.open("ask-siargao-field-shell-active");
+  const marker = await activeCache.match("/__ask-siargao-active-field-build__");
+  if (!marker) return false;
+  try {
+    const selected = (await marker.json()) as { buildId?: string };
+    return selected.buildId === readiness.buildId;
+  } catch {
+    return false;
+  }
 }
 
 async function hasLivePersistentStorage(recordedPersisted: boolean): Promise<boolean> {
