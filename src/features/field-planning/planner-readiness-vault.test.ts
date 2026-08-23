@@ -57,9 +57,15 @@ describe("protected planner readiness handoff", () => {
       value: {
         buildId: "build",
         offlineShellPrepared: true,
+        readinessEvidence: {
+          offlineReloadVerified: true,
+          permissionsVerified: true,
+          restoreVerified: true,
+          sampleCaptureVerified: true,
+        },
         persisted: true,
         preparedAt: "2026-08-23T01:00:00.000Z",
-        version: 1,
+        version: 2,
       },
     });
     await savePlannerReadiness(handoff, protocol, key, vault);
@@ -83,9 +89,15 @@ describe("protected planner readiness handoff", () => {
       value: {
         buildId: "build",
         offlineShellPrepared: true,
+        readinessEvidence: {
+          offlineReloadVerified: true,
+          permissionsVerified: true,
+          restoreVerified: true,
+          sampleCaptureVerified: true,
+        },
         persisted: true,
         preparedAt: "2026-08-23T01:00:00.000Z",
-        version: 1,
+        version: 2,
       },
     });
     await expect(

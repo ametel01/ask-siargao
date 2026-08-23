@@ -24,22 +24,15 @@ import type {
   RestorePreview,
   TransferReceipt,
 } from "./artifact-schemas";
-import {
-  authenticatedRegistrySnapshotSchema,
-  transferReceiptSchema,
-} from "./artifact-schemas";
+import { authenticatedRegistrySnapshotSchema, transferReceiptSchema } from "./artifact-schemas";
 import { createFieldBatchExport, deriveFieldBatchGraph } from "./field-batch";
 import { openCanonicalArtifact } from "./package-format";
 import { OpfsStagedArtifactSink } from "./package-sink";
-import { openRecipientContentKey } from "./recipient-envelope";
+import { assertRecipientAuthority, openRecipientContentKey } from "./recipient-envelope";
 import { createFieldRecoveryExport } from "./recovery-export";
 import { commitConfirmedRestore, createRestorePreview, type RestoreImmutableItem } from "./restore";
 import { completeSourceVerification, verifyDestinationTransferReceipt } from "./transfer-receipt";
-import { assertRecipientAuthority } from "./recipient-envelope";
-import {
-  destinationReceiptFilename,
-  verifyReceivedFieldBatch,
-} from "./verified-transfer";
+import { destinationReceiptFilename, verifyReceivedFieldBatch } from "./verified-transfer";
 
 type PendingRestore = {
   incoming: readonly RestoreImmutableItem[];
@@ -455,7 +448,9 @@ function ProductionExports(props: { embedded?: boolean }) {
 
   async function verifyReceivedBatch() {
     if (!receivedBatchFile || !receivedSourceReceiptFile || receivedChallenge.length < 22) {
-      setRecipientState("Select the received batch, its machine-generated source receipt, and challenge.");
+      setRecipientState(
+        "Select the received batch, its machine-generated source receipt, and challenge.",
+      );
       return;
     }
     if (security.status !== "unlocked" || security.claims?.researcherRole !== "desk") {
@@ -507,7 +502,9 @@ function ProductionExports(props: { embedded?: boolean }) {
         "Destination verified and signed. Return the downloaded receipt to the source for separate acceptance.",
       );
     } catch {
-      setRecipientState("Recipient verification failed closed; no destination receipt was created.");
+      setRecipientState(
+        "Recipient verification failed closed; no destination receipt was created.",
+      );
     }
   }
 
@@ -665,10 +662,7 @@ function ProductionExports(props: { embedded?: boolean }) {
               <button
                 className="mt-3 min-h-11 rounded-lg border border-[#5d3ed1] px-4 py-2 text-sm font-bold text-[#271776]"
                 onClick={() =>
-                  downloadJson(
-                    `${sourceBatchReceipt.filename}.receipt.json`,
-                    sourceBatchReceipt,
-                  )
+                  downloadJson(`${sourceBatchReceipt.filename}.receipt.json`, sourceBatchReceipt)
                 }
                 type="button"
               >
@@ -676,7 +670,9 @@ function ProductionExports(props: { embedded?: boolean }) {
               </button>
             ) : null}
             <fieldset className="mt-7 border-t border-[#ddd8ef] pt-5">
-              <legend className="text-sm font-bold">Verify a received Field Batch on this Desk</legend>
+              <legend className="text-sm font-bold">
+                Verify a received Field Batch on this Desk
+              </legend>
               <label className="mt-3 block text-sm" htmlFor="received-field-batch">
                 Received .asfbatch file
                 <input
