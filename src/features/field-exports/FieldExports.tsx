@@ -21,13 +21,16 @@ import type {
   ArtifactPreamble,
   AuthenticatedRegistrySnapshot,
   RestorePreview,
+  TransferReceipt,
 } from "./artifact-schemas";
+import { transferReceiptSchema } from "./artifact-schemas";
 import { createFieldBatchExport, deriveFieldBatchGraph } from "./field-batch";
 import { openCanonicalArtifact } from "./package-format";
 import { OpfsStagedArtifactSink } from "./package-sink";
 import { openRecipientContentKey } from "./recipient-envelope";
 import { createFieldRecoveryExport } from "./recovery-export";
 import { commitConfirmedRestore, createRestorePreview, type RestoreImmutableItem } from "./restore";
+import { completeSourceVerification, verifyDestinationTransferReceipt } from "./transfer-receipt";
 
 type PendingRestore = {
   incoming: readonly RestoreImmutableItem[];
@@ -64,6 +67,7 @@ function ProductionExports(props: { embedded?: boolean }) {
   const [restoreState, setRestoreState] = useState(
     "Select an .asfrecovery file to preview restore.",
   );
+  const [receiptState, setReceiptState] = useState("Destination receipt pending.");
   const [pendingRestore, setPendingRestore] = useState<PendingRestore>();
   const [pendingPublication, setPendingPublication] = useState<PendingPublication>();
   const [transferId, setTransferId] = useState<string>();
@@ -251,6 +255,7 @@ function ProductionExports(props: { embedded?: boolean }) {
       });
       setPendingPublication(undefined);
       setTransferId(pending.transferId);
+      setReceiptState("Destination receipt pending.");
       if (pending.artifactKind === "field_recovery") {
         setRecoveryState(`${label} published. Transfer receipt is still required.`);
       } else {
@@ -391,6 +396,39 @@ function ProductionExports(props: { embedded?: boolean }) {
     }
   }
 
+  async function acceptReceipt(file: File) {
+    setReceiptState("Verifying the signed destination receipt…");
+    try {
+      const receipt = transferReceiptSchema.parse(JSON.parse(await file.text())) as TransferReceipt;
+      await security.withVaultKey(async () => {
+        const vault = new IndexedDbFieldVault();
+        const outstanding = await vault.getTransfer(receipt.transferId);
+        if (!outstanding) throw new Error("field_transfer_not_found");
+        const snapshot = await registry();
+        const recipient = snapshot.devices.find(
+          (device) => device.id === outstanding.recipientDeviceId,
+        );
+        if (!recipient) throw new Error("field_artifact_recipient_invalid");
+        await completeSourceVerification({
+          verifyReceipt: () =>
+            verifyDestinationTransferReceipt({ outstanding, receipt, recipient }),
+          markSourceVerified: async (verified) => {
+            await vault.acceptTransfer({
+              receiptId: verified.receiptId,
+              transferId: verified.transferId,
+            });
+          },
+        });
+      });
+      setTransferId(receipt.transferId);
+      setReceiptState(`Verified destination receipt ${receipt.receiptId}; transfer accepted.`);
+    } catch (error) {
+      setReceiptState(
+        `Receipt blocked (${error instanceof Error ? error.message : "invalid receipt"}).`,
+      );
+    }
+  }
+
   if (locked)
     return (
       <>
@@ -512,8 +550,26 @@ function ProductionExports(props: { embedded?: boolean }) {
               completed.
             </p>
             <p className="mt-3 text-sm" role="status">
-              Destination receipt pending.
-              {transferId ? ` Transfer ${transferId} remains outstanding until accepted.` : ""}
+              {receiptState}
+              {transferId && receiptState === "Destination receipt pending."
+                ? ` Transfer ${transferId} remains outstanding until accepted.`
+                : ""}
+            </p>
+            <label className="mt-4 block text-sm font-bold" htmlFor="transfer-receipt">
+              Accept signed destination receipt
+              <input
+                accept="application/json,.json"
+                className="mt-2 block w-full rounded-lg border p-3 font-normal"
+                id="transfer-receipt"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void acceptReceipt(file);
+                }}
+                type="file"
+              />
+            </label>
+            <p className="mt-2 text-sm" role="status">
+              {receiptState}
             </p>
             <a
               className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-[#5d3ed1] px-4 py-2 font-bold text-[#271776]"
