@@ -220,6 +220,12 @@ export const clerkRoutePolicyEntries = [
     "freshly reverified Offline Field Grant issuance",
   ),
   api(
+    "src/app/api/operator/field/planning/handoff/route.ts",
+    "/api/operator/field/planning/handoff",
+    "protected",
+    "authenticated pre-seeded Field Planner readiness handoff",
+  ),
+  api(
     "src/app/api/chat/ratings/route.ts",
     "/api/chat/ratings",
     "protected",

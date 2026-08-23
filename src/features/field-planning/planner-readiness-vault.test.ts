@@ -8,6 +8,7 @@ import { loadPlannerProtocol } from "./load-planner-protocol";
 import {
   assertReadinessHandoff,
   loadPlannerReadiness,
+  parsePreseededPlannerReadiness,
   savePlannerReadiness,
 } from "./planner-readiness-vault";
 
@@ -21,6 +22,14 @@ beforeEach(async () => {
 });
 
 describe("protected planner readiness handoff", () => {
+  test("parses only a protocol-pinned machine-generated preseed", async () => {
+    const protocol = await loadPlannerProtocol();
+    expect(parsePreseededPlannerReadiness(undefined, protocol)).toBeUndefined();
+    expect(() => parsePreseededPlannerReadiness("not-json", protocol)).toThrow(
+      "field_artifact_invalid",
+    );
+  });
+
   test("persists and reloads an approved local handoff only through the vault key", async () => {
     const protocol = await loadPlannerProtocol();
     const fixture = createPlannerFixture(protocol);

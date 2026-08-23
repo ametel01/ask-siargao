@@ -16,6 +16,26 @@ export type FieldPlannerReadinessHandoff = Readonly<{
   inputs: PlannerInputs;
 }>;
 
+/**
+ * Read the machine-generated initial handoff supplied by the protected server
+ * deployment. This is an internal deployment seam, not a user-facing JSON
+ * authoring path. The caller must still validate it against the installed
+ * protocol before using it.
+ */
+export function parsePreseededPlannerReadiness(
+  raw: string | undefined,
+  protocol: PlannerProtocol,
+): FieldPlannerReadinessHandoff | undefined {
+  if (!raw?.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as FieldPlannerReadinessHandoff;
+    assertReadinessHandoff(parsed, protocol);
+    return parsed;
+  } catch {
+    throw new FieldSecurityError("field_artifact_invalid");
+  }
+}
+
 export async function producePlannerReadinessFromCustody(
   protocol: PlannerProtocol,
   key: Uint8Array,

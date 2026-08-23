@@ -11,6 +11,7 @@ import type {
   PlannerProtocol,
 } from "@/features/field-planning/field-planning-types";
 import {
+  assertReadinessHandoff,
   type FieldPlannerReadinessHandoff,
   loadPlannerReadiness,
   producePlannerReadinessFromCustody,
@@ -50,6 +51,8 @@ export function FieldPlanRecorderBridge(props: {
       .withVaultKey(async (key) => {
         const existing = await loadPlannerReadiness(props.protocol, key);
         if (existing) return existing;
+        const preseeded = await loadProductionPlannerReadiness(props.protocol);
+        if (preseeded) return preseeded;
         try {
           return await producePlannerReadinessFromCustody(props.protocol, key);
         } catch {
@@ -108,6 +111,28 @@ export function FieldPlanRecorderBridge(props: {
       )}
     </>
   );
+}
+
+async function loadProductionPlannerReadiness(
+  protocol: PlannerProtocol,
+): Promise<FieldPlannerReadinessHandoff | undefined> {
+  let response: Response;
+  try {
+    response = await fetch("/api/operator/field/planning/handoff", {
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+  } catch {
+    // A previously authorized device must still use local custody when the
+    // server is unreachable or the device is offline.
+    return undefined;
+  }
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw new Error("field_planning_handoff_unavailable");
+  const body = (await response.json()) as { handoff?: unknown };
+  if (!body.handoff) throw new Error("field_planning_handoff_invalid");
+  assertReadinessHandoff(body.handoff as FieldPlannerReadinessHandoff, protocol);
+  return body.handoff as FieldPlannerReadinessHandoff;
 }
 
 function ReadinessHandoffPanel(props: { embedded?: boolean; message: string }) {

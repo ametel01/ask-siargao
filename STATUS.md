@@ -13,6 +13,12 @@ SHA, but #244 is not accepted for release.
 
 ## Evidence still required
 
+- Clean-device planning requires the deployment-only
+  `FIELD_PLANNER_INITIAL_HANDOFF_JSON` preseed to be generated from the approved
+  protocol/preflight authority and configured before first use. The authenticated
+  `/api/operator/field/planning/handoff` route now serves that machine-generated handoff; it
+  remains fail-closed when the deployment variable is absent or protocol-mismatched. This is an
+  operational pre-seeding handoff, not a browser JSON authoring surface.
 - Attended iPad and Mac migration, Files/AirDrop transfer, restore, rollback,
   restart, VoiceOver, touch, and dictation evidence.
 - Independent checker evidence and exact production deployment/provider
