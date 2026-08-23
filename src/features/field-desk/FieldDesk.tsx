@@ -6,6 +6,7 @@ import type { RecorderRecord } from "@/features/field-recorder/field-recorder-ty
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
 import { FieldMain } from "@/features/field-workspace/FieldMain";
+import { canCreateDeskFollowUp, createDeskFollowUp } from "./desk-followup";
 import { fieldDeskCorrectionNoteSchema } from "./desk-schemas";
 import { FieldDeskRepository } from "./field-desk-repository";
 import { allRecords, appendFieldReview, effectiveReview } from "./field-desk-state";
@@ -128,9 +129,12 @@ function DeskReviewSurface(props: {
   const record = records[recordIndex] ?? records[0];
   const prior = record ? effectiveReview(props.work, record.value.id) : undefined;
   const parsedCorrection = fieldDeskCorrectionNoteSchema.safeParse(correction);
+  const followUpSupported = record ? canCreateDeskFollowUp(record) : false;
   const canSubmit =
     decision === "include" ||
-    (decision === "correct_by_supersession" ? parsedCorrection.success : reason.trim().length > 0);
+    (decision === "correct_by_supersession"
+      ? parsedCorrection.success
+      : reason.trim().length > 0 && (decision !== "needs_more_evidence" || followUpSupported));
 
   async function saveDecision() {
     if (!record || !canSubmit || saving) return;
@@ -140,32 +144,10 @@ function DeskReviewSurface(props: {
       let supersedingRecord: RecorderRecord | undefined;
       let followUp: FollowUpAssignment | undefined;
       if (decision === "needs_more_evidence") {
-        const value = record.value as unknown as Record<string, unknown>;
-        const assignmentId = value.assignmentId;
-        const visitId = value.visitId;
-        const coverageRequirementId = value.coverageRequirementId;
-        if (
-          typeof assignmentId !== "string" ||
-          typeof visitId !== "string" ||
-          typeof coverageRequirementId !== "string" ||
-          typeof value.protocolPackageId !== "string" ||
-          typeof value.protocolPackageVersion !== "string" ||
-          typeof value.campaignId !== "string"
-        ) {
+        followUp = createDeskFollowUp(record, crypto.randomUUID(), new Date().toISOString());
+        if (!followUp) {
           throw new Error("Needs more evidence requires a linked assignment and coverage target.");
         }
-        followUp = {
-          schemaVersion: "follow-up-assignment.v1",
-          id: crypto.randomUUID(),
-          protocolPackageId: value.protocolPackageId,
-          protocolPackageVersion: value.protocolPackageVersion,
-          campaignId: value.campaignId,
-          originatingAssignmentId: assignmentId,
-          originatingVisitIds: [visitId],
-          coverageRequirementIds: [coverageRequirementId],
-          createdAt: new Date().toISOString(),
-          reason: "needs_resolution",
-        };
       }
       if (decision === "correct_by_supersession") {
         if (record.kind !== "fieldObservation") {
@@ -278,6 +260,7 @@ function DeskReviewSurface(props: {
                     <input
                       checked={decision === value}
                       className="mt-1"
+                      disabled={value === "needs_more_evidence" && !followUpSupported}
                       name="field-review-decision"
                       onChange={() => setDecision(value)}
                       type="radio"
@@ -290,6 +273,12 @@ function DeskReviewSurface(props: {
                   </label>
                 ))}
               </div>
+              {!followUpSupported ? (
+                <p className="mt-3 text-sm text-[#5f5f87]">
+                  Needs more evidence is available only when this record links one visit and one
+                  coverage requirement for a governed unscheduled follow-up.
+                </p>
+              ) : null}
             </fieldset>
             {decision === "exclude" || decision === "needs_more_evidence" ? (
               <label className="mt-5 block font-bold" htmlFor="review-reason">
