@@ -20,10 +20,14 @@ import {
 import type {
   ArtifactPreamble,
   AuthenticatedRegistrySnapshot,
+  FieldBatchOuterReceipt,
   RestorePreview,
   TransferReceipt,
 } from "./artifact-schemas";
-import { transferReceiptSchema } from "./artifact-schemas";
+import {
+  authenticatedRegistrySnapshotSchema,
+  transferReceiptSchema,
+} from "./artifact-schemas";
 import { createFieldBatchExport, deriveFieldBatchGraph } from "./field-batch";
 import { openCanonicalArtifact } from "./package-format";
 import { OpfsStagedArtifactSink } from "./package-sink";
@@ -31,6 +35,11 @@ import { openRecipientContentKey } from "./recipient-envelope";
 import { createFieldRecoveryExport } from "./recovery-export";
 import { commitConfirmedRestore, createRestorePreview, type RestoreImmutableItem } from "./restore";
 import { completeSourceVerification, verifyDestinationTransferReceipt } from "./transfer-receipt";
+import { assertRecipientAuthority } from "./recipient-envelope";
+import {
+  destinationReceiptFilename,
+  verifyReceivedFieldBatch,
+} from "./verified-transfer";
 
 type PendingRestore = {
   incoming: readonly RestoreImmutableItem[];
@@ -48,6 +57,7 @@ type PendingPublication = {
   sink: OpfsStagedArtifactSink;
   transferId: string;
   vault: IndexedDbFieldVault;
+  outerReceipt?: FieldBatchOuterReceipt;
 };
 
 import { FieldMain } from "@/features/field-workspace/FieldMain";
@@ -71,6 +81,12 @@ function ProductionExports(props: { embedded?: boolean }) {
   const [pendingRestore, setPendingRestore] = useState<PendingRestore>();
   const [pendingPublication, setPendingPublication] = useState<PendingPublication>();
   const [transferId, setTransferId] = useState<string>();
+  const [sourceBatchReceipt, setSourceBatchReceipt] = useState<FieldBatchOuterReceipt>();
+  const [receivedBatchFile, setReceivedBatchFile] = useState<File>();
+  const [receivedSourceReceiptFile, setReceivedSourceReceiptFile] = useState<File>();
+  const [receivedChallenge, setReceivedChallenge] = useState("");
+  const [recipientState, setRecipientState] = useState("No received Field Batch verified.");
+  const [destinationReceipt, setDestinationReceipt] = useState<TransferReceipt>();
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const locked = security.status !== "unlocked";
@@ -213,6 +229,7 @@ function ProductionExports(props: { embedded?: boolean }) {
             sink,
             transferId: transfer,
             vault: new IndexedDbFieldVault(),
+            outerReceipt: receipt,
           } satisfies PendingPublication;
         } catch (error) {
           await sink.dispose();
@@ -220,6 +237,7 @@ function ProductionExports(props: { embedded?: boolean }) {
         }
       });
       setPendingPublication(result);
+      setSourceBatchReceipt(result.outerReceipt);
       setBatchState(
         `Created ${result.filename} in protected staging. Choose Save reviewed Field Batch to publish it.`,
       );
@@ -435,6 +453,75 @@ function ProductionExports(props: { embedded?: boolean }) {
     }
   }
 
+  async function verifyReceivedBatch() {
+    if (!receivedBatchFile || !receivedSourceReceiptFile || receivedChallenge.length < 22) {
+      setRecipientState("Select the received batch, its machine-generated source receipt, and challenge.");
+      return;
+    }
+    if (security.status !== "unlocked" || security.claims?.researcherRole !== "desk") {
+      setRecipientState("Unlock an authorized Desk device before recipient verification.");
+      return;
+    }
+    setRecipientState("Verifying recipient authority, ciphertext, records, and references…");
+    setDestinationReceipt(undefined);
+    try {
+      const vault = new IndexedDbFieldVault();
+      const role = await vault.getMetadata("device-role");
+      if (role?.value.role !== "desk") throw new Error("recipient_not_desk");
+      const response = await fetch("/api/operator/field/devices", {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      });
+      if (!response.ok) throw new Error("registry_unavailable");
+      const body = (await response.json()) as { devices?: unknown };
+      const now = new Date();
+      const registry = authenticatedRegistrySnapshotSchema.parse({
+        accountId: security.claims.accountId,
+        authenticatedAt: now.toISOString(),
+        devices: body.devices,
+        expiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
+        source: "authenticated_live_registry",
+        version: "field-device-registry-snapshot.v1",
+      });
+      const recipient = assertRecipientAuthority({
+        deviceId: security.claims.deviceId,
+        now,
+        registry,
+      });
+      const [agreementPrivateKey, signingPrivateKey, sourceReceiptText] = await Promise.all([
+        vault.getDeviceKey("agreement-private"),
+        vault.getDeviceKey("signing-private"),
+        receivedSourceReceiptFile.text(),
+      ]);
+      const receipt = await verifyReceivedFieldBatch({
+        agreementPrivateKey,
+        challengeNonce: receivedChallenge,
+        expectedRecipient: recipient,
+        now,
+        signingPrivateKey,
+        source: fileBytes(receivedBatchFile),
+        sourceReceipt: JSON.parse(sourceReceiptText) as unknown,
+      });
+      setDestinationReceipt(receipt);
+      setRecipientState(
+        "Destination verified and signed. Return the downloaded receipt to the source for separate acceptance.",
+      );
+    } catch {
+      setRecipientState("Recipient verification failed closed; no destination receipt was created.");
+    }
+  }
+
+  function downloadJson(filename: string, value: unknown) {
+    const url = URL.createObjectURL(
+      new Blob([`${canonicalStringify(value)}\n`], { type: "application/json" }),
+    );
+    const anchor = document.createElement("a");
+    anchor.download = filename;
+    anchor.href = url;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (locked)
     return (
       <>
@@ -574,6 +661,75 @@ function ProductionExports(props: { embedded?: boolean }) {
                 type="file"
               />
             </label>
+            {sourceBatchReceipt ? (
+              <button
+                className="mt-3 min-h-11 rounded-lg border border-[#5d3ed1] px-4 py-2 text-sm font-bold text-[#271776]"
+                onClick={() =>
+                  downloadJson(
+                    `${sourceBatchReceipt.filename}.receipt.json`,
+                    sourceBatchReceipt,
+                  )
+                }
+                type="button"
+              >
+                Download source Field Batch receipt
+              </button>
+            ) : null}
+            <fieldset className="mt-7 border-t border-[#ddd8ef] pt-5">
+              <legend className="text-sm font-bold">Verify a received Field Batch on this Desk</legend>
+              <label className="mt-3 block text-sm" htmlFor="received-field-batch">
+                Received .asfbatch file
+                <input
+                  accept=".asfbatch,application/octet-stream"
+                  className="mt-2 block w-full rounded-lg border p-3"
+                  id="received-field-batch"
+                  onChange={(event) => setReceivedBatchFile(event.target.files?.[0])}
+                  type="file"
+                />
+              </label>
+              <label className="mt-3 block text-sm" htmlFor="received-source-receipt">
+                Machine-generated source receipt
+                <input
+                  accept="application/json,.json"
+                  className="mt-2 block w-full rounded-lg border p-3"
+                  id="received-source-receipt"
+                  onChange={(event) => setReceivedSourceReceiptFile(event.target.files?.[0])}
+                  type="file"
+                />
+              </label>
+              <label className="mt-3 block text-sm" htmlFor="received-transfer-challenge">
+                Source transfer challenge
+                <input
+                  autoComplete="off"
+                  className="mt-2 w-full rounded-lg border p-3 font-mono"
+                  id="received-transfer-challenge"
+                  onChange={(event) => setReceivedChallenge(event.target.value.trim())}
+                  value={receivedChallenge}
+                />
+              </label>
+              <button
+                className="mt-3 min-h-11 rounded-lg bg-[#0a6f67] px-4 py-2 font-bold text-white"
+                disabled={busy}
+                onClick={() => void verifyReceivedBatch()}
+                type="button"
+              >
+                Verify and sign received Field Batch
+              </button>
+              <p className="mt-3 text-sm" role="status">
+                {recipientState}
+              </p>
+              {destinationReceipt ? (
+                <button
+                  className="mt-3 min-h-11 rounded-lg border border-[#0a6f67] px-4 py-2 font-bold text-[#0a6f67]"
+                  onClick={() =>
+                    downloadJson(destinationReceiptFilename(destinationReceipt), destinationReceipt)
+                  }
+                  type="button"
+                >
+                  Download destination receipt
+                </button>
+              ) : null}
+            </fieldset>
             <a
               className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-[#5d3ed1] px-4 py-2 font-bold text-[#271776]"
               href="/operator/field/diagnostics-recovery/legacy-import"
@@ -590,6 +746,19 @@ function ProductionExports(props: { embedded?: boolean }) {
       </div>
     </FieldMain>
   );
+}
+
+async function* fileBytes(file: File): AsyncIterable<Uint8Array> {
+  const reader = file.stream().getReader();
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) return;
+      yield next.value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function HarnessExports(props: { embedded?: boolean }) {
