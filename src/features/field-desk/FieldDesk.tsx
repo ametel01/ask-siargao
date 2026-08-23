@@ -5,6 +5,7 @@ import type { RecorderRecord } from "@/features/field-recorder/field-recorder-ty
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
 import { FieldMain } from "@/features/field-workspace/FieldMain";
+import { canCreateDeskFollowUp, createDeskFollowUp } from "./desk-followup";
 import { fieldDeskCorrectionNoteSchema } from "./desk-schemas";
 import { FieldDeskRepository } from "./field-desk-repository";
 import { allRecords, appendFieldReview, effectiveReview } from "./field-desk-state";
@@ -144,16 +145,28 @@ function DeskReviewSurface(props: {
   const [decision, setDecision] = useState<(typeof decisions)[number][0]>("include");
   const [reason, setReason] = useState("");
   const [correction, setCorrection] = useState("");
+  const [conflictDisposition, setConflictDisposition] = useState<
+    "resolved" | "intentional_repetition" | "unresolved"
+  >("unresolved");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const records = allRecords(props.work);
   const record = records[recordIndex] ?? records[0];
   const prior = record ? effectiveReview(props.work, record.value.id) : undefined;
-  const availableDecisions = availableFieldDeskDecisions(record?.kind);
+  const followUpSupported = record ? canCreateDeskFollowUp(record) : false;
+  const availableDecisions = availableFieldDeskDecisions(record?.kind).filter(
+    ([value]) => value !== "needs_more_evidence" || followUpSupported,
+  );
+  const conflictReviewRequired =
+    record?.kind === "fieldObservation" &&
+    (record.value.contradictsObservationIds?.length ?? 0) > 0;
   const parsedCorrection = fieldDeskCorrectionNoteSchema.safeParse(correction);
   const canSubmit =
-    decision === "include" ||
-    (decision === "correct_by_supersession" ? parsedCorrection.success : reason.trim().length > 0);
+    (!conflictReviewRequired || conflictDisposition !== "unresolved") &&
+    (decision === "include" ||
+      (decision === "correct_by_supersession"
+        ? parsedCorrection.success
+        : reason.trim().length > 0 && (decision !== "needs_more_evidence" || followUpSupported)));
 
   async function saveDecision() {
     if (!record || !canSubmit || saving) return;
@@ -161,6 +174,11 @@ function DeskReviewSurface(props: {
     try {
       const id = crypto.randomUUID();
       let supersedingRecord: RecorderRecord | undefined;
+      let followUp: ReturnType<typeof createDeskFollowUp>;
+      if (decision === "needs_more_evidence") {
+        followUp = createDeskFollowUp(record, crypto.randomUUID(), new Date().toISOString());
+        if (!followUp) throw new Error("Needs more evidence requires a linked follow-up.");
+      }
       if (decision === "correct_by_supersession") {
         if (record.kind !== "fieldObservation") {
           throw new Error("Typed correction is currently available for observations only.");
@@ -171,7 +189,7 @@ function DeskReviewSurface(props: {
             ...record.value,
             id: crypto.randomUUID(),
             supersedesId: record.value.id,
-            value: { ...record.value.value, fieldDeskCorrection: parsedCorrection.data },
+            captureConfidenceReason: parsedCorrection.data,
           },
         };
       }
@@ -184,6 +202,8 @@ function DeskReviewSurface(props: {
           reviewerMatchesResearcher: security.claims?.accountId === record.value.researcherId,
           reviewedAt: new Date().toISOString(),
           ...(decision === "exclude" || decision === "needs_more_evidence" ? { reason } : {}),
+          ...(followUp ? { followUp } : {}),
+          ...(conflictReviewRequired ? { conflictDisposition } : {}),
           ...(supersedingRecord ? { supersedingRecord } : {}),
         },
         work: props.work,
@@ -204,6 +224,15 @@ function DeskReviewSurface(props: {
       setDecision("include");
     }
   }, [decision, record?.kind]);
+
+  useEffect(() => {
+    const disposition = prior?.conflictDisposition;
+    setConflictDisposition(
+      disposition === "resolved" || disposition === "intentional_repetition"
+        ? disposition
+        : "unresolved",
+    );
+  }, [prior?.conflictDisposition]);
 
   return (
     <FieldMain
@@ -321,6 +350,25 @@ function DeskReviewSurface(props: {
                 >
                   1–500 characters; control characters are rejected. {correction.length}/500
                 </span>
+              </label>
+            ) : null}
+            {conflictReviewRequired ? (
+              <label className="mt-5 block font-bold" htmlFor="conflict-disposition">
+                Conflict disposition
+                <select
+                  className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
+                  id="conflict-disposition"
+                  onChange={(event) =>
+                    setConflictDisposition(
+                      event.target.value as "resolved" | "intentional_repetition" | "unresolved",
+                    )
+                  }
+                  value={conflictDisposition}
+                >
+                  <option value="unresolved">Unresolved — keep export blocked</option>
+                  <option value="resolved">Resolved conflict</option>
+                  <option value="intentional_repetition">Intentional repetition</option>
+                </select>
               </label>
             ) : null}
             <button
