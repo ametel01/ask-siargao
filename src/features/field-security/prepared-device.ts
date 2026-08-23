@@ -68,8 +68,11 @@ async function hasLivePreparedShell(
   const marker = await activeCache.match("/__ask-siargao-active-field-build__");
   if (!marker) return false;
   try {
-    const selected = (await marker.json()) as { buildId?: string };
-    return selected.buildId === readiness.buildId;
+    const selected = (await marker.json()) as {
+      buildId?: string;
+      preparationId?: string;
+    };
+    return selected.buildId === readiness.buildId && typeof selected.preparationId === "string";
   } catch {
     return false;
   }
