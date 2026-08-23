@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { canonicalStringify } from "@/features/field-protocol/canonical-json";
+import { validateFieldProtocolRecord } from "@/features/field-protocol/field-protocol";
 import type { FollowUpAssignment } from "@/features/field-protocol/generated";
 import type { RecorderRecord, RecorderWork } from "@/features/field-recorder/field-recorder-types";
 import { exampleObservation, recorderSnapshot } from "@/features/field-recorder/test-fixtures";
@@ -54,6 +55,13 @@ describe("append-only Field Desk review", () => {
     expect(canonicalStringify(reviewed.recorderWork.records[0])).toBe(originalBytes);
     expect(effectiveReview(reviewed, exampleObservation.id)?.decision).toBe(decision);
     expect(reviewed.revision).toBe(2);
+    if (decision === "correct_by_supersession") {
+      const successor = reviewed.corrections[0];
+      expect(successor?.kind).toBe("fieldObservation");
+      if (successor?.kind !== "fieldObservation") return;
+      expect(successor.value.captureConfidenceReason).toBe("Corrected observation note.");
+      expect(validateFieldProtocolRecord("fieldObservation", successor.value).success).toBe(true);
+    }
   });
 
   test("fails each conditional review boundary and reviewer disclosure", async () => {
@@ -95,9 +103,10 @@ describe("append-only Field Desk review", () => {
             kind: "fieldObservation",
             value: {
               ...structuredClone(exampleObservation),
-              id: ids.correction,
-              supersedesId: exampleObservation.id,
-              captureConfidenceReason: "\u0000",
+               id: ids.correction,
+               supersedesId: exampleObservation.id,
+               captureConfidenceReason: "\u0000",
+               value: { ...exampleObservation.value },
             },
           },
         },
@@ -209,9 +218,10 @@ function correctedObservation(): RecorderRecord {
     kind: "fieldObservation",
     value: {
       ...structuredClone(exampleObservation),
-      id: ids.correction,
-      supersedesId: exampleObservation.id,
-      captureConfidenceReason: "Corrected observation note.",
+       id: ids.correction,
+       supersedesId: exampleObservation.id,
+       captureConfidenceReason: "Corrected observation note.",
+       value: { ...exampleObservation.value },
     },
   };
 }

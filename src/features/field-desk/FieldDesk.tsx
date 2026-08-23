@@ -27,6 +27,7 @@ const decisions = [
 ] as const;
 
 type DeskDecisionOption = (typeof decisions)[number];
+type DeskDecision = DeskDecisionOption[0];
 
 export function availableFieldDeskDecisions(
   recordKind: RecorderRecord["kind"] | undefined,
@@ -38,6 +39,15 @@ export function availableFieldDeskDecisions(
     }
     return true;
   });
+}
+
+export function normalizeFieldDeskDecision(
+  recordKind: RecorderRecord["kind"] | undefined,
+  decision: DeskDecision,
+): DeskDecision {
+  return availableFieldDeskDecisions(recordKind).some(([value]) => value === decision)
+    ? decision
+    : "include";
 }
 
 export function FieldDesk(props: { embedded?: boolean; harness?: boolean }) {
@@ -158,16 +168,18 @@ function DeskReviewSurface(props: {
   const availableDecisions = availableFieldDeskDecisions(record?.kind).filter(
     ([value]) => value !== "needs_more_evidence" || followUpSupported,
   );
+  const selectedDecision = normalizeFieldDeskDecision(record?.kind, decision);
   const conflictReviewRequired =
     record?.kind === "fieldObservation" &&
     (record.value.contradictsObservationIds?.length ?? 0) > 0;
   const parsedCorrection = fieldDeskCorrectionNoteSchema.safeParse(correction);
   const canSubmit =
     (!conflictReviewRequired || conflictDisposition !== "unresolved") &&
-    (decision === "include" ||
-      (decision === "correct_by_supersession"
+    (selectedDecision === "include" ||
+      (selectedDecision === "correct_by_supersession"
         ? parsedCorrection.success
-        : reason.trim().length > 0 && (decision !== "needs_more_evidence" || followUpSupported)));
+        : reason.trim().length > 0 &&
+          (selectedDecision !== "needs_more_evidence" || followUpSupported)));
 
   async function saveDecision() {
     if (!record || !canSubmit || saving) return;
@@ -176,11 +188,11 @@ function DeskReviewSurface(props: {
       const id = crypto.randomUUID();
       let supersedingRecord: RecorderRecord | undefined;
       let followUp: ReturnType<typeof createDeskFollowUp>;
-      if (decision === "needs_more_evidence") {
+      if (selectedDecision === "needs_more_evidence") {
         followUp = createDeskFollowUp(record, crypto.randomUUID(), new Date().toISOString());
         if (!followUp) throw new Error("Needs more evidence requires a linked follow-up.");
       }
-      if (decision === "correct_by_supersession") {
+      if (selectedDecision === "correct_by_supersession") {
         if (record.kind !== "fieldObservation") {
           throw new Error("Typed correction is currently available for observations only.");
         }
@@ -191,18 +203,21 @@ function DeskReviewSurface(props: {
             id: crypto.randomUUID(),
             supersedesId: record.value.id,
             captureConfidenceReason: parsedCorrection.data,
+            value: { ...record.value.value },
           },
         };
       }
       const review = await appendFieldReview({
         review: {
-          decision,
+          decision: selectedDecision,
           id,
           recordId: record.value.id,
           reviewerId: security.claims?.accountId ?? "unknown",
           reviewerMatchesResearcher: security.claims?.accountId === record.value.researcherId,
           reviewedAt: new Date().toISOString(),
-          ...(decision === "exclude" || decision === "needs_more_evidence" ? { reason } : {}),
+          ...(selectedDecision === "exclude" || selectedDecision === "needs_more_evidence"
+            ? { reason }
+            : {}),
           ...(followUp ? { followUp } : {}),
           ...(conflictReviewRequired ? { conflictDisposition } : {}),
           ...(supersedingRecord ? { supersedingRecord } : {}),
@@ -221,9 +236,8 @@ function DeskReviewSurface(props: {
   }
 
   useEffect(() => {
-    if (!availableFieldDeskDecisions(record?.kind).some(([value]) => value === decision)) {
-      setDecision("include");
-    }
+    const normalized = normalizeFieldDeskDecision(record?.kind, decision);
+    if (normalized !== decision) setDecision(normalized);
   }, [decision, record?.kind]);
 
   useEffect(() => {
@@ -312,7 +326,7 @@ function DeskReviewSurface(props: {
                     key={value}
                   >
                     <input
-                      checked={decision === value}
+                      checked={selectedDecision === value}
                       className="mt-1"
                       name="field-review-decision"
                       onChange={() => setDecision(value)}

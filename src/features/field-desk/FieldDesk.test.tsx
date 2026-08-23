@@ -9,7 +9,11 @@ import type {
   SourceStatement,
 } from "@/features/field-protocol/generated";
 import { exampleObservation, exampleVisit } from "@/features/field-recorder/test-fixtures";
-import { availableFieldDeskDecisions, RecordSummary } from "./FieldDesk";
+import {
+  availableFieldDeskDecisions,
+  normalizeFieldDeskDecision,
+  RecordSummary,
+} from "./FieldDesk";
 import type { FieldDeskWork } from "./field-desk-types";
 
 const examples = baselineFieldProtocolPackage.examples.examples;
@@ -129,6 +133,10 @@ describe("Field Desk record context", () => {
       "needs_more_evidence",
     );
     expect(availableFieldDeskDecisions("schemaGap").map(([value]) => value)).not.toContain(
+      "correct_by_supersession",
+    );
+    expect(normalizeFieldDeskDecision("schemaGap", "needs_more_evidence")).toBe("include");
+    expect(normalizeFieldDeskDecision("fieldObservation", "correct_by_supersession")).toBe(
       "correct_by_supersession",
     );
   });
