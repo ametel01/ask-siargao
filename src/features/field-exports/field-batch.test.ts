@@ -172,6 +172,17 @@ describe("review-derived Field Batch graph", () => {
       },
       work,
     });
+    work = await appendFieldReview({
+      review: {
+        decision: "include",
+        id: "0192f060-4f41-7aa1-b322-4aa9fc9f1537",
+        recordId: exampleObservation.visitId,
+        reviewedAt: "2026-08-23T02:05:00.000Z",
+        reviewerId: "reviewer_desk",
+        reviewerMatchesResearcher: false,
+      },
+      work,
+    });
 
     const result = await deriveFieldBatchGraph({
       batchId: ids.batch,
@@ -182,7 +193,7 @@ describe("review-derived Field Batch graph", () => {
 
     expect(result.issues).toEqual([]);
     expect(result.files.find((file) => file.path === "field-reviews.jsonl")?.records).toHaveLength(
-      2,
+      3,
     );
     expect(
       result.files.find((file) => file.path === "follow-up-assignments.jsonl")?.records,
