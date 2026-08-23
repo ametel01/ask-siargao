@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FieldDeskArchiveHeader } from "@/features/field-desk/desk-schemas";
 import { FieldDeskRepository } from "@/features/field-desk/field-desk-repository";
 import { allRecords, effectiveReview } from "@/features/field-desk/field-desk-state";
@@ -36,25 +36,24 @@ type PendingRestore = {
   legacyHeaders: readonly LegacyCaptureVaultHeader[];
 };
 
-type PendingHandoff = {
+type PendingPublication = {
   artifactKind: "field_batch" | "field_recovery";
   ciphertextSha256: string;
-  createdAt: string;
   filename: string;
-  kind: "field_batch" | "field_recovery";
   nonce: string;
   recipientDeviceId: string;
   sink: OpfsStagedArtifactSink;
   transferId: string;
+  vault: IndexedDbFieldVault;
 };
 
 import { FieldMain } from "@/features/field-workspace/FieldMain";
 
-export function FieldExports(props: { embedded?: boolean; harness?: boolean }) {
-  return props.harness ? <HarnessExports /> : <ProductionExports embedded={props.embedded} />;
+export function FieldExports(props: { harness?: boolean }) {
+  return props.harness ? <HarnessExports /> : <ProductionExports />;
 }
 
-function ProductionExports(props: { embedded?: boolean }) {
+function ProductionExports() {
   const security = useFieldSecuritySession();
   const [recoveryState, setRecoveryState] = useState("No Recovery Export created.");
   const [batchState, setBatchState] = useState("No reviewed Field Batch created.");
@@ -62,15 +61,18 @@ function ProductionExports(props: { embedded?: boolean }) {
     "Select an .asfrecovery file to preview restore.",
   );
   const [pendingRestore, setPendingRestore] = useState<PendingRestore>();
+  const [pendingPublication, setPendingPublication] = useState<PendingPublication>();
   const [transferId, setTransferId] = useState<string>();
-  const [pendingHandoff, setPendingHandoff] = useState<PendingHandoff | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const pendingHandoffRef = useRef<PendingHandoff | undefined>(undefined);
   const locked = security.status !== "unlocked";
-  const physicalHandoffAvailable =
-    typeof window !== "undefined" &&
-    ("showSaveFilePicker" in window || typeof navigator.share === "function");
+
+  useEffect(
+    () => () => {
+      if (pendingPublication) void pendingPublication.sink.dispose();
+    },
+    [pendingPublication],
+  );
 
   async function registry(): Promise<AuthenticatedRegistrySnapshot> {
     const response = await fetch("/api/operator/field/devices", { cache: "no-store" });
@@ -91,46 +93,6 @@ function ProductionExports(props: { embedded?: boolean }) {
     const recipient = snapshot.devices.find((device) => device.role === "desk");
     if (!recipient) throw new Error("field_artifact_recipient_invalid");
     return recipient;
-  }
-
-  async function publishPendingHandoff() {
-    const pending = pendingHandoffRef.current;
-    if (!pending || busyRef.current) return;
-    busyRef.current = true;
-    setBusy(true);
-    try {
-      // Invoke publish immediately from this click handler so navigator.share retains activation.
-      const publication = await pending.sink.publishVerified({
-        filename: pending.filename,
-        kind: pending.kind,
-      });
-      if (publication !== "published") throw new Error("field_physical_handoff_required");
-      await new IndexedDbFieldVault().putOutstandingTransfer({
-        artifactKind: pending.artifactKind,
-        ciphertextSha256: pending.ciphertextSha256,
-        createdAt: pending.createdAt,
-        nonce: pending.nonce,
-        recipientDeviceId: pending.recipientDeviceId,
-        state: "outstanding",
-        transferId: pending.transferId,
-      });
-      pendingHandoffRef.current = undefined;
-      setPendingHandoff(undefined);
-      setTransferId(pending.transferId);
-      const message = `${pending.filename} shared. Transfer receipt is still required.`;
-      if (pending.artifactKind === "field_recovery") setRecoveryState(message);
-      else setBatchState(message);
-    } catch (error) {
-      await pending.sink.dispose();
-      pendingHandoffRef.current = undefined;
-      setPendingHandoff(undefined);
-      const message = `Physical handoff blocked (${error instanceof Error ? error.message : "share unavailable"}).`;
-      if (pending.artifactKind === "field_recovery") setRecoveryState(message);
-      else setBatchState(message);
-    } finally {
-      busyRef.current = false;
-      setBusy(false);
-    }
   }
 
   async function createRecovery() {
@@ -160,52 +122,25 @@ function ProductionExports(props: { embedded?: boolean }) {
             vaultKey: key,
           });
           const parsed = await readPreambleFromStream(sink.reopen());
-          const createdAt = new Date().toISOString();
-          if (typeof navigator.share === "function" && !("showSaveFilePicker" in window)) {
-            await sink.prepareShareFile(receipt.filename);
-            const pending: PendingHandoff = {
-              artifactKind: "field_recovery",
-              ciphertextSha256: receipt.ciphertextSha256,
-              createdAt,
-              filename: receipt.filename,
-              kind: "field_recovery",
-              nonce: parsed.contentKeyEnvelope.nonce,
-              recipientDeviceId: recipient.id,
-              sink,
-              transferId: transfer,
-            };
-            pendingHandoffRef.current = pending;
-            setPendingHandoff(pending);
-            return { published: false, receipt };
-          }
-          const publication = await sink.publishVerified({
-            filename: receipt.filename,
-            kind: "field_recovery",
-          });
-          if (publication !== "published") throw new Error("field_physical_handoff_required");
-          await vault.putOutstandingTransfer({
-            artifactKind: "field_recovery",
+          return {
+            artifactKind: "field_recovery" as const,
             ciphertextSha256: receipt.ciphertextSha256,
-            createdAt,
+            filename: receipt.filename,
             nonce: parsed.contentKeyEnvelope.nonce,
             recipientDeviceId: recipient.id,
-            state: "outstanding",
+            sink,
             transferId: transfer,
-          });
-          return { published: true, receipt };
+            vault,
+          } satisfies PendingPublication;
         } catch (error) {
           await sink.dispose();
           throw error;
         }
       });
-      if (result.published) {
-        setTransferId(transfer);
-        setRecoveryState(
-          `Created ${result.receipt.filename} from encrypted custody. Transfer receipt is still required.`,
-        );
-      } else {
-        setRecoveryState(`Prepared ${result.receipt.filename}. Tap Share now to complete handoff.`);
-      }
+      setPendingPublication(result);
+      setRecoveryState(
+        `Created ${result.filename} in protected staging. Choose Save Recovery Export to publish it.`,
+      );
     } catch (error) {
       setRecoveryState(
         `Recovery Export blocked (${error instanceof Error ? error.message : "authorization unavailable"}).`,
@@ -255,54 +190,77 @@ function ProductionExports(props: { embedded?: boolean }) {
             transferId: transfer,
           });
           const parsed = await readPreambleFromStream(sink.reopen());
-          const createdAt = new Date().toISOString();
-          if (typeof navigator.share === "function" && !("showSaveFilePicker" in window)) {
-            await sink.prepareShareFile(receipt.filename);
-            const pending: PendingHandoff = {
-              artifactKind: "field_batch",
-              ciphertextSha256: receipt.ciphertextSha256,
-              createdAt,
-              filename: receipt.filename,
-              kind: "field_batch",
-              nonce: parsed.contentKeyEnvelope.nonce,
-              recipientDeviceId: recipient.id,
-              sink,
-              transferId: transfer,
-            };
-            pendingHandoffRef.current = pending;
-            setPendingHandoff(pending);
-            return { published: false, receipt, transfer };
-          }
-          const publication = await sink.publishVerified({
-            filename: receipt.filename,
-            kind: "field_batch",
-          });
-          if (publication !== "published") throw new Error("field_physical_handoff_required");
-          await new IndexedDbFieldVault().putOutstandingTransfer({
-            artifactKind: "field_batch",
+          return {
+            artifactKind: "field_batch" as const,
             ciphertextSha256: receipt.ciphertextSha256,
-            createdAt,
+            filename: receipt.filename,
             nonce: parsed.contentKeyEnvelope.nonce,
             recipientDeviceId: recipient.id,
-            state: "outstanding",
+            sink,
             transferId: transfer,
-          });
-          return { published: true, receipt, transfer };
+            vault: new IndexedDbFieldVault(),
+          } satisfies PendingPublication;
         } catch (error) {
           await sink.dispose();
           throw error;
         }
       });
-      if (result.published) {
-        setTransferId(result.transfer);
-        setBatchState(`Created ${result.receipt.filename}. Transfer receipt is still required.`);
-      } else {
-        setBatchState(`Prepared ${result.receipt.filename}. Tap Share now to complete handoff.`);
-      }
+      setPendingPublication(result);
+      setBatchState(
+        `Created ${result.filename} in protected staging. Choose Save reviewed Field Batch to publish it.`,
+      );
     } catch (error) {
       setBatchState(
         `Field Batch blocked (${error instanceof Error ? error.message : "reviewed closure unavailable"}).`,
       );
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function publishPending() {
+    const pending = pendingPublication;
+    if (!pending || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    const label = pending.artifactKind === "field_recovery" ? "Recovery Export" : "Field Batch";
+    if (pending.artifactKind === "field_recovery") {
+      setRecoveryState("Save dialog ready: choose a destination for the staged Recovery Export…");
+    } else {
+      setBatchState("Save dialog ready: choose a destination for the staged Field Batch…");
+    }
+    try {
+      const publication = await pending.sink.publishVerified({
+        filename: pending.filename,
+        kind: pending.artifactKind,
+      });
+      if (publication !== "published") throw new Error("field_physical_handoff_required");
+      await pending.vault.putOutstandingTransfer({
+        artifactKind: pending.artifactKind,
+        ciphertextSha256: pending.ciphertextSha256,
+        createdAt: new Date().toISOString(),
+        nonce: pending.nonce,
+        recipientDeviceId: pending.recipientDeviceId,
+        state: "outstanding",
+        transferId: pending.transferId,
+      });
+      setPendingPublication(undefined);
+      setTransferId(pending.transferId);
+      if (pending.artifactKind === "field_recovery") {
+        setRecoveryState(`${label} published. Transfer receipt is still required.`);
+      } else {
+        setBatchState(`${label} published. Transfer receipt is still required.`);
+      }
+    } catch (error) {
+      await pending.sink.dispose();
+      setPendingPublication(undefined);
+      const message = error instanceof Error ? error.message : "publication unavailable";
+      if (pending.artifactKind === "field_recovery") {
+        setRecoveryState(`Recovery Export publication blocked (${message}).`);
+      } else {
+        setBatchState(`Field Batch publication blocked (${message}).`);
+      }
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -433,49 +391,18 @@ function ProductionExports(props: { embedded?: boolean }) {
     return (
       <>
         <OfflineFieldUnlock />
-        <FieldMain
-          landmark={!props.embedded}
-          className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]"
-        >
+        <FieldMain className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
           <section className="mx-auto max-w-2xl rounded-xl bg-[#fffdf7] p-8">
             <h1 className="text-2xl font-semibold">Protected exports locked</h1>
             <p className="mt-2 text-[#5f5f87]">
               Unlock an Authorized Desk device before reading or exporting encrypted custody.
-            </p>
-            <p className="mt-5 text-sm" role="status">
-              Not created
-            </p>
-            <button
-              className="mt-4 min-h-11 rounded-lg bg-[#0a6f67] px-5 font-bold text-white"
-              disabled
-              type="button"
-            >
-              Create Recovery Export
-            </button>
-            {pendingHandoff?.artifactKind === "field_recovery" ? (
-              <button
-                className="mt-4 ml-2 min-h-11 rounded-lg border border-[#0a6f67] px-5 font-bold text-[#0a6f67]"
-                disabled={busy}
-                onClick={() => void publishPendingHandoff()}
-                type="button"
-              >
-                Share prepared Recovery Export
-              </button>
-            ) : null}
-            <p className="mt-5 border-t border-[#ddd8ef] pt-5 text-sm text-[#5f5f87]">
-              A copied file is not a Verified Field Transfer. Completion requires recipient decrypt,
-              integrity and reference validation, a destination signature, and source receipt
-              verification.
             </p>
           </section>
         </FieldMain>
       </>
     );
   return (
-    <FieldMain
-      landmark={!props.embedded}
-      className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6"
-    >
+    <FieldMain className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6">
       <a
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:p-3"
         href="#export-workflows"
@@ -500,12 +427,22 @@ function ProductionExports(props: { embedded?: boolean }) {
             </p>
             <button
               className="mt-4 min-h-11 rounded-lg bg-[#0a6f67] px-5 font-bold text-white"
-              disabled={busy || !physicalHandoffAvailable || Boolean(pendingHandoff)}
+              disabled={busy || Boolean(pendingPublication)}
               onClick={() => void createRecovery()}
               type="button"
             >
               Create Recovery Export
             </button>
+            {pendingPublication?.artifactKind === "field_recovery" ? (
+              <button
+                className="ml-2 mt-4 min-h-11 rounded-lg border border-[#0a6f67] px-5 font-bold text-[#0a6f67]"
+                disabled={busy}
+                onClick={() => void publishPending()}
+                type="button"
+              >
+                Save Recovery Export
+              </button>
+            ) : null}
             <label className="mt-5 block text-sm font-bold" htmlFor="restore-recovery">
               Restore Recovery Export
               <input
@@ -542,20 +479,20 @@ function ProductionExports(props: { embedded?: boolean }) {
             </p>
             <button
               className="mt-4 min-h-11 rounded-lg bg-[#5d3ed1] px-5 font-bold text-white"
-              disabled={busy || !physicalHandoffAvailable || Boolean(pendingHandoff)}
+              disabled={busy || Boolean(pendingPublication)}
               onClick={() => void createBatch()}
               type="button"
             >
               Create reviewed Field Batch
             </button>
-            {pendingHandoff?.artifactKind === "field_batch" ? (
+            {pendingPublication?.artifactKind === "field_batch" ? (
               <button
-                className="mt-4 ml-2 min-h-11 rounded-lg border border-[#5d3ed1] px-5 font-bold text-[#5d3ed1]"
+                className="ml-2 mt-4 min-h-11 rounded-lg border border-[#5d3ed1] px-5 font-bold text-[#271776]"
                 disabled={busy}
-                onClick={() => void publishPendingHandoff()}
+                onClick={() => void publishPending()}
                 type="button"
               >
-                Share prepared Field Batch
+                Save reviewed Field Batch
               </button>
             ) : null}
             <p className="mt-6 text-sm font-bold">Destination receipt verification</p>

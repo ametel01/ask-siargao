@@ -242,6 +242,9 @@ function validateFollowUp(
     if (review.followUp) throw new Error("Only Needs more evidence may create a follow-up.");
     return undefined;
   }
+  if (["captureException", "schemaGap"].includes(original.kind)) {
+    throw new Error("This record kind cannot create a follow-up assignment.");
+  }
   const followUp = review.followUp;
   const value = original.value as unknown as Record<string, unknown>;
   if (

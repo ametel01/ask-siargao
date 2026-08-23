@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FollowUpAssignment } from "@/features/field-protocol/generated";
 import type { RecorderRecord } from "@/features/field-recorder/field-recorder-types";
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
 import { FieldMain } from "@/features/field-workspace/FieldMain";
-import { canCreateDeskFollowUp, createDeskFollowUp } from "./desk-followup";
 import { fieldDeskCorrectionNoteSchema } from "./desk-schemas";
 import { FieldDeskRepository } from "./field-desk-repository";
 import { allRecords, appendFieldReview, effectiveReview } from "./field-desk-state";
@@ -27,11 +25,25 @@ const decisions = [
   ],
 ] as const;
 
-export function FieldDesk(props: { embedded?: boolean; harness?: boolean }) {
-  return props.harness ? <HarnessFieldDesk /> : <ProductionFieldDesk embedded={props.embedded} />;
+type DeskDecisionOption = (typeof decisions)[number];
+
+export function availableFieldDeskDecisions(
+  recordKind: RecorderRecord["kind"] | undefined,
+): readonly DeskDecisionOption[] {
+  return decisions.filter(([value]) => {
+    if (value === "correct_by_supersession") return recordKind === "fieldObservation";
+    if (value === "needs_more_evidence") {
+      return recordKind !== undefined && !["captureException", "schemaGap"].includes(recordKind);
+    }
+    return true;
+  });
 }
 
-function ProductionFieldDesk(props: { embedded?: boolean }) {
+export function FieldDesk(props: { harness?: boolean }) {
+  return props.harness ? <HarnessFieldDesk /> : <ProductionFieldDesk />;
+}
+
+function ProductionFieldDesk() {
   const security = useFieldSecuritySession();
   const [works, setWorks] = useState<readonly FieldDeskWork[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState<string>();
@@ -88,25 +100,17 @@ function ProductionFieldDesk(props: { embedded?: boolean }) {
     return (
       <>
         <OfflineFieldUnlock />
-        <LockedDeskState embedded={props.embedded} />
+        <LockedDeskState />
       </>
     );
   }
   if (!selected)
-    return (
-      <EmptyDeskState
-        embedded={props.embedded}
-        loading={loading}
-        message={status}
-        onReload={loadCustody}
-      />
-    );
+    return <EmptyDeskState loading={loading} message={status} onReload={loadCustody} />;
   return (
     <DeskReviewSurface
       key={selected.archiveId}
       status={status}
       work={selected}
-      embedded={props.embedded}
       onReload={loadCustody}
       onSave={async (next) => {
         await security.withVaultKey((key) =>
@@ -121,7 +125,6 @@ function ProductionFieldDesk(props: { embedded?: boolean }) {
 }
 
 function DeskReviewSurface(props: {
-  embedded?: boolean;
   status: string;
   work: FieldDeskWork;
   onReload: () => Promise<void>;
@@ -132,38 +135,16 @@ function DeskReviewSurface(props: {
   const [decision, setDecision] = useState<(typeof decisions)[number][0]>("include");
   const [reason, setReason] = useState("");
   const [correction, setCorrection] = useState("");
-  const [conflictDisposition, setConflictDisposition] = useState<
-    "resolved" | "intentional_repetition" | "unresolved"
-  >("unresolved");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const records = allRecords(props.work);
   const record = records[recordIndex] ?? records[0];
   const prior = record ? effectiveReview(props.work, record.value.id) : undefined;
+  const availableDecisions = availableFieldDeskDecisions(record?.kind);
   const parsedCorrection = fieldDeskCorrectionNoteSchema.safeParse(correction);
-  const followUpSupported = record ? canCreateDeskFollowUp(record) : false;
-  const conflictReviewRequired =
-    record?.kind === "fieldObservation" &&
-    (record.value.contradictsObservationIds?.length ?? 0) > 0;
   const canSubmit =
-    (!conflictReviewRequired || conflictDisposition !== "unresolved") &&
-    (decision === "include" ||
-      (decision === "correct_by_supersession"
-        ? parsedCorrection.success
-        : reason.trim().length > 0 && (decision !== "needs_more_evidence" || followUpSupported)));
-
-  useEffect(() => {
-    if (!record?.value.id) {
-      setConflictDisposition("unresolved");
-      return;
-    }
-    const disposition = prior?.conflictDisposition;
-    setConflictDisposition(
-      disposition === "resolved" || disposition === "intentional_repetition"
-        ? disposition
-        : "unresolved",
-    );
-  }, [prior?.conflictDisposition, record?.value.id]);
+    decision === "include" ||
+    (decision === "correct_by_supersession" ? parsedCorrection.success : reason.trim().length > 0);
 
   async function saveDecision() {
     if (!record || !canSubmit || saving) return;
@@ -171,13 +152,6 @@ function DeskReviewSurface(props: {
     try {
       const id = crypto.randomUUID();
       let supersedingRecord: RecorderRecord | undefined;
-      let followUp: FollowUpAssignment | undefined;
-      if (decision === "needs_more_evidence") {
-        followUp = createDeskFollowUp(record, crypto.randomUUID(), new Date().toISOString());
-        if (!followUp) {
-          throw new Error("Needs more evidence requires a linked assignment and coverage target.");
-        }
-      }
       if (decision === "correct_by_supersession") {
         if (record.kind !== "fieldObservation") {
           throw new Error("Typed correction is currently available for observations only.");
@@ -188,7 +162,7 @@ function DeskReviewSurface(props: {
             ...record.value,
             id: crypto.randomUUID(),
             supersedesId: record.value.id,
-            captureConfidenceReason: parsedCorrection.data,
+            value: { ...record.value.value, fieldDeskCorrection: parsedCorrection.data },
           },
         };
       }
@@ -202,8 +176,6 @@ function DeskReviewSurface(props: {
           reviewedAt: new Date().toISOString(),
           ...(decision === "exclude" || decision === "needs_more_evidence" ? { reason } : {}),
           ...(supersedingRecord ? { supersedingRecord } : {}),
-          ...(followUp ? { followUp } : {}),
-          ...(conflictReviewRequired ? { conflictDisposition } : {}),
         },
         work: props.work,
       });
@@ -218,11 +190,14 @@ function DeskReviewSurface(props: {
     }
   }
 
+  useEffect(() => {
+    if (!availableFieldDeskDecisions(record?.kind).some(([value]) => value === decision)) {
+      setDecision("include");
+    }
+  }, [decision, record?.kind]);
+
   return (
-    <FieldMain
-      landmark={!props.embedded}
-      className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6"
-    >
+    <FieldMain className="min-h-screen bg-[#f5eddc] px-4 py-8 text-[#0d104a] sm:px-6">
       <a
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-white focus:p-3"
         href="#review-record"
@@ -285,7 +260,7 @@ function DeskReviewSurface(props: {
             <fieldset className="mt-6">
               <legend className="text-base font-bold">Record a Field Review decision</legend>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {decisions.map(([value, label, description]) => (
+                {availableDecisions.map(([value, label, description]) => (
                   <label
                     className="flex min-h-16 cursor-pointer gap-3 rounded-lg border border-[#ddd8ef] p-3 has-[:checked]:border-[#0a6f67] has-[:checked]:bg-[#ddfbf4]"
                     key={value}
@@ -293,7 +268,6 @@ function DeskReviewSurface(props: {
                     <input
                       checked={decision === value}
                       className="mt-1"
-                      disabled={value === "needs_more_evidence" && !followUpSupported}
                       name="field-review-decision"
                       onChange={() => setDecision(value)}
                       type="radio"
@@ -306,12 +280,6 @@ function DeskReviewSurface(props: {
                   </label>
                 ))}
               </div>
-              {!followUpSupported ? (
-                <p className="mt-3 text-sm text-[#5f5f87]">
-                  Needs more evidence is available only when this record links one visit and one
-                  coverage requirement for a governed unscheduled follow-up.
-                </p>
-              ) : null}
             </fieldset>
             {decision === "exclude" || decision === "needs_more_evidence" ? (
               <label className="mt-5 block font-bold" htmlFor="review-reason">
@@ -341,25 +309,6 @@ function DeskReviewSurface(props: {
                 >
                   1–500 characters; control characters are rejected. {correction.length}/500
                 </span>
-              </label>
-            ) : null}
-            {conflictReviewRequired ? (
-              <label className="mt-5 block font-bold" htmlFor="conflict-disposition">
-                Conflict disposition
-                <select
-                  className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
-                  id="conflict-disposition"
-                  onChange={(event) =>
-                    setConflictDisposition(
-                      event.target.value as "resolved" | "intentional_repetition" | "unresolved",
-                    )
-                  }
-                  value={conflictDisposition}
-                >
-                  <option value="unresolved">Unresolved — keep export blocked</option>
-                  <option value="resolved">Resolved conflict</option>
-                  <option value="intentional_repetition">Intentional repetition</option>
-                </select>
               </label>
             ) : null}
             <button
@@ -422,21 +371,6 @@ export function RecordSummary(props: {
         (candidate) => candidate.kind === "fieldVisit" && candidate.value.id === value.visitId,
       )
     : undefined;
-  const assignment = value.assignmentId
-    ? work?.recorderWork.assignments?.find(
-        (candidate) => candidate.assignmentId === value.assignmentId,
-      )
-    : undefined;
-  const assignmentOutcome = assignment?.outcomeId
-    ? work?.recorderWork.assignmentOutcomes.find(
-        (candidate) => candidate.id === assignment.outcomeId,
-      )
-    : undefined;
-  const objective = value.objectiveId
-    ? work?.recorderWork.objectiveCoverage.find(
-        (candidate) => candidate.objectiveId === value.objectiveId,
-      )
-    : undefined;
   const fields: Array<[string, unknown]> = [
     ["Record type", record.kind],
     ["Record ID", value.id],
@@ -452,6 +386,7 @@ export function RecordSummary(props: {
       ["Observed", record.value.observedAt],
       ["Confidence", record.value.captureConfidence],
       ["Subject", record.value.subject.kind],
+      ["Reviewable observation value", reviewSafeObservationValue(record.value.value)],
     );
   } else if (record.kind === "fieldVisit") {
     fields.push(
@@ -497,33 +432,6 @@ export function RecordSummary(props: {
       ["Coverage reason codes", coverage.reasonCodes.join(", ") || "None"],
     );
   }
-  if (assignment) {
-    fields.push(
-      ["Assignment status", assignment.status],
-      [
-        "Assignment unresolved requirements",
-        assignment.unresolvedRequirementIds.join(", ") || "None",
-      ],
-      ["Assignment linked Visits", assignment.visitIds.join(", ") || "None"],
-    );
-  }
-  if (assignmentOutcome) {
-    fields.push(
-      ["Assignment outcome", assignmentOutcome.status],
-      [
-        "Outcome unresolved requirements",
-        assignmentOutcome.unresolvedRequirementIds.join(", ") || "None",
-      ],
-      ["Outcome follow-ups", assignmentOutcome.followUpAssignmentIds.join(", ") || "None"],
-    );
-  }
-  if (objective) {
-    fields.push(
-      ["Objective status", objective.status],
-      ["Objective source records", objective.sourceRecordIds.join(", ") || "None"],
-      ["Objective requirements", objective.requirements.length],
-    );
-  }
   if (visit?.kind === "fieldVisit") {
     fields.push(
       ["Visit started", visit.value.startedAt],
@@ -544,7 +452,6 @@ export function RecordSummary(props: {
       ["Observation caveat", record.value.caveat],
       ["Review due", record.value.reviewDueAt],
       ["Conflicts", record.value.contradictsObservationIds?.length ?? 0],
-      ["Conflict record IDs", record.value.contradictsObservationIds?.join(", ") || "None"],
     );
   } else if (record.kind === "evidenceAsset") {
     fields.push(
@@ -559,6 +466,10 @@ export function RecordSummary(props: {
     );
   } else if (record.kind === "sourceStatement") {
     fields.push(
+      ["Question asked", record.value.questionAsked],
+      ["Source content", "Original statement withheld from the review summary"],
+      ["Basis of knowledge", record.value.basisOfKnowledge],
+      ["Capture context", record.value.captureContext],
       ["Source language", record.value.originalLanguage],
       ["Source form", record.value.statementForm],
       ["Source role", record.value.sourceRole],
@@ -602,9 +513,42 @@ function displayField(value: unknown): string {
   return "Structured protected field";
 }
 
-function LockedDeskState(props: { embedded?: boolean }) {
+const reviewSafeObservationKeys = [
+  "amount",
+  "basis",
+  "currency",
+  "distanceMeters",
+  "durationMinutes",
+  "negotiated",
+  "partySize",
+  "paymentMethodAttempted",
+  "pricingUnit",
+  "taxesAndFees",
+  "unit",
+  "value",
+] as const;
+
+function reviewSafeObservationValue(value: Readonly<Record<string, unknown>>): string {
+  const fields = reviewSafeObservationKeys.flatMap((key) => {
+    const candidate = value[key];
+    if (
+      typeof candidate !== "string" &&
+      typeof candidate !== "number" &&
+      typeof candidate !== "boolean"
+    ) {
+      return [];
+    }
+    const text = String(candidate);
+    return [[key, text.length > 120 ? `${text.slice(0, 117)}…` : text] as const];
+  });
+  return fields.length > 0
+    ? fields.map(([key, candidate]) => `${key}: ${candidate}`).join(" · ")
+    : "No non-sensitive value fields available";
+}
+
+function LockedDeskState() {
   return (
-    <FieldMain landmark={!props.embedded} className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
+    <FieldMain className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
       <section className="mx-auto max-w-2xl rounded-xl bg-[#fffdf7] p-8">
         <h1 className="text-2xl font-semibold">Field review locked</h1>
         <p className="mt-2 text-[#5f5f87]">
@@ -616,13 +560,12 @@ function LockedDeskState(props: { embedded?: boolean }) {
   );
 }
 function EmptyDeskState(props: {
-  embedded?: boolean;
   loading: boolean;
   message: string;
   onReload: () => Promise<void>;
 }) {
   return (
-    <FieldMain landmark={!props.embedded} className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
+    <FieldMain className="min-h-screen bg-[#f5eddc] p-6 text-[#0d104a]">
       <section className="mx-auto max-w-2xl rounded-xl bg-[#fffdf7] p-8">
         <h1 className="text-2xl font-semibold">
           {props.loading ? "Loading Desk custody…" : "No closed outing is waiting"}

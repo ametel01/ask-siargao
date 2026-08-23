@@ -9,7 +9,7 @@ import type {
   SourceStatement,
 } from "@/features/field-protocol/generated";
 import { exampleObservation, exampleVisit } from "@/features/field-recorder/test-fixtures";
-import { RecordSummary } from "./FieldDesk";
+import { availableFieldDeskDecisions, RecordSummary } from "./FieldDesk";
 import type { FieldDeskWork } from "./field-desk-types";
 
 const examples = baselineFieldProtocolPackage.examples.examples;
@@ -81,6 +81,9 @@ describe("Field Desk record context", () => {
     expect(html).toContain("Researcher");
     expect(html).toContain("Rights");
     expect(html).toContain("Conflicts");
+    expect(html).toContain("amount: 50");
+    expect(html).toContain("currency: PHP");
+    expect(html).not.toContain("Tricycle journey");
   });
 
   test("shows asset governance and source provenance without rendering opaque values", () => {
@@ -107,10 +110,27 @@ describe("Field Desk record context", () => {
     expect(assetHtml).toContain("Redaction");
     expect(assetHtml).toContain("Retention");
     expect(sourceHtml).toContain("Source language");
+    expect(sourceHtml).toContain("Question asked");
+    expect(sourceHtml).toContain("Original statement withheld");
     expect(sourceHtml).toContain("Participation consent");
     expect(sourceHtml).toContain("Public-use consent");
     expect(sourceHtml).toContain("Attribution");
     expect(sourceHtml).not.toContain(examples.sourceStatement.originalStatement);
+  });
+
+  test("restricts correction and follow-up controls by record kind", () => {
+    expect(availableFieldDeskDecisions("fieldObservation").map(([value]) => value)).toContain(
+      "correct_by_supersession",
+    );
+    expect(availableFieldDeskDecisions("fieldObservation").map(([value]) => value)).toContain(
+      "needs_more_evidence",
+    );
+    expect(availableFieldDeskDecisions("captureException").map(([value]) => value)).not.toContain(
+      "needs_more_evidence",
+    );
+    expect(availableFieldDeskDecisions("schemaGap").map(([value]) => value)).not.toContain(
+      "correct_by_supersession",
+    );
   });
 
   test("shows capture exception and schema-gap blockers", () => {
