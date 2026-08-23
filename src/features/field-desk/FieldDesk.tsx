@@ -5,6 +5,7 @@ import type { RecorderRecord } from "@/features/field-recorder/field-recorder-ty
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
 import { OfflineFieldUnlock } from "@/features/field-security/OfflineFieldUnlock";
 import { FieldMain } from "@/features/field-workspace/FieldMain";
+import { fieldDeskCorrectionNoteSchema } from "./desk-schemas";
 import { FieldDeskRepository } from "./field-desk-repository";
 import { allRecords, appendFieldReview, effectiveReview } from "./field-desk-state";
 import type { FieldDeskWork } from "./field-desk-types";
@@ -125,11 +126,10 @@ function DeskReviewSurface(props: {
   const records = allRecords(props.work);
   const record = records[recordIndex] ?? records[0];
   const prior = record ? effectiveReview(props.work, record.value.id) : undefined;
+  const parsedCorrection = fieldDeskCorrectionNoteSchema.safeParse(correction);
   const canSubmit =
     decision === "include" ||
-    (decision === "correct_by_supersession"
-      ? correction.trim().length > 0
-      : reason.trim().length > 0);
+    (decision === "correct_by_supersession" ? parsedCorrection.success : reason.trim().length > 0);
 
   async function saveDecision() {
     if (!record || !canSubmit || saving) return;
@@ -147,7 +147,7 @@ function DeskReviewSurface(props: {
             ...record.value,
             id: crypto.randomUUID(),
             supersedesId: record.value.id,
-            value: { ...record.value.value, fieldDeskCorrection: correction.trim() },
+            value: { ...record.value.value, fieldDeskCorrection: parsedCorrection.data },
           },
         };
       }
@@ -235,7 +235,7 @@ function DeskReviewSurface(props: {
                 {prior?.decision ?? "Awaiting review"}
               </span>
             </div>
-            <RecordSummary record={record} />
+            <RecordSummary prior={prior} record={record} />
             <fieldset className="mt-6">
               <legend className="text-base font-bold">Record a Field Review decision</legend>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -275,11 +275,19 @@ function DeskReviewSurface(props: {
               <label className="mt-5 block font-bold" htmlFor="corrected-value">
                 Typed corrected observation note
                 <input
+                  aria-describedby="corrected-value-help"
                   className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
                   id="corrected-value"
+                  maxLength={500}
                   onChange={(event) => setCorrection(event.target.value)}
                   value={correction}
                 />
+                <span
+                  className="mt-1 block text-xs font-normal text-[#5f5f87]"
+                  id="corrected-value-help"
+                >
+                  1–500 characters; control characters are rejected. {correction.length}/500
+                </span>
               </label>
             ) : null}
             <button
@@ -326,7 +334,11 @@ function DeskReviewSurface(props: {
   );
 }
 
-function RecordSummary({ record }: { record?: RecorderRecord }) {
+function RecordSummary(props: {
+  prior?: FieldDeskWork["reviews"][number];
+  record?: RecorderRecord;
+}) {
+  const { prior, record } = props;
   if (!record) return null;
   const value = record.value as unknown as Record<string, unknown>;
   const fields: Array<[string, unknown]> = [
@@ -358,6 +370,44 @@ function RecordSummary({ record }: { record?: RecorderRecord }) {
       ["Requested", record.value.requestedAt],
       ["Departed", record.value.departedAt],
       ["Arrived", record.value.arrivedAt],
+    );
+  }
+  fields.push(
+    ["Protocol", `${String(value.protocolPackageId)}@${String(value.protocolPackageVersion)}`],
+    ["Campaign", value.campaignId],
+    ["Researcher", value.researcherId],
+    ["Device", value.deviceId],
+    ["Coverage requirement", value.coverageRequirementId],
+    ["Objective", value.objectiveId],
+    ["Capture windows", Array.isArray(value.captureWindowIds) ? value.captureWindowIds.length : 0],
+    ["Linked assets", Array.isArray(value.assetIds) ? value.assetIds.length : 0],
+    ["Supersedes", value.supersedesId],
+    [
+      "Conflict links",
+      Array.isArray(value.contradictsObservationIds) ? value.contradictsObservationIds.length : 0,
+    ],
+    ["Review conflict disposition", prior?.conflictDisposition],
+  );
+  if (record.kind === "fieldObservation") {
+    fields.push([
+      "Rights",
+      Object.entries(record.value.permissions)
+        .filter(([, granted]) => granted)
+        .map(([name]) => name)
+        .join(", ") || "None",
+    ]);
+  } else if (record.kind === "evidenceAsset") {
+    fields.push(
+      ["Rights", record.value.rights],
+      ["Consent", record.value.consentState],
+      ["Redaction", record.value.redactionState],
+      ["Retention", record.value.retentionState],
+    );
+  } else if (record.kind === "sourceStatement") {
+    fields.push(
+      ["Attribution", record.value.attribution],
+      ["Participation consent", record.value.consents.participation.decision],
+      ["Public-use consent", record.value.consents.publicUse.decision],
     );
   }
   return (

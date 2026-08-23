@@ -15,6 +15,22 @@ export const deskReviewDecisionSchema = z.enum([
   "correct_by_supersession",
 ]);
 
+export const fieldDeskCorrectionNoteSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(500)
+  .refine(
+    (value) =>
+      ![...value].some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint <= 0x1f || codePoint === 0x7f;
+      }),
+    {
+      message: "Correction notes cannot contain control characters.",
+    },
+  );
+
 export const fieldDeskReviewEntrySchema = z
   .strictObject({
     schemaVersion: z.literal(FIELD_DESK_REVIEW_VERSION),

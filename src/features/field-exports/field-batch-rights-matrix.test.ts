@@ -171,6 +171,24 @@ describe("Field Batch rights and consent acceptance matrix", () => {
     expect(JSON.stringify(receipt).includes(sentinel)).toBe(false);
     expect(containsBytes(stagedBytes, fieldTextEncoder.encode(sentinel))).toBe(false);
   });
+
+  test("rejects mixed explicit selection when one record is excluded", async () => {
+    const included = exampleStatement();
+    const excluded = exampleObservation();
+    const graph = await deriveFieldBatchGraph({
+      batchId: "0192f060-4f41-7aa1-b322-4aa9fc9f1713",
+      intendedUse: "research_internal",
+      selectedRecordIds: [included.id, excluded.id],
+      validateRecorderWork: async () => [],
+      works: [
+        await includedWork({ kind: "sourceStatement", value: included }),
+        await excludedWork(excluded),
+      ],
+    });
+    expect(graph.issues.map((entry) => entry.code)).toContain("effective_review_not_include");
+    expect(graph.files).toEqual([]);
+    expect(graph.referentialClosureSha256).toBeUndefined();
+  });
 });
 
 async function issueCodes(
@@ -199,6 +217,26 @@ async function includedWork(record: MatrixRecord): Promise<FieldDeskWork> {
       decision: "include",
       id: "0192f060-4f41-7aa1-b322-4aa9fc9f1703",
       recordId: record.value.id,
+      reviewedAt: fixedAt,
+      reviewerId: "reviewer_desk",
+      reviewerMatchesResearcher: false,
+    },
+    work: base,
+  });
+}
+
+async function excludedWork(record: FieldObservation): Promise<FieldDeskWork> {
+  const base = await createFieldDeskWork({
+    archiveId: "0192f060-4f41-7aa1-b322-4aa9fc9f1714",
+    handedOffAt: fixedAt,
+    recorderWork: recorderWork({ kind: "fieldObservation", value: record }),
+  });
+  return appendFieldReview({
+    review: {
+      decision: "exclude",
+      id: "0192f060-4f41-7aa1-b322-4aa9fc9f1715",
+      recordId: record.id,
+      reason: "Adversarial mixed-selection regression.",
       reviewedAt: fixedAt,
       reviewerId: "reviewer_desk",
       reviewerMatchesResearcher: false,
