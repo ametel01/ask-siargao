@@ -96,7 +96,7 @@ async function matchPreparedShell() {
 async function selectPreparedBuild(buildId, preparationId) {
   if (!/^[A-Za-z0-9._-]{1,200}$/.test(buildId)) return;
   const preparedCache = await caches.open(FIELD_CACHE_PREFIX + buildId);
-  if (!(await preparedCache.match(FIELD_SHELL_PATH))) return;
+  if (!(await isPreparedCacheComplete(preparedCache))) return;
   const activeCache = await caches.open(FIELD_ACTIVE_BUILD_CACHE);
   await activeCache.put(
     FIELD_ACTIVE_BUILD_PATH,
@@ -104,6 +104,19 @@ async function selectPreparedBuild(buildId, preparationId) {
       headers: { "content-type": "application/json" },
     }),
   );
+}
+
+async function isPreparedCacheComplete(cache) {
+  const shell = await cache.match(FIELD_SHELL_PATH);
+  if (!shell) return false;
+  const html = await shell.clone().text();
+  const staticPaths = [...html.matchAll(/(?:src|href)=["'](\/_next\/static\/[^"']+)["']/g)]
+    .map((match) => match[1])
+    .filter((path) => !path.includes(".."));
+  for (const path of new Set(staticPaths)) {
+    if (!(await cache.match(path))) return false;
+  }
+  return true;
 }
 
 async function readActiveBuildId() {

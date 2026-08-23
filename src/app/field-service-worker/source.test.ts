@@ -14,4 +14,8 @@ test("selects the explicitly prepared field build instead of lexical cache order
   expect(serviceWorkerSource).not.toContain(
     ".filter((key) => key.startsWith(FIELD_CACHE_PREFIX)).sort()",
   );
+  expect(serviceWorkerSource).toContain("async function isPreparedCacheComplete(cache)");
+  expect(serviceWorkerSource).toContain(
+    "if (!(await isPreparedCacheComplete(preparedCache))) return;",
+  );
 });
