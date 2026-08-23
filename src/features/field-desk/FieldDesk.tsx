@@ -281,7 +281,7 @@ function DeskReviewSurface(props: {
                 {prior?.decision ?? "Awaiting review"}
               </span>
             </div>
-            <RecordSummary prior={prior} record={record} />
+            <RecordSummary prior={prior} record={record} work={props.work} />
             <fieldset className="mt-6">
               <legend className="text-base font-bold">Record a Field Review decision</legend>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -406,13 +406,22 @@ function DeskReviewSurface(props: {
   );
 }
 
-function RecordSummary(props: {
+export function RecordSummary(props: {
   prior?: FieldDeskWork["reviews"][number];
   record?: RecorderRecord;
+  work?: FieldDeskWork;
 }) {
-  const { prior, record } = props;
+  const { prior, record, work } = props;
   if (!record) return null;
   const value = record.value as unknown as Record<string, unknown>;
+  const coverage = work?.recorderWork.objectiveCoverage
+    .flatMap((objective) => objective.requirements)
+    .find((requirement) => requirement.coverageRequirementId === value.coverageRequirementId);
+  const visit = value.visitId
+    ? work?.recorderWork.records.find(
+        (candidate) => candidate.kind === "fieldVisit" && candidate.value.id === value.visitId,
+      )
+    : undefined;
   const fields: Array<[string, unknown]> = [
     ["Record type", record.kind],
     ["Record ID", value.id],
@@ -449,6 +458,10 @@ function RecordSummary(props: {
     ["Campaign", value.campaignId],
     ["Researcher", value.researcherId],
     ["Device", value.deviceId],
+    ["Source statement", value.sourceStatementId],
+    ["Source asset", value.sourceAssetId],
+    ["Translations", Array.isArray(value.translationIds) ? value.translationIds.length : 0],
+    ["Redacted derivative", value.redactedDerivativeId],
     ["Coverage requirement", value.coverageRequirementId],
     ["Objective", value.objectiveId],
     ["Capture windows", Array.isArray(value.captureWindowIds) ? value.captureWindowIds.length : 0],
@@ -460,6 +473,23 @@ function RecordSummary(props: {
     ],
     ["Review conflict disposition", prior?.conflictDisposition],
   );
+  if (coverage) {
+    fields.push(
+      ["Coverage status", coverage.status],
+      ["Captured / required", `${coverage.capturedRecords} / ${coverage.requiredRecords}`],
+      ["Windows / required", `${coverage.distinctWindows} / ${coverage.requiredDistinctWindows}`],
+      ["Supporting assets", coverage.supportingAssets],
+      ["Coverage reason codes", coverage.reasonCodes.join(", ") || "None"],
+    );
+  }
+  if (visit?.kind === "fieldVisit") {
+    fields.push(
+      ["Visit started", visit.value.startedAt],
+      ["Visit ended", visit.value.endedAt],
+      ["Visit location permission", visit.value.locationPermissionState],
+      ["Visit public location precision", visit.value.publicLocationPrecision],
+    );
+  }
   if (record.kind === "fieldObservation") {
     fields.push([
       "Rights",
@@ -468,8 +498,17 @@ function RecordSummary(props: {
         .map(([name]) => name)
         .join(", ") || "None",
     ]);
+    fields.push(
+      ["Observation caveat", record.value.caveat],
+      ["Review due", record.value.reviewDueAt],
+      ["Conflicts", record.value.contradictsObservationIds?.length ?? 0],
+    );
   } else if (record.kind === "evidenceAsset") {
     fields.push(
+      ["Asset bytes", record.value.byteSize],
+      ["Asset hash", record.value.contentSha256],
+      ["Asset purpose", record.value.purpose],
+      ["Asset media type", record.value.mediaType],
       ["Rights", record.value.rights],
       ["Consent", record.value.consentState],
       ["Redaction", record.value.redactionState],
@@ -477,9 +516,27 @@ function RecordSummary(props: {
     );
   } else if (record.kind === "sourceStatement") {
     fields.push(
+      ["Source language", record.value.originalLanguage],
+      ["Source form", record.value.statementForm],
+      ["Source role", record.value.sourceRole],
       ["Attribution", record.value.attribution],
       ["Participation consent", record.value.consents.participation.decision],
+      ["LLM-use consent", record.value.consents.llmUse.decision],
+      ["Quotation consent", record.value.consents.quotationUse.decision],
       ["Public-use consent", record.value.consents.publicUse.decision],
+    );
+  } else if (record.kind === "captureException") {
+    fields.push(
+      ["Exception reason", record.value.reason],
+      ["Exception context", record.value.context],
+      ["Exception details", record.value.reasonDetails],
+    );
+  } else if (record.kind === "schemaGap") {
+    fields.push(
+      ["Schema gap", record.value.description],
+      ["Schema gap resolution", record.value.resolutionState],
+      ["Schema gap location", record.value.permittedLocation],
+      ["Schema gap asset", record.value.assetId],
     );
   }
   return (
