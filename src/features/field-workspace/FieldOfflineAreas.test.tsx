@@ -22,7 +22,7 @@ describe("prepared offline Field Workspace areas", () => {
     expect(html).toContain(">Plan</button>");
     expect(html).toContain(">Review</button>");
     expect(html).toContain(">Exports</button>");
-    expect(html).toContain(">Diagnostics and Recovery</button>");
+    expect(html).toContain(">Open Diagnostics and Recovery</button>");
     expect(html).not.toContain("local admin token");
   });
 });

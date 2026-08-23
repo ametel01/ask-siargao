@@ -35,7 +35,6 @@ export function FieldOfflineAreas(props: {
             ["recorder", "Recorder"],
             ["review", "Review"],
             ["exports", "Exports"],
-            ["diagnostics", "Diagnostics and Recovery"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -50,7 +49,8 @@ export function FieldOfflineAreas(props: {
         ))}
       </nav>
       <p className="sr-only">
-        Prepared offline areas: Plan, Recorder, Review, Exports, and Diagnostics and Recovery.
+        Prepared offline areas: Plan, Recorder, Review, and Exports. Diagnostics and Recovery is an
+        exceptional recovery surface.
       </p>
       {area === "plan" ? (
         <FieldPlanRecorderBridge
@@ -70,6 +70,24 @@ export function FieldOfflineAreas(props: {
           <LegacyImportDiagnostics />
         </section>
       ) : null}
+      <section
+        aria-labelledby="offline-exceptional-heading"
+        className="mt-8 border-t border-stone-300 pt-6"
+      >
+        <h2 className="text-sm font-semibold" id="offline-exceptional-heading">
+          Exceptional recovery
+        </h2>
+        <p className="mt-1 text-sm text-stone-600">
+          Legacy Capture is isolated from ordinary Recorder, Plan, Review, and Exports work.
+        </p>
+        <button
+          className="mt-3 min-h-11 rounded-lg border border-stone-500 bg-white px-4 py-2 text-sm font-semibold"
+          onClick={() => setArea("diagnostics")}
+          type="button"
+        >
+          Open Diagnostics and Recovery
+        </button>
+      </section>
     </div>
   );
 }
