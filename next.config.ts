@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+export { createFieldWorkspaceContentSecurityPolicy } from "./src/server/security/field-workspace-csp";
+
 export const contentSecurityPolicyReportOnly = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -20,6 +22,10 @@ export const contentSecurityPolicyReportOnly = [
 const nextConfig: NextConfig = {
   devIndicators: false,
   env: {
+    NEXT_PUBLIC_FIELD_CACHE_GENERATION:
+      process.env.NEXT_PUBLIC_FIELD_CACHE_GENERATION ??
+      process.env.VERCEL_GIT_COMMIT_SHA ??
+      "local",
     NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED: process.env.NEXT_PUBLIC_CLERK_TELEMETRY_DISABLED ?? "1",
   },
   experimental: {
@@ -57,6 +63,33 @@ const nextConfig: NextConfig = {
       {
         source: "/admin/:path*",
         headers: [{ key: "x-robots-tag", value: "noindex, nofollow" }],
+      },
+      {
+        source: "/operator/field/:path*",
+        headers: [
+          { key: "cache-control", value: "private, no-store" },
+          {
+            key: "permissions-policy",
+            value: "camera=(self), microphone=(self), geolocation=(self), payment=()",
+          },
+          { key: "referrer-policy", value: "no-referrer" },
+          { key: "x-robots-tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/api/operator/field/:path*",
+        headers: [
+          { key: "cache-control", value: "private, no-store" },
+          { key: "x-robots-tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/field-service-worker",
+        headers: [
+          { key: "cache-control", value: "no-cache, no-store, must-revalidate" },
+          { key: "service-worker-allowed", value: "/" },
+          { key: "x-robots-tag", value: "noindex, nofollow" },
+        ],
       },
     ];
   },

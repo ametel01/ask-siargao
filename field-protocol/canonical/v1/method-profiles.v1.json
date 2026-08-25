@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "method-profile-registry.v1",
+  "componentVersion": "1.0.0",
+  "profiles": [
+    {
+      "id": "method_structured_visual_check@1.0.0",
+      "procedure": "Observe one bounded state, record the instant and governed conditions, and avoid inferring unobserved facts.",
+      "supportedKinds": [
+        "identity",
+        "opening_signal",
+        "road_condition",
+        "facility",
+        "accessibility",
+        "power",
+        "weather_condition",
+        "service_status",
+        "contact_channel",
+        "local_caveat"
+      ],
+      "supportedUnits": [],
+      "deviceRequirements": []
+    },
+    {
+      "id": "method_posted_or_paid_price@1.0.0",
+      "procedure": "Record the displayed, quoted, or paid amount with its exact basis, inclusions, party size, and receipt linkage.",
+      "supportedKinds": ["price", "menu_item"],
+      "supportedUnits": [],
+      "deviceRequirements": []
+    },
+    {
+      "id": "method_timed_route@1.0.0",
+      "procedure": "Use device timestamps at the declared origin, queue, departure, and destination points without editing elapsed time.",
+      "supportedKinds": ["route_duration", "route_wait"],
+      "supportedUnits": ["s"],
+      "deviceRequirements": ["monotonic_clock"]
+    },
+    {
+      "id": "method_payment_attempt@1.0.0",
+      "procedure": "Attempt a genuine appropriate transaction and record the method offered and observed outcome.",
+      "supportedKinds": ["payment_method"],
+      "supportedUnits": [],
+      "deviceRequirements": []
+    },
+    {
+      "id": "method_network_three_test@1.0.0",
+      "procedure": "Run at least three declared upload, download, or latency measurements in the same recorded zone and conditions.",
+      "supportedKinds": ["connectivity"],
+      "supportedUnits": ["Mbps", "ms"],
+      "deviceRequirements": ["network_test_capability"]
+    },
+    {
+      "id": "method_manual_crowd_count@1.0.0",
+      "procedure": "Declare the observation boundary, count or select the controlled band, and record the instant.",
+      "supportedKinds": ["crowd_snapshot"],
+      "supportedUnits": ["person"],
+      "deviceRequirements": []
+    },
+    {
+      "id": "method_sound_meter@1.0.0",
+      "procedure": "Record the measurement position and either an instrument dBA reading or the controlled subjective band.",
+      "supportedKinds": ["noise_snapshot"],
+      "supportedUnits": ["dBA"],
+      "deviceRequirements": ["sound_meter_or_declared_subjective_mode"]
+    },
+    {
+      "id": "method_tide_source_and_shoreline@1.0.0",
+      "procedure": "Record the observed shoreline state and preserve the cited tide source and retrieval instant separately.",
+      "supportedKinds": ["tide_context"],
+      "supportedUnits": [],
+      "deviceRequirements": []
+    },
+    {
+      "id": "method_source_question@1.0.0",
+      "procedure": "Ask the declared question, preserve basis of knowledge and original language, and record each consent independently.",
+      "supportedKinds": ["power", "service_status", "local_caveat"],
+      "supportedUnits": [],
+      "deviceRequirements": []
+    }
+  ]
+}

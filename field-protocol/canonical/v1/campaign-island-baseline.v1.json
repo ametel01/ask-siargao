@@ -1,0 +1,2473 @@
+{
+  "schemaVersion": "field-campaign.v1",
+  "componentVersion": "1.0.1",
+  "campaignId": "campaign_island_baseline",
+  "name": "Siargao island baseline",
+  "purpose": "Build reviewed first-hand visitor-planning evidence without binding fieldwork to predetermined dates.",
+  "methodologyVersion": "1.0.0",
+  "baselineOrigin": {
+    "replaces": "former-14-day-itinerary",
+    "representation": "unscheduled-coverage-and-eligibility"
+  },
+  "objectiveActions": ["observe", "measure", "attempt", "ask", "traverse", "document", "repeat"],
+  "permissionDefaults": {
+    "llmUse": false,
+    "articleUse": false,
+    "quotationUse": false,
+    "publicUse": false,
+    "preciseLocation": "denied"
+  },
+  "planningRules": {
+    "selectionOrder": [
+      "eligibility_window_rarity",
+      "travel_compatibility",
+      "outstanding_required_coverage",
+      "editorial_priority",
+      "oldest_admissible_evidence",
+      "time_fit",
+      "assignment_id"
+    ],
+    "eligibilityWindowKinds": [
+      { "kind": "access_state", "rarityRank": 2, "maximumAgeMinutes": 720, "hardGate": true },
+      { "kind": "arrival_window", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "changed_conditions", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "daypart", "rarityRank": 3, "maximumAgeMinutes": 720, "hardGate": true },
+      { "kind": "operating_state", "rarityRank": 2, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "provider_state", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "safe_marine_state", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "safe_route_state", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "safety_state", "rarityRank": 2, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "source_coverage", "rarityRank": 1, "maximumAgeMinutes": 10080, "hardGate": true },
+      { "kind": "tide_context", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "transport_state", "rarityRank": 2, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "transport_window", "rarityRank": 1, "maximumAgeMinutes": 180, "hardGate": true },
+      { "kind": "weekday_class", "rarityRank": 3, "maximumAgeMinutes": 1440, "hardGate": true }
+    ]
+  },
+  "branchingRules": [
+    {
+      "when": "hard_gate_unsafe_or_ineligible",
+      "action": "record_capture_exception_and_offer_safe_fallback"
+    },
+    {
+      "when": "schema_cannot_represent_reality",
+      "action": "record_schema_gap_without_best_fit_value"
+    },
+    {
+      "when": "partial_coverage_set_selected",
+      "action": "preserve_unselected_objectives_as_outstanding"
+    },
+    {
+      "when": "required_coverage_blocked",
+      "action": "close_with_gaps_and_create_unscheduled_follow_up"
+    },
+    {
+      "when": "captured_record_needs_correction",
+      "action": "supersede_without_rewriting_original"
+    }
+  ],
+  "assignments": [
+    {
+      "id": "assignment_home_base_readiness",
+      "state": "unscheduled",
+      "title": "Home-base readiness and practicalities",
+      "geography": {
+        "form": "governed_area",
+        "areaId": "area_del_carmen",
+        "anchorAreaId": "area_del_carmen",
+        "privateLocation": true
+      },
+      "estimatedMinutes": 150,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "daypart",
+          "values": ["morning", "evening"]
+        },
+        {
+          "kind": "changed_conditions",
+          "values": ["power", "weather", "crowd"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_home_observe_utilities",
+          "action": "observe",
+          "observationKinds": ["power"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 2,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          }
+        },
+        {
+          "id": "objective_home_observe_practical_essentials",
+          "action": "observe",
+          "observationKinds": ["facility"],
+          "facilityTypes": ["drinking_water", "waste_disposal", "food"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 3,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          }
+        },
+        {
+          "id": "objective_home_measure_environment",
+          "action": "measure",
+          "observationKinds": ["noise_snapshot", "connectivity"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 2,
+            "supportingAsset": "not_required",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          }
+        },
+        {
+          "id": "objective_home_attempt_offline_readiness",
+          "action": "attempt",
+          "observationKinds": ["connectivity", "power"],
+          "workflowRequirements": ["offline_field_readiness"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 2,
+            "supportingAsset": "not_required",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          }
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_offline_readiness",
+          "labelKey": "offline_readiness",
+          "objectiveId": "objective_home_attempt_offline_readiness",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity", "power"]
+        },
+        {
+          "id": "coverage_water",
+          "labelKey": "water",
+          "objectiveId": "objective_home_observe_practical_essentials",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_power",
+          "labelKey": "power",
+          "objectiveId": "objective_home_observe_utilities",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["power"]
+        },
+        {
+          "id": "coverage_waste",
+          "labelKey": "waste",
+          "objectiveId": "objective_home_observe_practical_essentials",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_noise",
+          "labelKey": "noise",
+          "objectiveId": "objective_home_measure_environment",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["noise_snapshot"]
+        },
+        {
+          "id": "coverage_connectivity",
+          "labelKey": "connectivity",
+          "objectiveId": "objective_home_measure_environment",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        },
+        {
+          "id": "coverage_nearby_essentials",
+          "labelKey": "nearby_essentials",
+          "objectiveId": "objective_home_observe_practical_essentials",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_home_connectivity",
+          "objectiveIds": ["objective_home_measure_environment"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_del_carmen_essentials",
+      "state": "unscheduled",
+      "title": "Del Carmen visitor essentials",
+      "geography": {
+        "form": "governed_area",
+        "areaId": "area_del_carmen",
+        "anchorAreaId": "area_del_carmen",
+        "privateLocation": false
+      },
+      "estimatedMinutes": 210,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "weekday_class",
+          "values": ["weekday", "weekend"]
+        },
+        {
+          "kind": "operating_state",
+          "values": ["open"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_home_base_readiness",
+      "objectives": [
+        {
+          "id": "objective_del_carmen_observe_services",
+          "action": "observe",
+          "observationKinds": [
+            "identity",
+            "local_caveat",
+            "facility",
+            "payment_method",
+            "price",
+            "accessibility",
+            "road_condition",
+            "service_status",
+            "connectivity",
+            "opening_signal"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 4,
+            "supportingAsset": "required_for_posted_information",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "recordKinds": ["evidence-asset.v1"]
+        },
+        {
+          "id": "objective_del_carmen_ask_service_leads",
+          "action": "ask",
+          "recordKinds": ["source-statement.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "not_required",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "observationKinds": ["facility"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_identity",
+          "labelKey": "identity",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["identity"]
+        },
+        {
+          "id": "coverage_wayfinding",
+          "labelKey": "wayfinding",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
+          "admissibleObservationKinds": ["identity", "local_caveat"]
+        },
+        {
+          "id": "coverage_cash",
+          "labelKey": "cash",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility", "payment_method"]
+        },
+        {
+          "id": "coverage_payment",
+          "labelKey": "payment",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
+          "admissibleObservationKinds": ["payment_method", "price"]
+        },
+        {
+          "id": "coverage_pharmacy_clinic_leads",
+          "labelKey": "pharmacy_clinic_leads",
+          "objectiveId": "objective_del_carmen_ask_service_leads",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_fuel",
+          "labelKey": "fuel",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_food",
+          "labelKey": "food",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_toilets",
+          "labelKey": "toilets",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_shade",
+          "labelKey": "shade",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_access",
+          "labelKey": "access",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        },
+        {
+          "id": "coverage_connectivity",
+          "labelKey": "connectivity",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        },
+        {
+          "id": "coverage_opening",
+          "labelKey": "opening",
+          "objectiveId": "objective_del_carmen_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["opening_signal"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_del_carmen_wayfinding",
+          "objectiveIds": ["objective_del_carmen_observe_services"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_airport_arrival",
+      "state": "unscheduled",
+      "title": "Sayak Airport arrival journey",
+      "geography": {
+        "form": "origin_destination_route",
+        "routeId": "route_airport_del_carmen",
+        "anchorAreaId": "area_del_carmen",
+        "originSubjectId": "subject_sayak_airport",
+        "destinationSubjectId": "subject_area_del_carmen"
+      },
+      "estimatedMinutes": 180,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 43200,
+      "eligibilityWindows": [
+        {
+          "kind": "arrival_window",
+          "values": ["genuine_arrival"]
+        },
+        {
+          "kind": "transport_state",
+          "values": ["operating"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_airport_traverse_arrival",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "observationKinds": ["route_duration"]
+        },
+        {
+          "id": "objective_airport_document_signage",
+          "action": "document",
+          "recordKinds": ["evidence-asset.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "required",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "observationKinds": ["identity", "local_caveat"]
+        },
+        {
+          "id": "objective_airport_observe_arrival_conditions",
+          "action": "observe",
+          "observationKinds": [
+            "route_wait",
+            "price",
+            "accessibility",
+            "road_condition",
+            "service_status",
+            "connectivity",
+            "payment_method"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 5,
+            "supportingAsset": "required_for_posted_information",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "recordKinds": ["route-run.v1"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_pickup",
+          "labelKey": "pickup",
+          "objectiveId": "objective_airport_traverse_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_signage",
+          "labelKey": "signage",
+          "objectiveId": "objective_airport_document_signage",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
+          "admissibleObservationKinds": ["identity", "local_caveat"]
+        },
+        {
+          "id": "coverage_wait",
+          "labelKey": "wait",
+          "objectiveId": "objective_airport_observe_arrival_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_wait"]
+        },
+        {
+          "id": "coverage_luggage",
+          "labelKey": "luggage",
+          "objectiveId": "objective_airport_traverse_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_fare_basis",
+          "labelKey": "fare_basis",
+          "objectiveId": "objective_airport_observe_arrival_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["price", "payment_method"]
+        },
+        {
+          "id": "coverage_route_time",
+          "labelKey": "route_time",
+          "objectiveId": "objective_airport_traverse_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_access",
+          "labelKey": "access",
+          "objectiveId": "objective_airport_observe_arrival_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        },
+        {
+          "id": "coverage_signal",
+          "labelKey": "signal",
+          "objectiveId": "objective_airport_observe_arrival_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_airport_signage",
+          "objectiveIds": ["objective_airport_document_signage"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_general_luna_journey",
+      "state": "unscheduled",
+      "title": "General Luna and Catangnan visitor journey",
+      "geography": {
+        "form": "governed_area",
+        "areaId": "area_general_luna",
+        "anchorAreaId": "area_general_luna",
+        "privateLocation": false
+      },
+      "estimatedMinutes": 240,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "weekday_class",
+          "values": ["weekday", "weekend"]
+        },
+        {
+          "kind": "daypart",
+          "values": ["daytime", "evening"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_connectivity_transect",
+      "objectives": [
+        {
+          "id": "objective_general_luna_attempt_arrival",
+          "action": "attempt",
+          "observationKinds": [
+            "route_duration",
+            "accessibility",
+            "facility",
+            "identity",
+            "local_caveat",
+            "price",
+            "road_condition",
+            "service_status"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 3,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          },
+          "recordKinds": ["route-run.v1", "evidence-asset.v1"]
+        },
+        {
+          "id": "objective_general_luna_repeat_crowd",
+          "action": "repeat",
+          "observationKinds": ["crowd_snapshot", "connectivity"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 4,
+            "supportingAsset": "not_required",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          }
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_arrival",
+          "labelKey": "arrival",
+          "objectiveId": "objective_general_luna_attempt_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_parking_dropoff",
+          "labelKey": "parking_dropoff",
+          "objectiveId": "objective_general_luna_attempt_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["accessibility", "facility"]
+        },
+        {
+          "id": "coverage_wayfinding",
+          "labelKey": "wayfinding",
+          "objectiveId": "objective_general_luna_attempt_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
+          "admissibleObservationKinds": ["identity", "local_caveat"]
+        },
+        {
+          "id": "coverage_price_payment",
+          "labelKey": "price_payment",
+          "objectiveId": "objective_general_luna_attempt_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["price"]
+        },
+        {
+          "id": "coverage_facilities",
+          "labelKey": "facilities",
+          "objectiveId": "objective_general_luna_attempt_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_access_barriers",
+          "labelKey": "access_barriers",
+          "objectiveId": "objective_general_luna_attempt_arrival",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        },
+        {
+          "id": "coverage_crowd",
+          "labelKey": "crowd",
+          "objectiveId": "objective_general_luna_repeat_crowd",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["crowd_snapshot"]
+        },
+        {
+          "id": "coverage_connectivity",
+          "labelKey": "connectivity",
+          "objectiveId": "objective_general_luna_repeat_crowd",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_general_luna_access",
+          "objectiveIds": ["objective_general_luna_attempt_arrival"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_connectivity_transect",
+      "state": "unscheduled",
+      "title": "Connectivity transect",
+      "geography": {
+        "form": "route_corridor",
+        "anchorAreaId": "area_del_carmen",
+        "areaIds": ["area_del_carmen", "area_general_luna"]
+      },
+      "estimatedMinutes": 180,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "changed_conditions",
+          "values": ["crowd", "weather", "zone"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_home_base_readiness",
+      "objectives": [
+        {
+          "id": "objective_connectivity_measure_sets",
+          "action": "measure",
+          "observationKinds": ["connectivity", "power", "noise_snapshot", "facility"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 6,
+            "supportingAsset": "not_required",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          }
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_three_test_measurement_sets",
+          "labelKey": "three_test_measurement_sets",
+          "objectiveId": "objective_connectivity_measure_sets",
+          "minimumRecords": 3,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        },
+        {
+          "id": "coverage_device_network_method",
+          "labelKey": "device_network_method",
+          "objectiveId": "objective_connectivity_measure_sets",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        },
+        {
+          "id": "coverage_power",
+          "labelKey": "power",
+          "objectiveId": "objective_connectivity_measure_sets",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["power"]
+        },
+        {
+          "id": "coverage_socket_permission",
+          "labelKey": "socket_permission",
+          "objectiveId": "objective_connectivity_measure_sets",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["power"]
+        },
+        {
+          "id": "coverage_noise",
+          "labelKey": "noise",
+          "objectiveId": "objective_connectivity_measure_sets",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["noise_snapshot"]
+        },
+        {
+          "id": "coverage_seating",
+          "labelKey": "seating",
+          "objectiveId": "objective_connectivity_measure_sets",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_connectivity_one_zone",
+          "objectiveIds": ["objective_connectivity_measure_sets"],
+          "coverageLimit": "one_governed_zone_only"
+        }
+      ]
+    },
+    {
+      "id": "assignment_dapa_hub",
+      "state": "unscheduled",
+      "title": "Dapa port and service hub",
+      "geography": {
+        "form": "route_corridor",
+        "anchorAreaId": "area_central_corridor",
+        "areaIds": ["area_dapa", "area_central_corridor"]
+      },
+      "estimatedMinutes": 300,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "transport_window",
+          "values": ["arrival", "departure"]
+        },
+        {
+          "kind": "operating_state",
+          "values": ["open"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_dapa_traverse_port",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "observationKinds": ["route_duration"]
+        },
+        {
+          "id": "objective_dapa_observe_services",
+          "action": "observe",
+          "observationKinds": [
+            "identity",
+            "local_caveat",
+            "payment_method",
+            "price",
+            "facility",
+            "accessibility",
+            "road_condition",
+            "service_status"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 5,
+            "supportingAsset": "required_for_posted_information",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "recordKinds": ["evidence-asset.v1", "source-statement.v1"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_port_journey",
+          "labelKey": "port_journey",
+          "objectiveId": "objective_dapa_traverse_port",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_luggage",
+          "labelKey": "luggage",
+          "objectiveId": "objective_dapa_traverse_port",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_signs",
+          "labelKey": "signs",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
+          "admissibleObservationKinds": ["identity", "local_caveat"]
+        },
+        {
+          "id": "coverage_transport_transaction",
+          "labelKey": "transport_transaction",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["payment_method", "price"]
+        },
+        {
+          "id": "coverage_cash",
+          "labelKey": "cash",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility", "payment_method"]
+        },
+        {
+          "id": "coverage_market",
+          "labelKey": "market",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_health_leads",
+          "labelKey": "health_leads",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_fuel",
+          "labelKey": "fuel",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_toilets",
+          "labelKey": "toilets",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_shade",
+          "labelKey": "shade",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_access",
+          "labelKey": "access",
+          "objectiveId": "objective_dapa_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "required_for_posted_information",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_dapa_service_hub",
+          "objectiveIds": ["objective_dapa_observe_services"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_south_central_corridor",
+      "state": "unscheduled",
+      "title": "South and central corridor",
+      "geography": {
+        "form": "route_corridor",
+        "anchorAreaId": "area_south_central",
+        "areaIds": ["area_south_central"]
+      },
+      "estimatedMinutes": 360,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "safe_route_state",
+          "values": ["daylight", "passable"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_general_luna_journey",
+      "objectives": [
+        {
+          "id": "objective_south_traverse_twice",
+          "action": "repeat",
+          "recordKinds": ["route-run.v1", "evidence-asset.v1"],
+          "observationKinds": [
+            "road_condition",
+            "route_duration",
+            "accessibility",
+            "service_status",
+            "price",
+            "facility",
+            "connectivity",
+            "identity",
+            "local_caveat"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 6,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          }
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_route_segments",
+          "labelKey": "route_segments",
+          "objectiveId": "objective_south_traverse_twice",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["road_condition", "route_duration"]
+        },
+        {
+          "id": "coverage_surface",
+          "labelKey": "surface",
+          "objectiveId": "objective_south_traverse_twice",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["road_condition", "route_duration"]
+        },
+        {
+          "id": "coverage_stops",
+          "labelKey": "stops",
+          "objectiveId": "objective_south_traverse_twice",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_access",
+          "labelKey": "access",
+          "objectiveId": "objective_south_traverse_twice",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        },
+        {
+          "id": "coverage_price",
+          "labelKey": "price",
+          "objectiveId": "objective_south_traverse_twice",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["price"]
+        },
+        {
+          "id": "coverage_facilities",
+          "labelKey": "facilities",
+          "objectiveId": "objective_south_traverse_twice",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_signal",
+          "labelKey": "signal",
+          "objectiveId": "objective_south_traverse_twice",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        },
+        {
+          "id": "coverage_map_discrepancies",
+          "labelKey": "map_discrepancies",
+          "objectiveId": "objective_south_traverse_twice",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "evidence-asset.v1"],
+          "admissibleObservationKinds": ["identity", "local_caveat"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_south_one_route",
+          "objectiveIds": ["objective_south_traverse_twice"],
+          "coverageLimit": "one_run_does_not_complete_repetition"
+        }
+      ]
+    },
+    {
+      "id": "assignment_northbound_services",
+      "state": "unscheduled",
+      "title": "Northbound services and access",
+      "geography": {
+        "form": "route_corridor",
+        "anchorAreaId": "area_north",
+        "areaIds": ["area_north"]
+      },
+      "estimatedMinutes": 420,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "weekday_class",
+          "values": ["weekday", "weekend"]
+        },
+        {
+          "kind": "daypart",
+          "values": ["daytime"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_north_observe_services",
+          "action": "observe",
+          "observationKinds": [
+            "route_duration",
+            "road_condition",
+            "facility",
+            "payment_method",
+            "accessibility",
+            "service_status",
+            "contact_channel",
+            "local_caveat",
+            "connectivity"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 6,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          },
+          "recordKinds": ["route-run.v1", "source-statement.v1"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_route_time",
+          "labelKey": "route_time",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_road",
+          "labelKey": "road",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["road_condition", "route_duration"]
+        },
+        {
+          "id": "coverage_food",
+          "labelKey": "food",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_fuel",
+          "labelKey": "fuel",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_cash",
+          "labelKey": "cash",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility", "payment_method"]
+        },
+        {
+          "id": "coverage_health_leads",
+          "labelKey": "health_leads",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_beach_access",
+          "labelKey": "beach_access",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        },
+        {
+          "id": "coverage_service",
+          "labelKey": "service",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
+        },
+        {
+          "id": "coverage_remote_work_checks",
+          "labelKey": "remote_work_checks",
+          "objectiveId": "objective_north_observe_services",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_north_services",
+          "objectiveIds": ["objective_north_observe_services"],
+          "coverageLimit": "one_governed_area"
+        }
+      ]
+    },
+    {
+      "id": "assignment_santa_monica_alegria",
+      "state": "unscheduled",
+      "title": "Santa Monica and Alegria route",
+      "geography": {
+        "form": "origin_destination_route",
+        "routeId": "route_santa_monica_alegria",
+        "anchorAreaId": "area_north",
+        "originSubjectId": "subject_route_northbound",
+        "destinationSubjectId": "subject_route_santa_monica_alegria"
+      },
+      "estimatedMinutes": 360,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "safe_route_state",
+          "values": ["daylight", "return_transport_available"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_northbound_services",
+      "objectives": [
+        {
+          "id": "objective_north_route_traverse",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1", "source-statement.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "observationKinds": [
+            "route_duration",
+            "service_status",
+            "contact_channel",
+            "local_caveat"
+          ]
+        },
+        {
+          "id": "objective_north_route_repeat_gap",
+          "action": "repeat",
+          "observationKinds": [
+            "service_status",
+            "contact_channel",
+            "local_caveat",
+            "facility",
+            "payment_method",
+            "connectivity"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "not_required",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          },
+          "recordKinds": ["source-statement.v1"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_full_route",
+          "labelKey": "full_route",
+          "objectiveId": "objective_north_route_traverse",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_return_constraints",
+          "labelKey": "return_constraints",
+          "objectiveId": "objective_north_route_traverse",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
+        },
+        {
+          "id": "coverage_transport_availability",
+          "labelKey": "transport_availability",
+          "objectiveId": "objective_north_route_repeat_gap",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
+        },
+        {
+          "id": "coverage_facilities",
+          "labelKey": "facilities",
+          "objectiveId": "objective_north_route_repeat_gap",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_cash",
+          "labelKey": "cash",
+          "objectiveId": "objective_north_route_repeat_gap",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility", "payment_method"]
+        },
+        {
+          "id": "coverage_fuel",
+          "labelKey": "fuel",
+          "objectiveId": "objective_north_route_repeat_gap",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_signal",
+          "labelKey": "signal",
+          "objectiveId": "objective_north_route_repeat_gap",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_north_route_repeat",
+          "objectiveIds": ["objective_north_route_repeat_gap"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_pilar_access",
+      "state": "unscheduled",
+      "title": "Pilar and condition-dependent access",
+      "geography": {
+        "form": "access_point",
+        "areaId": "area_pilar",
+        "anchorAreaId": "area_pilar",
+        "subjectId": "subject_area_pilar"
+      },
+      "estimatedMinutes": 300,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 720,
+      "eligibilityWindows": [
+        {
+          "kind": "tide_context",
+          "values": ["safe_for_declared_access"]
+        },
+        {
+          "kind": "access_state",
+          "values": ["open", "permitted"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_south_central_corridor",
+      "objectives": [
+        {
+          "id": "objective_pilar_observe_conditions",
+          "action": "observe",
+          "observationKinds": [
+            "tide_context",
+            "route_duration",
+            "accessibility",
+            "road_condition",
+            "service_status",
+            "price",
+            "facility"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 6,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "recordKinds": ["route-run.v1"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_tide_context",
+          "labelKey": "tide_context",
+          "objectiveId": "objective_pilar_observe_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["tide_context"]
+        },
+        {
+          "id": "coverage_route",
+          "labelKey": "route",
+          "objectiveId": "objective_pilar_observe_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_entrance",
+          "labelKey": "entrance",
+          "objectiveId": "objective_pilar_observe_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        },
+        {
+          "id": "coverage_paid_amount",
+          "labelKey": "paid_amount",
+          "objectiveId": "objective_pilar_observe_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["price"]
+        },
+        {
+          "id": "coverage_facilities",
+          "labelKey": "facilities",
+          "objectiveId": "objective_pilar_observe_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_surface",
+          "labelKey": "surface",
+          "objectiveId": "objective_pilar_observe_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["road_condition", "route_duration"]
+        },
+        {
+          "id": "coverage_access_state",
+          "labelKey": "access_state",
+          "objectiveId": "objective_pilar_observe_conditions",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_pilar_non_access",
+          "objectiveIds": ["objective_pilar_observe_conditions"],
+          "coverageLimit": "no_destination_access_claim"
+        }
+      ]
+    },
+    {
+      "id": "assignment_del_carmen_boat",
+      "state": "unscheduled",
+      "title": "Del Carmen departure and boat journey",
+      "geography": {
+        "form": "access_point",
+        "areaId": "area_del_carmen",
+        "anchorAreaId": "area_del_carmen",
+        "subjectId": "subject_del_carmen_departure_points"
+      },
+      "estimatedMinutes": 360,
+      "editorialPriority": 2,
+      "evidenceFreshnessReviewMinutes": 720,
+      "eligibilityWindows": [
+        {
+          "kind": "provider_state",
+          "values": ["authorized", "operating"]
+        },
+        {
+          "kind": "safe_marine_state",
+          "values": ["suitable"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_boat_attempt_booking",
+          "action": "attempt",
+          "observationKinds": [
+            "service_status",
+            "contact_channel",
+            "local_caveat",
+            "route_wait",
+            "price",
+            "facility"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 5,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "recordKinds": ["source-statement.v1", "route-run.v1"]
+        },
+        {
+          "id": "objective_boat_traverse_journey",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "observationKinds": ["route_duration"]
+        },
+        {
+          "id": "objective_boat_ask_policy",
+          "action": "ask",
+          "recordKinds": ["source-statement.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "not_required",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "observationKinds": ["service_status", "contact_channel", "local_caveat"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_booking",
+          "labelKey": "booking",
+          "objectiveId": "objective_boat_attempt_booking",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
+        },
+        {
+          "id": "coverage_check_in",
+          "labelKey": "check_in",
+          "objectiveId": "objective_boat_attempt_booking",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
+        },
+        {
+          "id": "coverage_wait",
+          "labelKey": "wait",
+          "objectiveId": "objective_boat_attempt_booking",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_wait"]
+        },
+        {
+          "id": "coverage_price",
+          "labelKey": "price",
+          "objectiveId": "objective_boat_attempt_booking",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["price"]
+        },
+        {
+          "id": "coverage_boarding",
+          "labelKey": "boarding",
+          "objectiveId": "objective_boat_traverse_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_transfers",
+          "labelKey": "transfers",
+          "objectiveId": "objective_boat_traverse_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_facilities",
+          "labelKey": "facilities",
+          "objectiveId": "objective_boat_attempt_booking",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_operating_policy_statement",
+          "labelKey": "operating_policy_statement",
+          "objectiveId": "objective_boat_ask_policy",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "not_required",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_boat_booking",
+          "objectiveIds": ["objective_boat_attempt_booking", "objective_boat_ask_policy"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_no_scooter_accessibility",
+      "state": "unscheduled",
+      "title": "No-scooter accessibility journey",
+      "geography": {
+        "form": "route_corridor",
+        "anchorAreaId": "area_del_carmen",
+        "areaIds": ["area_del_carmen", "area_dapa", "area_general_luna"]
+      },
+      "estimatedMinutes": 300,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "transport_state",
+          "values": ["realistic_no_scooter_option"]
+        },
+        {
+          "kind": "safety_state",
+          "values": ["no_created_health_or_safety_risk"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_del_carmen_essentials",
+      "objectives": [
+        {
+          "id": "objective_accessibility_attempt_journey",
+          "action": "attempt",
+          "observationKinds": [
+            "service_status",
+            "contact_channel",
+            "local_caveat",
+            "price",
+            "accessibility",
+            "road_condition",
+            "facility"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 4,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "recordKinds": ["source-statement.v1"]
+        },
+        {
+          "id": "objective_accessibility_traverse_journey",
+          "action": "traverse",
+          "recordKinds": ["route-run.v1"],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "optional",
+            "repetition": {
+              "minimumDistinctWindows": 1
+            }
+          },
+          "observationKinds": ["route_duration", "accessibility", "facility"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_booking_burden",
+          "labelKey": "booking_burden",
+          "objectiveId": "objective_accessibility_attempt_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "source-statement.v1"],
+          "admissibleObservationKinds": ["service_status", "contact_channel", "local_caveat"]
+        },
+        {
+          "id": "coverage_pickup",
+          "labelKey": "pickup",
+          "objectiveId": "objective_accessibility_traverse_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_fare",
+          "labelKey": "fare",
+          "objectiveId": "objective_accessibility_attempt_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["price"]
+        },
+        {
+          "id": "coverage_transfers",
+          "labelKey": "transfers",
+          "objectiveId": "objective_accessibility_traverse_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_surfaces",
+          "labelKey": "surfaces",
+          "objectiveId": "objective_accessibility_attempt_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        },
+        {
+          "id": "coverage_steps",
+          "labelKey": "steps",
+          "objectiveId": "objective_accessibility_attempt_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["accessibility", "road_condition", "service_status"]
+        },
+        {
+          "id": "coverage_toilets",
+          "labelKey": "toilets",
+          "objectiveId": "objective_accessibility_attempt_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_shelter",
+          "labelKey": "shelter",
+          "objectiveId": "objective_accessibility_attempt_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["facility"]
+        },
+        {
+          "id": "coverage_luggage_barriers",
+          "labelKey": "luggage_barriers",
+          "objectiveId": "objective_accessibility_traverse_journey",
+          "minimumRecords": 1,
+          "required": true,
+          "supportingAsset": "optional",
+          "repetition": {
+            "minimumDistinctWindows": 1,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["accessibility", "facility"]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_accessibility_booking",
+          "objectiveIds": ["objective_accessibility_attempt_journey"]
+        }
+      ]
+    },
+    {
+      "id": "assignment_conflict_follow_up",
+      "state": "unscheduled",
+      "title": "Conflict and freshness follow-up",
+      "geography": {
+        "form": "governed_subject_subset",
+        "anchorResolution": "coverage_snapshot_required",
+        "selectionRule": "nearest_travel_compatible_unresolved_subject"
+      },
+      "estimatedMinutes": 180,
+      "editorialPriority": 1,
+      "evidenceFreshnessReviewMinutes": 10080,
+      "eligibilityWindows": [
+        {
+          "kind": "source_coverage",
+          "values": ["original_requirement_window", "changed_condition"]
+        }
+      ],
+      "safeFallbackAssignmentId": "assignment_connectivity_transect",
+      "objectives": [
+        {
+          "id": "objective_follow_up_repeat_evidence",
+          "action": "repeat",
+          "observationKinds": [
+            "price",
+            "route_duration",
+            "opening_signal",
+            "connectivity",
+            "identity",
+            "route_wait",
+            "road_condition",
+            "facility",
+            "accessibility",
+            "payment_method",
+            "power",
+            "crowd_snapshot",
+            "noise_snapshot",
+            "weather_condition",
+            "tide_context",
+            "menu_item",
+            "service_status",
+            "contact_channel",
+            "local_caveat"
+          ],
+          "coverage": {
+            "required": true,
+            "minimumRecords": 1,
+            "supportingAsset": "depends_on_original_requirement",
+            "repetition": {
+              "minimumDistinctWindows": 2
+            }
+          },
+          "recordKinds": ["route-run.v1"]
+        }
+      ],
+      "coverageRequirements": [
+        {
+          "id": "coverage_volatile_price",
+          "labelKey": "volatile_price",
+          "objectiveId": "objective_follow_up_repeat_evidence",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "depends_on_original_requirement",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["price"]
+        },
+        {
+          "id": "coverage_route",
+          "labelKey": "route",
+          "objectiveId": "objective_follow_up_repeat_evidence",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "depends_on_original_requirement",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1", "route-run.v1"],
+          "admissibleObservationKinds": ["route_duration"]
+        },
+        {
+          "id": "coverage_opening",
+          "labelKey": "opening",
+          "objectiveId": "objective_follow_up_repeat_evidence",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "depends_on_original_requirement",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["opening_signal"]
+        },
+        {
+          "id": "coverage_connectivity",
+          "labelKey": "connectivity",
+          "objectiveId": "objective_follow_up_repeat_evidence",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "depends_on_original_requirement",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["connectivity"]
+        },
+        {
+          "id": "coverage_provisional_identity",
+          "labelKey": "provisional_identity",
+          "objectiveId": "objective_follow_up_repeat_evidence",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "depends_on_original_requirement",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": ["identity"]
+        },
+        {
+          "id": "coverage_contradiction",
+          "labelKey": "contradiction",
+          "objectiveId": "objective_follow_up_repeat_evidence",
+          "minimumRecords": 2,
+          "required": true,
+          "supportingAsset": "depends_on_original_requirement",
+          "repetition": {
+            "minimumDistinctWindows": 2,
+            "windowIdentity": "local_hour"
+          },
+          "admissibleRecordKinds": ["field-observation.v1"],
+          "admissibleObservationKinds": [
+            "identity",
+            "opening_signal",
+            "price",
+            "route_duration",
+            "route_wait",
+            "road_condition",
+            "facility",
+            "accessibility",
+            "payment_method",
+            "connectivity",
+            "power",
+            "crowd_snapshot",
+            "noise_snapshot",
+            "weather_condition",
+            "tide_context",
+            "menu_item",
+            "service_status",
+            "contact_channel",
+            "local_caveat"
+          ]
+        }
+      ],
+      "partialCoverageSets": [
+        {
+          "id": "partial_follow_up_one_conflict",
+          "objectiveIds": ["objective_follow_up_repeat_evidence"],
+          "coverageLimit": "one_original_requirement"
+        }
+      ]
+    }
+  ]
+}

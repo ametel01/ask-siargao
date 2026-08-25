@@ -15,6 +15,11 @@ const currentDocs = [
   "documentation/developer/reference/trip-pass-reconciliation.md",
   "documentation/developer/how-to-guides/launch-trip-pass.md",
   "documentation/developer/how-to-guides/run-release-candidate-qa.md",
+  "documentation/developer/how-to-guides/recover-legacy-capture.md",
+  "documentation/developer/how-to-guides/run-siargao-field-research.md",
+  "documentation/developer/reference/field-research-data-model.md",
+  "documentation/developer/reference/routes-and-surfaces.md",
+  "documentation/developer/explanation/deterministic-field-workspace.md",
 ] as const;
 
 const verificationDocs = [

@@ -86,6 +86,9 @@ export const applicationTables = [
   "operational_worker_tasks",
   "operational_reconciliation_observations",
   "operational_schedule_states",
+  "field_authorized_devices",
+  "field_offline_grants",
+  "field_device_audit_events",
 ] as const;
 
 export const userOwnedTables = [
@@ -113,6 +116,9 @@ export const userOwnedTables = [
   "trip_pass_dispute_facts",
   "trip_usage_events",
   "paid_answer_reservations",
+  "field_authorized_devices",
+  "field_offline_grants",
+  "field_device_audit_events",
 ] as const;
 
 export const defaultReportingTables = [

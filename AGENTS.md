@@ -22,7 +22,7 @@ Use TypeScript with strict compiler settings and the `@/*` path alias for `src/*
 
 ## Testing Guidelines
 
-Add Bun tests next to the code they cover using `*.test.ts`. Put ordinary browser-level coverage in `tests/e2e/*.e2e.ts`; keep protected-provider coverage isolated in `tests/provider` behind its dedicated config. For database behavior, prefer the existing PGlite helpers and run `bun run db:migrate:test` plus `bun run db:seed:test`. Before merging broad changes, run lint, typecheck, Bun tests, database test migrate/seed, build, and e2e tests.
+Add Bun tests next to the code they cover using `*.test.ts`. Put ordinary browser-level coverage in `tests/e2e/*.e2e.ts`; keep protected-provider coverage isolated in `tests/provider` behind its dedicated config. The non-provider Field Workspace security harness in `tests/field-security/*.e2e.ts` is an intentional dedicated security lane selected only by `playwright.field-security.config.ts` and `test:e2e:field-security`; it contains no provider secrets and is not part of the ordinary browser lane. For database behavior, prefer the existing PGlite helpers and run `bun run db:migrate:test` plus `bun run db:seed:test`. Before merging broad changes, run lint, typecheck, Bun tests, database test migrate/seed, build, and e2e tests.
 
 ## Commit & Pull Request Guidelines
 

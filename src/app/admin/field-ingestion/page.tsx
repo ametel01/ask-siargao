@@ -1,44 +1,34 @@
 import { auth } from "@clerk/nextjs/server";
-import { Lock } from "lucide-react";
 import { headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
 
-import { FieldIngestionDashboard } from "@/features/field-ingestion/FieldIngestionDashboard";
-import { evaluateAdminAccess } from "@/server/admin/access";
-import { isClerkServerConfigured } from "@/server/auth/clerk-deployment-config";
-import { readOperatorAccountAllowlist } from "@/server/operations/operator-auth";
+import { LegacyImportDiagnostics } from "@/features/field-ingestion/LegacyImportDiagnostics";
 import {
-  AppBackdrop,
-  appBodyClass,
-  appPanelClass,
-  appShellClass,
-  SectionHeading,
-} from "@/ui/components/ask-siargao";
+  canonicalLegacyImportRoute,
+  legacyImportAliasMode,
+} from "@/features/field-ingestion/legacy-import-routing";
+import { FieldSecuritySessionProvider } from "@/features/field-security/FieldSecuritySessionProvider";
+import { FieldWorkspaceNavigation } from "@/features/field-workspace/FieldWorkspaceNavigation";
+import { isProtectedUiHarnessRequest } from "@/server/auth/protected-ui-harness";
+import { readFieldResearcherAccountAllowlist } from "@/server/field-security/authorization";
 
-export default async function FieldIngestionRoute() {
-  const headerList = await headers();
-  const operatorAccountId = isClerkServerConfigured ? (await auth()).userId : null;
-  const access = evaluateAdminAccess({
-    configuredToken: process.env.ADMIN_ACCESS_TOKEN,
-    operatorAccountId,
-    operatorAllowlist: readOperatorAccountAllowlist(),
-    suppliedToken: headerList.get("x-admin-token"),
-  });
-
-  if (!access.allowed) {
-    return (
-      <AppBackdrop>
-        <section className={appShellClass}>
-          <div className={appPanelClass}>
-            <SectionHeading icon={Lock} title="Admin access required" />
-            <p className={appBodyClass}>
-              The field desk is environment gated. Sign in with an allowlisted Operator Account in
-              production or use the configured local admin token.
-            </p>
-          </div>
-        </section>
-      </AppBackdrop>
-    );
+export default async function LegacyFieldImportAlias() {
+  if (legacyImportAliasMode(process.env.FIELD_LEGACY_IMPORT_ALIAS_MODE) === "redirect") {
+    redirect(canonicalLegacyImportRoute);
   }
 
-  return <FieldIngestionDashboard accessMode={access.mode} />;
+  const requestHeaders = await headers();
+  const harness = isProtectedUiHarnessRequest({ headers: requestHeaders });
+  if (!harness) {
+    const snapshot = await auth();
+    if (!snapshot.userId || !readFieldResearcherAccountAllowlist().has(snapshot.userId)) notFound();
+  }
+  return (
+    <FieldSecuritySessionProvider>
+      <FieldWorkspaceNavigation />
+      <main id="main-content">
+        <LegacyImportDiagnostics harness={harness} rollbackAlias />
+      </main>
+    </FieldSecuritySessionProvider>
+  );
 }

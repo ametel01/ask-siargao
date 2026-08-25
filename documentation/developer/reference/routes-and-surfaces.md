@@ -3,13 +3,13 @@
 ## Clerk Perimeter Inventory
 
 `src/server/auth/clerk-route-policy.ts` is the executable source of truth for the Clerk proxy
-perimeter. Its inventory is source-derived and currently covers all 63 live
+perimeter. Its inventory is source-derived and currently covers all 90 live
 `src/app/**/page.tsx` and `src/app/**/route.ts` runtime surfaces. Every entry has exactly one base
 classification:
 
 | Classification | Routes |
 | --- | --- |
-| `protected` | `/settings`, `/profile`, `/admin/diagnostics`, `/audits/[auditRequestId]/status`, `/api/me/**`, `/api/chat/threads/**`, and `/api/chat/ratings` |
+| `protected` | `/settings`, `/profile`, `/admin/diagnostics`, `/admin/field-ingestion`, `/operator/field/**`, `/audits/[auditRequestId]/status`, `/api/me/**`, `/api/chat/threads/**`, and `/api/chat/ratings` |
 | `externally_verified` | `/api/clerk/webhooks`, `/api/stripe/webhook` (legacy evidence only), and `/api/payments/lemon-squeezy/webhook` (active Trip Pass authority) |
 | `public` | `/`, `/chat`, sign-in/sign-up, public knowledge pages, LLM/robots/sitemap routes, signed report/share delivery, retired audit intake/checkout tombstones, anonymous chat/save/share APIs, public JSON APIs, and `/audits/demo/report` in its non-production QA context |
 
@@ -24,6 +24,7 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | `/` | Ask Siargao chat-first landing page | Public |
 | `/chat` | Ask Siargao assistant workspace with anonymous chat, signed-in chat history, and on-demand accommodation, itinerary, immediate-plan, surf-session, and disruption Reality Checks | Public |
 | `/legal/privacy` | Public controlled-beta privacy notice covering model-provider, location, account, storage, and operational data flows | Public |
+| `/legal/trip-pass` | Public Trip Pass terms covering activation, expiry, limits, refunds, privacy, provider availability, and support | Public |
 | `/trips/shared/[token]` | Public shared saved-trip plan with selected cards/itineraries only | `noindex, nofollow` metadata |
 | `/settings` | Signed-in traveler trip brief with structured current-trip and durable-preference controls, private chat and saved-planning summaries, granular privacy actions, and terminal Account Closure with signed recent-factor reverification | Private authenticated surface |
 | `/profile` | Compatibility alias that renders the signed-in traveler trip brief | Private authenticated surface |
@@ -31,6 +32,15 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | `/audits/[auditRequestId]/report?token=...` | Signed-token paid report delivery for published, paid, reviewer-approved audits | `x-robots-tag: noindex, nofollow` |
 | `/audits/demo/report` | Synthetic report fixture for local QA only | `x-robots-tag: noindex, nofollow` |
 | `/admin/diagnostics` | Operator diagnostics console | `x-robots-tag: noindex, nofollow` |
+| `/operator/field` | Protected Field Workspace entry and prepared-device routing | Private authenticated, `noindex` surface |
+| `/operator/field/security-workspace` | Authorized Field Device registration, Offline Field Grant issuance and renewal, recovery setup, offline preparation, and attended first-use readiness checks | Private authenticated and Field Researcher allowlisted, `noindex` surface |
+| `/operator/field/offline-shell` | Generic identity-free locked shell served for prepared offline Field Workspace document requests; protected areas remain unavailable until local device-bound unlock succeeds | Private authenticated when online; prepared device and valid local grant required to unlock offline, `noindex` surface |
+| `/operator/field/plan` | Deterministic unscheduled Field Day planning | Private authenticated, `noindex` surface |
+| `/operator/field/capture` | Guided typed Field Recorder | Private authenticated, `noindex` surface |
+| `/operator/field/review` | Assignment-centred immutable Field Desk review | Private authenticated, `noindex` surface |
+| `/operator/field/exports` | Distinct Field Recovery Export and reviewed Field Batch workflows | Private authenticated, `noindex` surface |
+| `/operator/field/diagnostics-recovery/legacy-import` | Exact-version Legacy Capture preservation, signed migration preview, quarantine decisions, and old-browser discovery; exceptional compatibility only | Private authenticated, `noindex` surface |
+| `/admin/field-ingestion` | Temporary 307 redirect to canonical Legacy Capture recovery; controlled rollback renders the same Field Researcher/device-locked component | `x-robots-tag: noindex, nofollow` |
 
 ## Audit APIs
 
@@ -49,6 +59,21 @@ resource ownership remain handler-level authorities; they do not replace the bas
 | `/api/me/profile` | `GET`, `PATCH` | Return a browser-safe traveler identity/profile DTO and read or partially update owner-scoped profile details; structured preference writes use stable bounded values and preserve legacy values until deliberately changed | Clerk-authenticated user only |
 | `/api/me/privacy` | `POST` | Execute strict confirmed privacy actions for the current user: delete all owned chat history from active product tables, delete all owned saved planning data while invalidating affected public share snapshots, or clear stored area/accommodation context | Clerk-authenticated user only; ownership is derived from Clerk auth only |
 | `/api/me/account-closure` | `POST` | Commit terminal Account Closure, revoke active sharing/access/Trip Pass use, and enqueue independently retryable provider deletion, local erasure, and commerce minimization | Clerk-authenticated user only; exact `CLOSE MY ACCOUNT` confirmation, same-origin request, and Clerk-signed second-factor age of at most five minutes |
+
+## Field Workspace APIs
+
+All Field Workspace APIs require a Clerk-authenticated account in the configured Field Researcher
+allowlist. Mutation routes also enforce the shared same-origin policy. These APIs authorize future
+local custody and access; they do not upload Protected Field Data from the encrypted browser vault.
+
+| Route | Method | Purpose | Protection |
+| --- | --- | --- | --- |
+| `/api/operator/field/devices/challenge` | `POST` | Issue the short-lived, account-bound WebAuthn registration challenge used to authorize a device | Fresh Clerk reverification, Field Researcher allowlist, same-origin request, and signed HttpOnly challenge cookie |
+| `/api/operator/field/devices` | `GET` | List the current account's active Authorized Field Devices | Clerk-authenticated Field Researcher; account-scoped rows only |
+| `/api/operator/field/devices` | `POST` | Verify the one-time registration challenge and device-bound WebAuthn evidence, then register the Authorized Field Device | Fresh Clerk reverification, Field Researcher allowlist, same-origin request, signed challenge cookie, expected origin and relying-party ID, and user-verified non-backup credential evidence |
+| `/api/operator/field/devices/[deviceId]/revoke` | `POST` | Revoke one owned device for future grant trust without erasing encrypted local custody | Fresh Clerk reverification, Field Researcher allowlist, same-origin request, account ownership, and validated device ID |
+| `/api/operator/field/grants` | `POST` | Issue a signed, expiring Offline Field Grant for an active owned device and protocol/build context | Fresh Clerk reverification, Field Researcher allowlist, same-origin request, active device registration, and configured signing authority |
+| `/api/operator/field/planning/handoff` | `GET` | Return the server-configured first-plan readiness handoff after strict protocol-pinned validation; returns `404` when no preseed is configured and `503` when it is invalid | Clerk-authenticated Field Researcher; server-only `FIELD_PLANNER_INITIAL_HANDOFF_JSON`; no client-authored handoff accepted |
 
 ## Chat APIs
 

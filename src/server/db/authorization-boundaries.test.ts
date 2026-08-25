@@ -60,6 +60,9 @@ describe("database authorization boundaries", () => {
     expect(applicationTables).toContain("operational_worker_tasks");
     expect(applicationTables).toContain("operational_reconciliation_observations");
     expect(applicationTables).toContain("operational_schedule_states");
+    expect(applicationTables).toContain("field_authorized_devices");
+    expect(applicationTables).toContain("field_offline_grants");
+    expect(applicationTables).toContain("field_device_audit_events");
     expect(applicationTables).not.toContain("schema_migrations");
 
     expect(defaultReportingTables).toContain("public_pages");
@@ -91,6 +94,9 @@ describe("database authorization boundaries", () => {
       "trip_pass_dispute_facts",
       "trip_usage_events",
       "paid_answer_reservations",
+      "field_authorized_devices",
+      "field_offline_grants",
+      "field_device_audit_events",
     ]);
   });
 
