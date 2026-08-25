@@ -74,9 +74,10 @@ export type FieldRecorderPointer = {
  */
 export type FieldReadinessEvidence = Readonly<{
   offlineReloadVerified: boolean;
-  permissionsVerified: boolean;
+  cameraScanPermissionVerified: boolean;
   restoreVerified: boolean;
   sampleCaptureVerified: boolean;
+  timeAndTimezoneVerified: boolean;
 }>;
 
 export type FieldWriterLease = {
@@ -89,6 +90,17 @@ export type FieldWriterLease = {
 export type FieldVaultMetadata =
   | { key: "recovery-wrap"; value: FieldRecoveryWrap }
   | { key: "recovery-verified"; value: { at: string; version: 1 } }
+  | {
+      key: "field-readiness-evidence";
+      value: {
+        buildId: string;
+        offlineReloadChallenge?: string;
+        readinessEvidence: FieldReadinessEvidence;
+        updatedAt: string;
+        version: 1;
+      };
+    }
+  | { key: "field-readiness-sample"; value: { opaqueRecordKey: string; version: 1 } }
   | { key: "trusted-wall-clock"; value: { observedAtMs: number; version: 1 } }
   | { key: "authorization-envelope"; value: { opaqueRecordKey: string; version: 1 } }
   | {
@@ -99,7 +111,7 @@ export type FieldVaultMetadata =
         readinessEvidence: FieldReadinessEvidence;
         persisted: boolean;
         preparedAt: string;
-        version: 2;
+        version: 3;
       };
     }
   | {
@@ -802,10 +814,15 @@ export function evaluateFieldReadiness(input: {
   if (!input.recoveryVerified) reasons.push("recovery_unverified");
   if (!input.offlineShellPrepared) reasons.push("offline_shell_unprepared");
   if (!input.persisted) reasons.push("persistent_storage_unavailable");
-  if (!input.readinessEvidence.permissionsVerified) reasons.push("permissions_unverified");
+  if (!input.readinessEvidence.cameraScanPermissionVerified) {
+    reasons.push("camera_scan_permission_unverified");
+  }
   if (!input.readinessEvidence.sampleCaptureVerified) reasons.push("sample_capture_unverified");
   if (!input.readinessEvidence.restoreVerified) reasons.push("restore_unverified");
   if (!input.readinessEvidence.offlineReloadVerified) reasons.push("offline_reload_unverified");
+  if (!input.readinessEvidence.timeAndTimezoneVerified) {
+    reasons.push("time_and_timezone_unverified");
+  }
   if (input.availableBytes < (input.minimumAvailableBytes ?? 50 * 1024 * 1024)) {
     reasons.push("storage_headroom_insufficient");
   }

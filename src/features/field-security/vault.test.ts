@@ -157,9 +157,10 @@ describe("encrypted IndexedDB vault", () => {
         protocolVerified: true,
         readinessEvidence: {
           offlineReloadVerified: true,
-          permissionsVerified: true,
+          cameraScanPermissionVerified: true,
           restoreVerified: true,
           sampleCaptureVerified: true,
+          timeAndTimezoneVerified: true,
         },
         recoveryVerified: false,
       }),
@@ -176,19 +177,21 @@ describe("encrypted IndexedDB vault", () => {
         protocolVerified: true,
         readinessEvidence: {
           offlineReloadVerified: false,
-          permissionsVerified: false,
+          cameraScanPermissionVerified: false,
           restoreVerified: false,
           sampleCaptureVerified: false,
+          timeAndTimezoneVerified: false,
         },
         recoveryVerified: true,
       }),
     ).toEqual({
       ready: false,
       reasons: [
-        "permissions_unverified",
+        "camera_scan_permission_unverified",
         "sample_capture_unverified",
         "restore_unverified",
         "offline_reload_unverified",
+        "time_and_timezone_unverified",
       ],
     });
   });

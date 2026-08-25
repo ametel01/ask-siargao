@@ -72,9 +72,10 @@ describe("first-use Field Readiness authority", () => {
       protocolVerified: true,
       readinessEvidence: {
         offlineReloadVerified: true,
-        permissionsVerified: true,
+        cameraScanPermissionVerified: true,
         restoreVerified: true,
         sampleCaptureVerified: true,
+        timeAndTimezoneVerified: true,
       },
       recoveryVerified: true,
     };
@@ -88,7 +89,7 @@ describe("first-use Field Readiness authority", () => {
           readinessEvidence: ready.readinessEvidence,
           persisted: true,
           preparedAt: ready.preparedAt,
-          version: 2,
+          version: 3,
         },
       },
     });
@@ -100,6 +101,10 @@ describe("first-use Field Readiness authority", () => {
       { ...ready, persisted: false },
       { ...ready, protocolVerified: false },
       { ...ready, recoveryVerified: false },
+      {
+        ...ready,
+        readinessEvidence: { ...ready.readinessEvidence, timeAndTimezoneVerified: false },
+      },
     ]) {
       expect(completeFirstUseFieldReadiness(incomplete)).toMatchObject({ ready: false });
     }

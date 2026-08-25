@@ -8,6 +8,11 @@ import { encodeBase64Url, zeroize } from "@/features/field-security/encoding";
 import { fieldSecurityErrorCode } from "@/features/field-security/errors";
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
 import {
+  consumeOfflineReloadEvidence,
+  isFieldOriginReachable,
+  offlineReloadSessionKey,
+} from "@/features/field-security/first-use-evidence";
+import {
   discoverPreparedFieldDevice,
   type PreparedFieldDeviceDiscovery,
 } from "@/features/field-security/prepared-device";
@@ -26,11 +31,33 @@ export function OfflineFieldUnlock(props: { children?: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    discoverPreparedFieldDevice()
-      .then((result) => {
+    const navigation = performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    const consumeReload = sessionStorage.getItem(offlineReloadSessionKey)
+      ? isFieldOriginReachable().then((online) =>
+          consumeOfflineReloadEvidence({
+            buildId: applicationBuildId,
+            navigationType: navigation?.type,
+            online,
+            sessionStorage,
+          }),
+        )
+      : Promise.resolve(false);
+    consumeReload
+      .catch(() => false)
+      .then(async (offlineReloadCompleted) => ({
+        offlineReloadCompleted,
+        result: await discoverPreparedFieldDevice(),
+      }))
+      .then(({ offlineReloadCompleted, result }) => {
         if (!mounted) return;
         setPreparedDevice(result);
-        if (!result.prepared) {
+        if (offlineReloadCompleted) {
+          setMessage(
+            "Offline hard reload verified. Reconnect and finalize Field Readiness before unlocking.",
+          );
+        } else if (!result.prepared) {
           setMessage("This device is not fully prepared. Reconnect and complete Field Readiness.");
         }
       })

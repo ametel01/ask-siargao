@@ -72,13 +72,14 @@ describe("protected planner readiness handoff", () => {
         offlineShellPrepared: true,
         readinessEvidence: {
           offlineReloadVerified: true,
-          permissionsVerified: true,
+          cameraScanPermissionVerified: true,
           restoreVerified: true,
           sampleCaptureVerified: true,
+          timeAndTimezoneVerified: true,
         },
         persisted: true,
         preparedAt: "2026-08-23T01:00:00.000Z",
-        version: 2,
+        version: 3,
       },
     });
     await persistPreseededPlannerReadiness(handoff, protocol, key, vault, validationNowMs);
@@ -104,13 +105,14 @@ describe("protected planner readiness handoff", () => {
         offlineShellPrepared: true,
         readinessEvidence: {
           offlineReloadVerified: true,
-          permissionsVerified: true,
+          cameraScanPermissionVerified: true,
           restoreVerified: true,
           sampleCaptureVerified: true,
+          timeAndTimezoneVerified: true,
         },
         persisted: true,
         preparedAt: "2026-08-23T01:00:00.000Z",
-        version: 2,
+        version: 3,
       },
     });
     await expect(

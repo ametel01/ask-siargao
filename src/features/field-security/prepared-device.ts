@@ -50,13 +50,18 @@ async function hasLivePreparedShell(
 ): Promise<boolean> {
   if (
     !readiness?.offlineShellPrepared ||
-    !readiness.readinessEvidence?.permissionsVerified ||
+    !readiness.readinessEvidence?.cameraScanPermissionVerified ||
     !readiness.readinessEvidence.sampleCaptureVerified ||
     !readiness.readinessEvidence.restoreVerified ||
-    !readiness.readinessEvidence.offlineReloadVerified
+    !readiness.readinessEvidence.offlineReloadVerified ||
+    !readiness.readinessEvidence.timeAndTimezoneVerified
   ) {
     return false;
   }
+  return hasCompletePreparedFieldShell(readiness.buildId);
+}
+
+export async function hasCompletePreparedFieldShell(buildId: string): Promise<boolean> {
   if (
     typeof navigator === "undefined" ||
     !("serviceWorker" in navigator) ||
@@ -68,8 +73,8 @@ async function hasLivePreparedShell(
     navigator.serviceWorker.getRegistration("/").catch(() => undefined),
     caches.keys().catch((): string[] => []),
   ]);
-  if (!registration || !keys.includes(`ask-siargao-field-shell-${readiness.buildId}`)) return false;
-  const cache = await caches.open(`ask-siargao-field-shell-${readiness.buildId}`);
+  if (!registration || !keys.includes(`ask-siargao-field-shell-${buildId}`)) return false;
+  const cache = await caches.open(`ask-siargao-field-shell-${buildId}`);
   const shell = await cache.match("/operator/field/offline-shell");
   if (!shell) return false;
   const html = await shell.clone().text();
@@ -88,7 +93,7 @@ async function hasLivePreparedShell(
       preparationId?: string;
     };
     return (
-      selected.buildId === readiness.buildId &&
+      selected.buildId === buildId &&
       typeof selected.preparationId === "string" &&
       /^[A-Za-z0-9-]{16,200}$/.test(selected.preparationId)
     );

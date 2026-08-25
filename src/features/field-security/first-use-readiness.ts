@@ -87,7 +87,7 @@ export function completeFirstUseFieldReadiness(input: {
         readinessEvidence: input.readinessEvidence,
         persisted: true,
         preparedAt: input.preparedAt,
-        version: 2,
+        version: 3,
       },
     },
   };

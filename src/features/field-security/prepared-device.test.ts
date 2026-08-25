@@ -25,9 +25,10 @@ describe("prepared field device discovery", () => {
                       persisted: true,
                       readinessEvidence: {
                         offlineReloadVerified: true,
-                        permissionsVerified: true,
+                        cameraScanPermissionVerified: true,
                         restoreVerified: true,
                         sampleCaptureVerified: true,
+                        timeAndTimezoneVerified: true,
                       },
                     }
                   : true,
