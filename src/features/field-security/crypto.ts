@@ -3,6 +3,7 @@ import { argon2idAsync } from "@noble/hashes/argon2.js";
 
 import { canonicalStringify } from "@/features/field-protocol/canonical-json";
 import {
+  constantTimeEqual,
   decodeBase64Url,
   encodeBase64Url,
   fieldTextDecoder,
@@ -283,11 +284,4 @@ function envelopeAad(opaqueRecordKey: string, applicationVersion: string): Uint8
 
 function assertKey(key: Uint8Array): void {
   if (key.length !== 32) throw new FieldSecurityError("field_key_unavailable");
-}
-
-function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index];
-  return difference === 0;
 }

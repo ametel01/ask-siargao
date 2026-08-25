@@ -384,11 +384,7 @@ function RuntimeRail(props: {
         />
         {props.runtime.writer === "conflict" && props.onTakeOverWriter ? (
           <Button
-            className="min-h-11 w-full bg-[var(--surface-default)] text-[var(--text-strong)]"
-            style={{
-              backgroundColor: "var(--brand-paper-50)",
-              color: "var(--brand-navy-950)",
-            }}
+            className="min-h-11 w-full bg-[var(--brand-paper-50)] text-[var(--brand-navy-950)]"
             variant="outline"
             onClick={props.onTakeOverWriter}
           >
@@ -397,11 +393,7 @@ function RuntimeRail(props: {
         ) : null}
         {props.runtime.save.status === "save_failed" && props.onRetrySave ? (
           <Button
-            className="min-h-11 w-full bg-[var(--surface-default)] text-[var(--text-strong)]"
-            style={{
-              backgroundColor: "var(--brand-paper-50)",
-              color: "var(--brand-navy-950)",
-            }}
+            className="min-h-11 w-full bg-[var(--brand-paper-50)] text-[var(--brand-navy-950)]"
             variant="outline"
             onClick={props.onRetrySave}
           >
@@ -579,12 +571,8 @@ function SafetyCheck(props: { busy: boolean; onContinue: (eligible: boolean) => 
           Safety confirmed — start Visit
         </Button>
         <Button
-          className="min-h-11 bg-[var(--surface-default)] text-[var(--text-strong)]"
+          className="min-h-11 bg-[var(--brand-paper-50)] text-[var(--brand-navy-950)]"
           disabled={props.busy}
-          style={{
-            backgroundColor: "var(--brand-paper-50)",
-            color: "var(--brand-navy-950)",
-          }}
           variant="outline"
           onClick={() => props.onContinue(false)}
         >
@@ -788,11 +776,7 @@ function ObjectiveTask(props: {
           Capture evidence
         </Button>
         <Button
-          className="min-h-11 bg-[var(--surface-default)] text-[var(--text-strong)]"
-          style={{
-            backgroundColor: "var(--brand-paper-50)",
-            color: "var(--brand-navy-950)",
-          }}
+          className="min-h-11 bg-[var(--brand-paper-50)] text-[var(--brand-navy-950)]"
           variant="outline"
           onClick={props.onAdvance}
         >

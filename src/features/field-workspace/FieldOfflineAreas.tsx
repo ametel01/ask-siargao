@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { FieldDesk } from "@/features/field-desk/FieldDesk";
 import { FieldExports } from "@/features/field-exports/FieldExports";
 import { LegacyImportDiagnostics } from "@/features/field-ingestion/LegacyImportDiagnostics";
@@ -16,15 +16,6 @@ export function FieldOfflineAreas(props: {
   protocol: RecorderProtocol;
 }) {
   const [area, setArea] = useState<OfflineArea>("recorder");
-
-  useEffect(() => {
-    void Promise.all([
-      import("@/features/field-desk/FieldDesk"),
-      import("@/features/field-exports/FieldExports"),
-      import("@/features/field-recorder/FieldPlanRecorderBridge"),
-      import("@/features/field-ingestion/LegacyImportDiagnostics"),
-    ]);
-  }, []);
 
   return (
     <div data-field-offline-areas="plan recorder review exports diagnostics-recovery">

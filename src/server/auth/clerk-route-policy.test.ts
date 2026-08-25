@@ -83,7 +83,7 @@ describe("Clerk route policy", () => {
     const policyFiles = clerkRoutePolicyEntries.map((entry) => entry.routeFile).toSorted();
 
     expect(policyFiles).toEqual(routeFiles.toSorted());
-    expect(routeFiles).toHaveLength(89);
+    expect(routeFiles).toHaveLength(90);
   });
 
   test("proves a seeded omitted route would fail inventory coverage", () => {

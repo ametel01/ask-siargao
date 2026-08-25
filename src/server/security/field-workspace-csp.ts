@@ -11,6 +11,7 @@ export function createFieldWorkspaceContentSecurityPolicy(
     "form-action 'self'",
     `script-src 'self' 'nonce-${nonce}'${developmentScriptSource}`,
     `style-src 'self' 'nonce-${nonce}'`,
+    "style-src-attr 'none'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
     "connect-src 'self'",

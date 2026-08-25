@@ -31,6 +31,10 @@ import { OpfsStagedArtifactSink } from "./package-sink";
 import { assertRecipientAuthority, openRecipientContentKey } from "./recipient-envelope";
 import { createFieldRecoveryExport } from "./recovery-export";
 import { commitConfirmedRestore, createRestorePreview, type RestoreImmutableItem } from "./restore";
+import {
+  loadLatestOutstandingFieldBatchTransfer,
+  persistOutstandingTransfer,
+} from "./transfer-custody";
 import { completeSourceVerification, verifyDestinationTransferReceipt } from "./transfer-receipt";
 import { destinationReceiptFilename, verifyReceivedFieldBatch } from "./verified-transfer";
 
@@ -92,19 +96,44 @@ function ProductionExports(props: { embedded?: boolean }) {
     [pendingPublication],
   );
 
+  useEffect(() => {
+    if (locked) return;
+    let active = true;
+    void security
+      .withVaultKey((key) =>
+        loadLatestOutstandingFieldBatchTransfer({
+          vault: new IndexedDbFieldVault(),
+          vaultKey: key,
+        }),
+      )
+      .then((custody) => {
+        if (!active || !custody) return;
+        setSourceBatchReceipt(custody.receipt);
+        setSourceBatchChallenge(custody.transfer.nonce);
+        setTransferId(custody.transfer.transferId);
+        setBatchState(
+          `Restored published ${custody.receipt.filename} transfer handoff from protected custody.`,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [locked, security]);
+
   async function registry(): Promise<AuthenticatedRegistrySnapshot> {
     const response = await fetch("/api/operator/field/devices", { cache: "no-store" });
     if (!response.ok) throw new Error("field_artifact_recipient_invalid");
     const body = (await response.json()) as { devices: AuthenticatedRegistrySnapshot["devices"] };
     const authenticatedAt = new Date();
-    return {
+    return authenticatedRegistrySnapshotSchema.parse({
       accountId: security.claims?.accountId ?? "unknown",
       authenticatedAt: authenticatedAt.toISOString(),
       devices: body.devices,
       expiresAt: new Date(authenticatedAt.getTime() + 10 * 60_000).toISOString(),
       source: "authenticated_live_registry",
       version: "field-device-registry-snapshot.v1",
-    };
+    });
   }
 
   async function deskRecipient(snapshot: AuthenticatedRegistrySnapshot) {
@@ -124,7 +153,8 @@ function ProductionExports(props: { embedded?: boolean }) {
         const vault = new IndexedDbFieldVault();
         const wrap = await vault.getMetadata("recovery-wrap");
         if (!wrap) throw new Error("field_key_unavailable");
-        const recipient = await deskRecipient(await registry());
+        const snapshot = await registry();
+        const recipient = await deskRecipient(snapshot);
         const sink = await OpfsStagedArtifactSink.create();
         try {
           const receipt = await createFieldRecoveryExport({
@@ -133,7 +163,7 @@ function ProductionExports(props: { embedded?: boolean }) {
             createdAt: new Date(),
             recipientDeviceId: recipient.id,
             recoveryWrap: wrap.value,
-            registry: await registry(),
+            registry: snapshot,
             sink,
             transferId: transfer,
             vault,
@@ -263,15 +293,22 @@ function ProductionExports(props: { embedded?: boolean }) {
         kind: pending.artifactKind,
       });
       if (publication !== "published") throw new Error("field_physical_handoff_required");
-      await pending.vault.putOutstandingTransfer({
-        artifactKind: pending.artifactKind,
-        ciphertextSha256: pending.ciphertextSha256,
-        createdAt: new Date().toISOString(),
-        nonce: pending.nonce,
-        recipientDeviceId: pending.recipientDeviceId,
-        state: "outstanding",
-        transferId: pending.transferId,
-      });
+      await security.withVaultKey((key) =>
+        persistOutstandingTransfer({
+          row: {
+            artifactKind: pending.artifactKind,
+            ciphertextSha256: pending.ciphertextSha256,
+            createdAt: new Date().toISOString(),
+            nonce: pending.nonce,
+            recipientDeviceId: pending.recipientDeviceId,
+            state: "outstanding",
+            transferId: pending.transferId,
+          },
+          sourceReceipt: pending.outerReceipt,
+          vault: pending.vault,
+          vaultKey: key,
+        }),
+      );
       setPendingPublication(undefined);
       setTransferId(pending.transferId);
       setReceiptState("Destination receipt pending.");
@@ -465,25 +502,12 @@ function ProductionExports(props: { embedded?: boolean }) {
       const vault = new IndexedDbFieldVault();
       const role = await vault.getMetadata("device-role");
       if (role?.value.role !== "desk") throw new Error("recipient_not_desk");
-      const response = await fetch("/api/operator/field/devices", {
-        cache: "no-store",
-        headers: { accept: "application/json" },
-      });
-      if (!response.ok) throw new Error("registry_unavailable");
-      const body = (await response.json()) as { devices?: unknown };
       const now = new Date();
-      const registry = authenticatedRegistrySnapshotSchema.parse({
-        accountId: security.claims.accountId,
-        authenticatedAt: now.toISOString(),
-        devices: body.devices,
-        expiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
-        source: "authenticated_live_registry",
-        version: "field-device-registry-snapshot.v1",
-      });
+      const registrySnapshot = await registry();
       const recipient = assertRecipientAuthority({
         deviceId: security.claims.deviceId,
         now,
-        registry,
+        registry: registrySnapshot,
       });
       const [agreementPrivateKey, signingPrivateKey, sourceReceiptText] = await Promise.all([
         vault.getDeviceKey("agreement-private"),

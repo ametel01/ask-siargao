@@ -76,18 +76,11 @@ export function CaptureForms(props: {
           {captureModes.map(([value, label]) => (
             <Button
               aria-pressed={mode === value}
-              className={`min-h-11 whitespace-normal ${mode === value ? "" : "bg-[var(--surface-default)] text-[var(--text-strong)]"}`}
-              style={
+              className={`min-h-11 whitespace-normal ${
                 mode === value
-                  ? {
-                      backgroundColor: "var(--brand-lagoon-700)",
-                      color: "var(--brand-paper-50)",
-                    }
-                  : {
-                      backgroundColor: "var(--brand-paper-50)",
-                      color: "var(--brand-navy-950)",
-                    }
-              }
+                  ? "bg-[var(--brand-lagoon-700)] text-[var(--brand-paper-50)]"
+                  : "bg-[var(--brand-paper-50)] text-[var(--brand-navy-950)]"
+              }`}
               key={value}
               type="button"
               variant={mode === value ? "default" : "outline"}
@@ -138,11 +131,7 @@ export function CaptureForms(props: {
         />
       ) : null}
       <Button
-        className="min-h-11 bg-[var(--surface-default)] text-[var(--text-strong)]"
-        style={{
-          backgroundColor: "var(--brand-paper-50)",
-          color: "var(--brand-navy-950)",
-        }}
+        className="min-h-11 bg-[var(--brand-paper-50)] text-[var(--brand-navy-950)]"
         type="button"
         variant="outline"
         onClick={props.onCaptured}

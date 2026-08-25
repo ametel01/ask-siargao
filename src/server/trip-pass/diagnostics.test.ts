@@ -608,10 +608,9 @@ async function insertSettledPaidAnswerWithoutProviderIds(db: DatabaseQueryClient
 async function expirePaidAnswerDetails(db: DatabaseQueryClient, reservationId: string) {
   await db.query(
     `update paid_answer_reservations
-     set reserved_at = clock_timestamp() - interval '40 days',
-       details_purge_at = clock_timestamp() - interval '1 second'
+     set details_purge_at = $2
      where id = $1`,
-    [reservationId],
+    [reservationId, new Date("2026-07-14T07:59:00.000Z")],
   );
 }
 

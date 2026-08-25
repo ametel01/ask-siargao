@@ -58,6 +58,7 @@ export type FieldTransferStateRow = {
   state: "outstanding" | "accepted";
   createdAt: string;
   acceptedReceiptId?: string;
+  sourceReceiptEnvelopeKey?: string;
 };
 
 export type FieldRecorderPointer = {
@@ -431,12 +432,29 @@ export class IndexedDbFieldVault {
     );
   }
 
-  async putOutstandingTransfer(row: FieldTransferStateRow): Promise<void> {
-    if (row.state !== "outstanding") throw new FieldSecurityError("field_artifact_invalid");
-    await this.withTransaction([transferStateStore], "readwrite", async (transaction) => {
+  async putOutstandingTransfer(
+    row: FieldTransferStateRow,
+    sourceReceiptEnvelope?: FieldEncryptedEnvelope,
+  ): Promise<void> {
+    if (
+      row.state !== "outstanding" ||
+      Boolean(row.sourceReceiptEnvelopeKey) !== Boolean(sourceReceiptEnvelope) ||
+      (sourceReceiptEnvelope &&
+        (row.artifactKind !== "field_batch" ||
+          row.sourceReceiptEnvelopeKey !== sourceReceiptEnvelope.opaqueRecordKey))
+    ) {
+      throw new FieldSecurityError("field_artifact_invalid");
+    }
+    const stores = sourceReceiptEnvelope
+      ? ([transferStateStore, envelopeStore] as const)
+      : ([transferStateStore] as const);
+    await this.withTransaction(stores, "readwrite", async (transaction) => {
       const store = transaction.objectStore(transferStateStore);
       if (await requestResult(store.getKey(row.transferId))) {
         throw new FieldSecurityError("field_artifact_replay");
+      }
+      if (sourceReceiptEnvelope) {
+        transaction.objectStore(envelopeStore).add(sourceReceiptEnvelope);
       }
       store.add(row);
     });
@@ -460,6 +478,12 @@ export class IndexedDbFieldVault {
       requestResult<FieldTransferStateRow | undefined>(
         transaction.objectStore(transferStateStore).get(transferId),
       ),
+    );
+  }
+
+  async listTransfers(): Promise<FieldTransferStateRow[]> {
+    return this.withTransaction([transferStateStore], "readonly", async (transaction) =>
+      requestResult<FieldTransferStateRow[]>(transaction.objectStore(transferStateStore).getAll()),
     );
   }
 
