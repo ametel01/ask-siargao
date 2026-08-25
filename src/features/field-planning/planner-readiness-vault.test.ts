@@ -9,8 +9,12 @@ import {
   assertReadinessHandoff,
   loadPlannerReadiness,
   parsePreseededPlannerReadiness,
+  persistPreseededPlannerReadiness,
   savePlannerReadiness,
 } from "./planner-readiness-vault";
+
+const validationNowMs = Date.parse("2026-08-23T08:30:00.000Z");
+const validHandoffAt = "2026-08-23T08:00:00.000Z";
 
 beforeEach(async () => {
   await new Promise<void>((resolve) => {
@@ -37,7 +41,7 @@ describe("protected planner readiness handoff", () => {
     const handoff = {
       version: 1 as const,
       handoffId: "0192f060-4f41-7aa1-b322-4aa9fc9f1599",
-      handedOffAt: "2026-08-22T23:00:00.000Z",
+      handedOffAt: validHandoffAt,
       source: { kind: "approved_local_handoff" as const, id: "field_readiness_approved20260823" },
       protocolPackageId: protocol.packageId,
       protocolPackageVersion: protocol.packageVersion,
@@ -77,11 +81,11 @@ describe("protected planner readiness handoff", () => {
         version: 2,
       },
     });
-    await savePlannerReadiness(handoff, protocol, key, vault);
+    await persistPreseededPlannerReadiness(handoff, protocol, key, vault, validationNowMs);
     expect(await vault.getMetadata("planner-readiness")).toMatchObject({
       value: { handoffId: handoff.handoffId, version: 1 },
     });
-    expect(await loadPlannerReadiness(protocol, key, vault)).toEqual(handoff);
+    expect(await loadPlannerReadiness(protocol, key, vault, validationNowMs)).toEqual(handoff);
   });
 
   test("rejects a handoff pinned to a different protocol package", async () => {
@@ -114,7 +118,7 @@ describe("protected planner readiness handoff", () => {
         {
           version: 1,
           handoffId: "0192f060-4f41-7aa1-b322-4aa9fc9f1599",
-          handedOffAt: "2026-08-22T23:00:00.000Z",
+          handedOffAt: validHandoffAt,
           source: { kind: "approved_local_handoff", id: "field_readiness_approved20260823" },
           protocolPackageId: "field-protocol-other",
           protocolPackageVersion: protocol.packageVersion,
@@ -124,6 +128,7 @@ describe("protected planner readiness handoff", () => {
         protocol,
         key,
         vault,
+        validationNowMs,
       ),
     ).rejects.toMatchObject({ code: "field_artifact_invalid" });
   });
@@ -150,6 +155,60 @@ describe("protected planner readiness handoff", () => {
           source: { kind: "approved_local_handoff", id: "operator-preflight-fixture" },
         },
         protocol,
+      ),
+    ).toThrow("field_artifact_invalid");
+  });
+
+  test("rejects incomplete, unknown, and cross-protocol nested references", async () => {
+    const protocol = await loadPlannerProtocol();
+    const fixture = createPlannerFixture(protocol);
+    const valid = {
+      version: 1 as const,
+      handoffId: "0192f060-4f41-7aa1-b322-4aa9fc9f1599",
+      handedOffAt: validHandoffAt,
+      source: { kind: "approved_local_handoff" as const, id: "field_readiness_approved20260823" },
+      protocolPackageId: protocol.packageId,
+      protocolPackageVersion: protocol.packageVersion,
+      coverageSnapshot: fixture.coverageSnapshot,
+      inputs: {
+        ...fixture.inputs,
+        assignmentGates: fixture.inputs.assignmentGates.map((gate) => ({
+          ...gate,
+          sourceId: "field-readiness-authority",
+          fingerprint: `authority-${gate.assignmentId}`,
+        })),
+        eligibilityEvidence: fixture.inputs.eligibilityEvidence.map((evidence) => ({
+          ...evidence,
+          sourceId: "field-preflight-authority",
+          fingerprint: `authority-${evidence.assignmentId}-${evidence.kind}`,
+        })),
+      },
+    };
+    const withoutStartingArea = structuredClone(valid) as unknown as {
+      inputs: Record<string, unknown>;
+    };
+    delete withoutStartingArea.inputs.startingAreaId;
+    expect(() => assertReadinessHandoff(withoutStartingArea, protocol, validationNowMs)).toThrow(
+      "field_artifact_invalid",
+    );
+    expect(() =>
+      assertReadinessHandoff(
+        { ...valid, unexpectedDeploymentField: true },
+        protocol,
+        validationNowMs,
+      ),
+    ).toThrow("field_artifact_invalid");
+    expect(() =>
+      assertReadinessHandoff(
+        {
+          ...valid,
+          coverageSnapshot: {
+            ...valid.coverageSnapshot,
+            resolvedAssignmentAreaIds: { unknown_assignment: protocol.areas[0] ?? "unknown" },
+          },
+        },
+        protocol,
+        validationNowMs,
       ),
     ).toThrow("field_artifact_invalid");
   });

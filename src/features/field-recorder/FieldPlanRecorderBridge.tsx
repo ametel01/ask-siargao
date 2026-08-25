@@ -14,6 +14,7 @@ import {
   assertReadinessHandoff,
   type FieldPlannerReadinessHandoff,
   loadPlannerReadiness,
+  persistPreseededPlannerReadiness,
   producePlannerReadinessFromCustody,
 } from "@/features/field-planning/planner-readiness-vault";
 import { useFieldSecuritySession } from "@/features/field-security/FieldSecuritySessionProvider";
@@ -52,7 +53,9 @@ export function FieldPlanRecorderBridge(props: {
         const existing = await loadPlannerReadiness(props.protocol, key);
         if (existing) return existing;
         const preseeded = await loadProductionPlannerReadiness(props.protocol);
-        if (preseeded) return preseeded;
+        if (preseeded) {
+          return persistPreseededPlannerReadiness(preseeded, props.protocol, key);
+        }
         try {
           return await producePlannerReadinessFromCustody(props.protocol, key);
         } catch {

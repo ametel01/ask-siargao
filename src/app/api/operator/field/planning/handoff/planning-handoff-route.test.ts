@@ -58,4 +58,37 @@ describe("Field Planner initial handoff route", () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "field_planning_handoff_unconfigured" });
   });
+
+  test("fails closed when a configured handoff omits required planner input", async () => {
+    const protocol = await loadPlannerProtocol();
+    const fixture = createPlannerFixture(protocol);
+    const malformedHandoff = {
+      version: 1,
+      handoffId: "0192f060-4f41-7aa1-b322-4aa9fc9f1599",
+      handedOffAt: new Date().toISOString(),
+      source: { kind: "approved_local_handoff", id: "field_readiness_preseeded_20260823" },
+      protocolPackageId: protocol.packageId,
+      protocolPackageVersion: protocol.packageVersion,
+      coverageSnapshot: fixture.coverageSnapshot,
+      inputs: {
+        planningAt: fixture.inputs.planningAt,
+        transportMode: fixture.inputs.transportMode,
+        availableMinutes: fixture.inputs.availableMinutes,
+        reserveMinutes: fixture.inputs.reserveMinutes,
+        assignmentGates: [],
+        eligibilityEvidence: [],
+      },
+    };
+    const response = await getFieldPlanningHandoffResponse(
+      new Request("https://asksiargao.com/api/operator/field/planning/handoff"),
+      {
+        allowlist: new Set(["researcher"]),
+        auth: async () => ({ accountId: "researcher", mfaFresh: false }),
+        initialHandoff: () => JSON.stringify(malformedHandoff),
+        protocol,
+      },
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "field_planning_handoff_invalid" });
+  });
 });
