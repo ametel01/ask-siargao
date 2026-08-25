@@ -5,8 +5,10 @@ import { baselineFieldProtocolPackage } from "@/features/field-protocol/field-pr
 import type {
   CaptureException,
   EvidenceAsset,
+  RouteRun,
   SchemaGap,
   SourceStatement,
+  StatementTranslation,
 } from "@/features/field-protocol/generated";
 import { exampleObservation, exampleVisit } from "@/features/field-recorder/test-fixtures";
 import {
@@ -87,7 +89,30 @@ describe("Field Desk record context", () => {
     expect(html).toContain("Conflicts");
     expect(html).toContain("amount: 50");
     expect(html).toContain("currency: PHP");
-    expect(html).not.toContain("Tricycle journey");
+    expect(html).toContain("item: Tricycle journey");
+  });
+
+  test.each([
+    ["identity", { displayedName: "Governed clinic", rawOperatorNote: "do not render" }],
+    ["opening_signal", { state: "open", rawOperatorNote: "do not render" }],
+    ["local_caveat", { warning: "Road floods after rain", rawOperatorNote: "do not render" }],
+  ])("shows decisive governed %s values without rendering unknown fields", (kind, value) => {
+    const html = renderToStaticMarkup(
+      <RecordSummary
+        record={{
+          kind: "fieldObservation",
+          value: {
+            ...structuredClone(exampleObservation),
+            observationKind: kind,
+            value,
+          },
+        }}
+      />,
+    );
+
+    expect(html).toContain(String(Object.values(value)[0]));
+    expect(html).not.toContain("rawOperatorNote");
+    expect(html).not.toContain("do not render");
   });
 
   test("shows asset governance and source provenance without rendering opaque values", () => {
@@ -122,23 +147,82 @@ describe("Field Desk record context", () => {
     expect(sourceHtml).toContain(examples.sourceStatement.originalStatement);
   });
 
-  test("restricts correction and follow-up controls by record kind", () => {
-    expect(availableFieldDeskDecisions("fieldObservation").map(([value]) => value)).toContain(
-      "correct_by_supersession",
+  test("shows current visit, route, and translation fields before typed correction", () => {
+    const visitHtml = renderToStaticMarkup(
+      <RecordSummary
+        record={{
+          kind: "fieldVisit",
+          value: { ...structuredClone(exampleVisit), privateContextNote: "Original visit context" },
+        }}
+      />,
     );
+    const routeHtml = renderToStaticMarkup(
+      <RecordSummary
+        record={{
+          kind: "routeRun",
+          value: structuredClone(examples.routeRun) as unknown as RouteRun,
+        }}
+      />,
+    );
+    const translationHtml = renderToStaticMarkup(
+      <RecordSummary
+        record={{
+          kind: "statementTranslation",
+          value: structuredClone(examples.statementTranslation) as unknown as StatementTranslation,
+        }}
+      />,
+    );
+
+    expect(visitHtml).toContain("Private visit context");
+    expect(visitHtml).toContain("Original visit context");
+    expect(routeHtml).toContain("Party context");
+    expect(routeHtml).toContain(examples.routeRun.partyContext);
+    expect(translationHtml).toContain("Translated text");
+    expect(translationHtml).toContain(examples.statementTranslation.translatedText);
+  });
+
+  test("offers typed correction for every record kind and restricts unsupported follow-ups", () => {
+    for (const kind of [
+      "fieldVisit",
+      "fieldObservation",
+      "routeRun",
+      "sourceStatement",
+      "statementTranslation",
+      "evidenceAsset",
+      "captureException",
+      "schemaGap",
+    ] as const) {
+      expect(availableFieldDeskDecisions(kind).map(([value]) => value)).toContain(
+        "correct_by_supersession",
+      );
+    }
     expect(availableFieldDeskDecisions("fieldObservation").map(([value]) => value)).toContain(
       "needs_more_evidence",
     );
     expect(availableFieldDeskDecisions("captureException").map(([value]) => value)).not.toContain(
       "needs_more_evidence",
     );
-    expect(availableFieldDeskDecisions("schemaGap").map(([value]) => value)).not.toContain(
-      "correct_by_supersession",
-    );
     expect(normalizeFieldDeskDecision("schemaGap", "needs_more_evidence")).toBe("include");
     expect(normalizeFieldDeskDecision("fieldObservation", "correct_by_supersession")).toBe(
       "correct_by_supersession",
     );
+  });
+
+  test("renders identity-equivalent duplicate proposals as non-destructive review context", () => {
+    const html = renderToStaticMarkup(
+      <RecordSummary
+        duplicateProposal={{
+          candidateRecordId: exampleObservation.id,
+          existingRecordId: "0192f060-4f41-7aa1-b322-4aa9fc9f1599",
+          reason: "identity_equivalent",
+        }}
+        record={{ kind: "fieldObservation", value: structuredClone(exampleObservation) }}
+      />,
+    );
+
+    expect(html).toContain("Duplicate proposal");
+    expect(html).toContain("Identity-equivalent to 0192f060-4f41-7aa1-b322-4aa9fc9f1599");
+    expect(html).toContain("retain both records until a reviewer records Include or Exclude");
   });
 
   test("shows capture exception and schema-gap blockers", () => {

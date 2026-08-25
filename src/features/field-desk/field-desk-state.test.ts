@@ -1,13 +1,26 @@
 import { describe, expect, test } from "bun:test";
 
 import { canonicalStringify } from "@/features/field-protocol/canonical-json";
-import { validateFieldProtocolRecord } from "@/features/field-protocol/field-protocol";
-import type { FollowUpAssignment } from "@/features/field-protocol/generated";
+import {
+  baselineFieldProtocolPackage,
+  validateFieldProtocolRecord,
+} from "@/features/field-protocol/field-protocol";
+import type {
+  CaptureException,
+  EvidenceAsset,
+  FieldVisit,
+  FollowUpAssignment,
+  RouteRun,
+  SchemaGap,
+  SourceStatement,
+  StatementTranslation,
+} from "@/features/field-protocol/generated";
 import type { RecorderRecord, RecorderWork } from "@/features/field-recorder/field-recorder-types";
 import { exampleObservation, recorderSnapshot } from "@/features/field-recorder/test-fixtures";
 import {
   appendDeskRecoveryAudit,
   appendFieldReview,
+  createFieldDeskCorrection,
   createFieldDeskWork,
   derivedRecorderRecoveryStatus,
   effectiveReview,
@@ -17,12 +30,14 @@ import {
 const ids = {
   archive: "0192f060-4f41-7aa1-b322-4aa9fc9f1501",
   close: "0192f060-4f41-7aa1-b322-4aa9fc9f1502",
-  correction: "0192f060-4f41-7aa1-b322-4aa9fc9f1503",
+  correction: "0192f060-4f41-7aa1-b322-4aa9fc9f1590",
   followUp: "0192f060-4f41-7aa1-b322-4aa9fc9f1504",
-  review: "0192f060-4f41-7aa1-b322-4aa9fc9f1505",
-  review2: "0192f060-4f41-7aa1-b322-4aa9fc9f1506",
-  work: "0192f060-4f41-7aa1-b322-4aa9fc9f1507",
+  review: "0192f060-4f41-7aa1-b322-4aa9fc9f1591",
+  review2: "0192f060-4f41-7aa1-b322-4aa9fc9f1592",
+  work: "0192f060-4f41-7aa1-b322-4aa9fc9f1593",
 } as const;
+
+const examples = baselineFieldProtocolPackage.examples.examples;
 
 describe("append-only Field Desk review", () => {
   test.each([
@@ -59,7 +74,7 @@ describe("append-only Field Desk review", () => {
       const successor = reviewed.corrections[0];
       expect(successor?.kind).toBe("fieldObservation");
       if (successor?.kind !== "fieldObservation") return;
-      expect(successor.value.captureConfidenceReason).toBe("Corrected observation note.");
+      expect(successor.value.value.amount).toBe("75");
       expect(validateFieldProtocolRecord("fieldObservation", successor.value).success).toBe(true);
     }
   });
@@ -92,26 +107,92 @@ describe("append-only Field Desk review", () => {
     ).rejects.toThrow("does not match");
   });
 
-  test("rejects an unbounded or untyped correction note", async () => {
-    const work = await deskWork();
+  test("rejects an unbounded or untyped correction input", () => {
+    expect(() =>
+      createFieldDeskCorrection({
+        correctedValue: "\u0000",
+        id: ids.correction,
+        original: { kind: "fieldObservation", value: structuredClone(exampleObservation) },
+      }),
+    ).toThrow("control characters");
+  });
+
+  test.each(correctionCases())(
+    "validates a substantive typed $kind successor under the pinned protocol",
+    async ({ correctedValue, kind, original }) => {
+      const successor = createFieldDeskCorrection({
+        correctedValue,
+        id: ids.correction,
+        original,
+      });
+      const work = await deskWorkFor(original);
+      const reviewed = await appendFieldReview({
+        work,
+        review: reviewFor(original, { supersedingRecord: successor }),
+      });
+
+      expect(reviewed.corrections).toEqual([successor]);
+      expect(reviewed.corrections[0]?.kind).toBe(kind);
+      expect(canonicalStringify(successor)).toContain(correctedValue);
+    },
+  );
+
+  test("rejects unchanged corrections, changed lineage, and protocol-invalid successors", async () => {
+    const original = {
+      kind: "fieldObservation",
+      value: structuredClone(exampleObservation),
+    } as const;
+    const work = await deskWorkFor(original);
+    const unchanged = createFieldDeskCorrection({
+      correctedValue: String(exampleObservation.value.amount),
+      id: ids.correction,
+      original,
+    });
+    await expect(
+      appendFieldReview({ work, review: reviewFor(original, { supersedingRecord: unchanged }) }),
+    ).rejects.toThrow("must change the governed typed value");
+
+    const changedLineage = createFieldDeskCorrection({
+      correctedValue: "75",
+      id: ids.correction,
+      original,
+    });
+    changedLineage.value.researcherId = "different_researcher";
     await expect(
       appendFieldReview({
         work,
-        review: {
-          ...baseReview({ decision: "correct_by_supersession" }),
-          supersedingRecord: {
-            kind: "fieldObservation",
-            value: {
-              ...structuredClone(exampleObservation),
-              id: ids.correction,
-              supersedesId: exampleObservation.id,
-              captureConfidenceReason: "\u0000",
-              value: { ...exampleObservation.value },
-            },
-          },
+        review: reviewFor(original, { supersedingRecord: changedLineage }),
+      }),
+    ).rejects.toThrow("preserve immutable capture lineage and context");
+
+    const sourceOriginal = {
+      kind: "sourceStatement",
+      value: structuredClone(examples.sourceStatement) as unknown as SourceStatement,
+    } as const;
+    const invalidSource = createFieldDeskCorrection({
+      correctedValue: "Corrected statement",
+      id: ids.correction,
+      original: sourceOriginal,
+    });
+    if (invalidSource.kind !== "sourceStatement") throw new Error("expected source statement");
+    invalidSource.value.originalStatement = "";
+    await expect(
+      appendFieldReview({
+        work: await deskWorkFor(sourceOriginal),
+        review: reviewFor(sourceOriginal, { supersedingRecord: invalidSource }),
+      }),
+    ).rejects.toThrow("valid under the pinned Field Protocol");
+
+    expect(() =>
+      createFieldDeskCorrection({
+        correctedValue: "not_a_governed_purpose",
+        id: ids.correction,
+        original: {
+          kind: "evidenceAsset",
+          value: structuredClone(examples.evidenceAsset) as unknown as EvidenceAsset,
         },
       }),
-    ).rejects.toThrow("control characters");
+    ).toThrow("must use a governed option");
   });
 
   test("retains the complete effective-review chain", async () => {
@@ -214,18 +295,111 @@ function baseReview(
 }
 
 function correctedObservation(): RecorderRecord {
-  return {
-    kind: "fieldObservation",
-    value: {
-      ...structuredClone(exampleObservation),
-      id: ids.correction,
-      supersedesId: exampleObservation.id,
-      captureConfidenceReason: "Corrected observation note.",
-      value: {
-        ...exampleObservation.value,
-        amount: "75",
+  return createFieldDeskCorrection({
+    correctedValue: "75",
+    id: ids.correction,
+    original: { kind: "fieldObservation", value: structuredClone(exampleObservation) },
+  });
+}
+
+function correctionCases(): Array<{
+  correctedValue: string;
+  kind: RecorderRecord["kind"];
+  original: RecorderRecord;
+}> {
+  return [
+    {
+      kind: "fieldVisit",
+      original: {
+        kind: "fieldVisit",
+        value: structuredClone(examples.fieldVisit) as unknown as FieldVisit,
       },
+      correctedValue: "Corrected private visit context.",
     },
+    {
+      kind: "fieldObservation",
+      original: { kind: "fieldObservation", value: structuredClone(exampleObservation) },
+      correctedValue: "75",
+    },
+    {
+      kind: "routeRun",
+      original: {
+        kind: "routeRun",
+        value: structuredClone(examples.routeRun) as unknown as RouteRun,
+      },
+      correctedValue: "Two adults",
+    },
+    {
+      kind: "sourceStatement",
+      original: {
+        kind: "sourceStatement",
+        value: structuredClone(examples.sourceStatement) as unknown as SourceStatement,
+      },
+      correctedValue: "The corrected protected source statement.",
+    },
+    {
+      kind: "statementTranslation",
+      original: {
+        kind: "statementTranslation",
+        value: structuredClone(examples.statementTranslation) as unknown as StatementTranslation,
+      },
+      correctedValue: "Ang itinamang salin.",
+    },
+    {
+      kind: "evidenceAsset",
+      original: {
+        kind: "evidenceAsset",
+        value: structuredClone(examples.evidenceAsset) as unknown as EvidenceAsset,
+      },
+      correctedValue: "posted_information",
+    },
+    {
+      kind: "captureException",
+      original: {
+        kind: "captureException",
+        value: structuredClone(examples.captureException) as unknown as CaptureException,
+      },
+      correctedValue: "The corrected governed exception details.",
+    },
+    {
+      kind: "schemaGap",
+      original: {
+        kind: "schemaGap",
+        value: structuredClone(examples.schemaGap) as unknown as SchemaGap,
+      },
+      correctedValue: "The corrected governed schema-gap description.",
+    },
+  ];
+}
+
+async function deskWorkFor(original: RecorderRecord) {
+  const recorderWork = closedWork();
+  return createFieldDeskWork({
+    archiveId: ids.archive,
+    handedOffAt: "2026-08-23T02:00:00.000Z",
+    recorderWork: {
+      ...recorderWork,
+      protocolPackageId: original.value.protocolPackageId,
+      protocolPackageVersion: original.value.protocolPackageVersion,
+      researcherId: original.value.researcherId,
+      deviceId: original.value.deviceId,
+      records: [structuredClone(original)],
+    },
+  });
+}
+
+function reviewFor(
+  original: RecorderRecord,
+  extra: { supersedingRecord: RecorderRecord },
+): Parameters<typeof appendFieldReview>[0]["review"] {
+  return {
+    id: ids.review,
+    recordId: original.value.id,
+    reviewerId: original.value.researcherId,
+    reviewerMatchesResearcher: true,
+    reviewedAt: "2026-08-23T02:05:00.000Z",
+    decision: "correct_by_supersession",
+    ...extra,
   };
 }
 

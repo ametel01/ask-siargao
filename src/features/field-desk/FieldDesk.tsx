@@ -8,8 +8,15 @@ import { FieldMain } from "@/features/field-workspace/FieldMain";
 import { canCreateDeskFollowUp, createDeskFollowUp } from "./desk-followup";
 import { fieldDeskCorrectionNoteSchema } from "./desk-schemas";
 import { FieldDeskRepository } from "./field-desk-repository";
-import { allRecords, appendFieldReview, effectiveReview } from "./field-desk-state";
-import type { FieldDeskWork } from "./field-desk-types";
+import {
+  allRecords,
+  appendFieldReview,
+  createFieldDeskCorrection,
+  effectiveReview,
+  fieldDeskCorrectionDescriptor,
+  proposeIdentityEquivalentDuplicates,
+} from "./field-desk-state";
+import type { DuplicateProposal, FieldDeskWork } from "./field-desk-types";
 
 const decisions = [
   ["include", "Include", "Keep this immutable record in the reviewed selection."],
@@ -29,50 +36,11 @@ const decisions = [
 type DeskDecisionOption = (typeof decisions)[number];
 type DeskDecision = DeskDecisionOption[0];
 
-type DeskCorrectionDescriptor = Readonly<{
-  key: string;
-  label: string;
-  parse: (value: string) => string | number;
-}>;
-
-function deskCorrectionDescriptor(
-  observation: RecorderRecord & { kind: "fieldObservation" },
-): DeskCorrectionDescriptor {
-  const descriptors: Record<string, DeskCorrectionDescriptor> = {
-    identity: { key: "displayedName", label: "Displayed name", parse: String },
-    opening_signal: { key: "state", label: "Opening state", parse: String },
-    price: { key: "amount", label: "Amount", parse: String },
-    route_duration: { key: "durationSeconds", label: "Duration (seconds)", parse: Number },
-    route_wait: { key: "waitSeconds", label: "Wait (seconds)", parse: Number },
-    road_condition: { key: "surface", label: "Surface", parse: String },
-    facility: { key: "state", label: "Facility state", parse: String },
-    accessibility: { key: "feature", label: "Accessibility feature", parse: String },
-    payment_method: { key: "method", label: "Payment method", parse: String },
-    connectivity: { key: "network", label: "Network", parse: String },
-    power: { key: "state", label: "Power state", parse: String },
-    crowd_snapshot: { key: "boundary", label: "Crowd boundary", parse: String },
-    noise_snapshot: { key: "measurementPosition", label: "Measurement position", parse: String },
-    weather_condition: { key: "condition", label: "Weather condition", parse: String },
-    tide_context: { key: "sourceId", label: "Tide source", parse: String },
-    menu_item: { key: "itemName", label: "Menu item", parse: String },
-    service_status: { key: "state", label: "Service state", parse: String },
-    contact_channel: { key: "publicValue", label: "Public contact value", parse: String },
-    local_caveat: { key: "warning", label: "Warning", parse: String },
-  };
-  return (
-    descriptors[observation.value.observationKind] ?? {
-      key: "captureConfidenceReason",
-      label: "Correction note",
-      parse: String,
-    }
-  );
-}
-
 export function availableFieldDeskDecisions(
   recordKind: RecorderRecord["kind"] | undefined,
 ): readonly DeskDecisionOption[] {
   return decisions.filter(([value]) => {
-    if (value === "correct_by_supersession") return recordKind === "fieldObservation";
+    if (value === "correct_by_supersession") return recordKind !== undefined;
     if (value === "needs_more_evidence") {
       return recordKind !== undefined && !["captureException", "schemaGap"].includes(recordKind);
     }
@@ -200,6 +168,7 @@ function DeskReviewSurface(props: {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const records = allRecords(props.work);
+  const duplicateProposals = proposeIdentityEquivalentDuplicates(records);
   const record = records[recordIndex] ?? records[0];
   const recordId = record?.value.id;
   const prior = record ? effectiveReview(props.work, record.value.id) : undefined;
@@ -214,8 +183,10 @@ function DeskReviewSurface(props: {
     record?.kind === "fieldObservation" &&
     (record.value.contradictsObservationIds?.length ?? 0) > 0;
   const parsedCorrection = fieldDeskCorrectionNoteSchema.safeParse(correction);
-  const correctionDescriptor =
-    record?.kind === "fieldObservation" ? deskCorrectionDescriptor(record) : undefined;
+  const correctionDescriptor = record ? fieldDeskCorrectionDescriptor(record) : undefined;
+  const duplicateProposal = record
+    ? duplicateProposals.find((proposal) => proposal.candidateRecordId === record.value.id)
+    : undefined;
   const canSubmit =
     (!conflictReviewRequired || conflictDisposition !== "unresolved") &&
     (selectedDecision === "include" ||
@@ -236,25 +207,14 @@ function DeskReviewSurface(props: {
         if (!followUp) throw new Error("Needs more evidence requires a linked follow-up.");
       }
       if (selectedDecision === "correct_by_supersession") {
-        if (record.kind !== "fieldObservation") {
-          throw new Error("Typed correction is currently available for observations only.");
-        }
         if (!parsedCorrection.success || !correctionDescriptor) {
           throw new Error("A typed correction value is required.");
         }
-        supersedingRecord = {
-          kind: "fieldObservation",
-          value: {
-            ...record.value,
-            id: crypto.randomUUID(),
-            supersedesId: record.value.id,
-            captureConfidenceReason: parsedCorrection.data,
-            value: {
-              ...record.value.value,
-              [correctionDescriptor.key]: correctionDescriptor.parse(parsedCorrection.data),
-            },
-          },
-        };
+        supersedingRecord = createFieldDeskCorrection({
+          correctedValue: parsedCorrection.data,
+          id: crypto.randomUUID(),
+          original: record,
+        });
       }
       const review = await appendFieldReview({
         review: {
@@ -338,7 +298,10 @@ function DeskReviewSurface(props: {
                 <button
                   className={`min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm ${index === recordIndex ? "bg-[#ddfbf4] font-bold" : "bg-white"}`}
                   key={entry.value.id}
-                  onClick={() => setRecordIndex(index)}
+                  onClick={() => {
+                    setRecordIndex(index);
+                    setCorrection("");
+                  }}
                   type="button"
                 >
                   {entry.kind}
@@ -367,7 +330,12 @@ function DeskReviewSurface(props: {
                 {prior?.decision ?? "Awaiting review"}
               </span>
             </div>
-            <RecordSummary prior={prior} record={record} work={props.work} />
+            <RecordSummary
+              duplicateProposal={duplicateProposal}
+              prior={prior}
+              record={record}
+              work={props.work}
+            />
             <fieldset className="mt-6">
               <legend className="text-base font-bold">Record a Field Review decision</legend>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -405,15 +373,33 @@ function DeskReviewSurface(props: {
             ) : null}
             {selectedDecision === "correct_by_supersession" ? (
               <label className="mt-5 block font-bold" htmlFor="corrected-value">
-                Corrected observation value
-                <input
-                  aria-describedby="corrected-value-help"
-                  className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
-                  id="corrected-value"
-                  maxLength={500}
-                  onChange={(event) => setCorrection(event.target.value)}
-                  value={correction}
-                />
+                Corrected protected value
+                {correctionDescriptor?.choices ? (
+                  <select
+                    aria-describedby="corrected-value-help"
+                    className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
+                    id="corrected-value"
+                    onChange={(event) => setCorrection(event.target.value)}
+                    value={correction}
+                  >
+                    <option value="">Choose a governed value</option>
+                    {correctionDescriptor.choices.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {choice}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    aria-describedby="corrected-value-help"
+                    className="mt-2 min-h-11 w-full rounded-lg border border-[#b9b2d0] bg-white px-3 font-normal"
+                    id="corrected-value"
+                    inputMode={correctionDescriptor?.inputMode === "numeric" ? "numeric" : "text"}
+                    maxLength={500}
+                    onChange={(event) => setCorrection(event.target.value)}
+                    value={correction}
+                  />
+                )}
                 <span
                   className="mt-1 block text-xs font-normal text-[#5f5f87]"
                   id="corrected-value-help"
@@ -487,11 +473,12 @@ function DeskReviewSurface(props: {
 }
 
 export function RecordSummary(props: {
+  duplicateProposal?: DuplicateProposal;
   prior?: FieldDeskWork["reviews"][number];
   record?: RecorderRecord;
   work?: FieldDeskWork;
 }) {
-  const { prior, record, work } = props;
+  const { duplicateProposal, prior, record, work } = props;
   if (!record) return null;
   const value = record.value as unknown as Record<string, unknown>;
   const coverage = work?.recorderWork.objectiveCoverage
@@ -532,7 +519,10 @@ export function RecordSummary(props: {
       ["Observed", record.value.observedAt],
       ["Confidence", record.value.captureConfidence],
       ["Subject", record.value.subject.kind],
-      ["Reviewable observation value", reviewSafeObservationValue(record.value.value)],
+      [
+        "Reviewable observation value",
+        reviewSafeObservationValue(record.value.observationKind, record.value.value),
+      ],
     );
   } else if (record.kind === "fieldVisit") {
     fields.push(
@@ -540,6 +530,7 @@ export function RecordSummary(props: {
       ["Ended", record.value.endedAt],
       ["Location permission", record.value.locationPermissionState],
       ["Target", record.value.target.kind],
+      ["Private visit context", record.value.privateContextNote],
     );
   } else if (record.kind === "routeRun") {
     fields.push(
@@ -547,6 +538,7 @@ export function RecordSummary(props: {
       ["Requested", record.value.requestedAt],
       ["Departed", record.value.departedAt],
       ["Arrived", record.value.arrivedAt],
+      ["Party context", record.value.partyContext],
     );
   }
   fields.push(
@@ -569,6 +561,15 @@ export function RecordSummary(props: {
     ],
     ["Review conflict disposition", prior?.conflictDisposition],
   );
+  if (duplicateProposal) {
+    fields.push(
+      ["Duplicate proposal", `Identity-equivalent to ${duplicateProposal.existingRecordId}`],
+      [
+        "Duplicate handling",
+        "Proposal only; retain both records until a reviewer records Include or Exclude.",
+      ],
+    );
+  }
   if (coverage) {
     fields.push(
       ["Coverage status", coverage.status],
@@ -653,6 +654,14 @@ export function RecordSummary(props: {
       ["Quotation consent", record.value.consents.quotationUse.decision],
       ["Public-use consent", record.value.consents.publicUse.decision],
     );
+  } else if (record.kind === "statementTranslation") {
+    fields.push(
+      ["Translated text", record.value.translatedText],
+      ["Original language", record.value.originalLanguage],
+      ["Target language", record.value.targetLanguage],
+      ["Translator", record.value.translator.kind],
+      ["Translation method", record.value.translator.identityOrMethod],
+    );
   } else if (record.kind === "captureException") {
     fields.push(
       ["Exception reason", record.value.reason],
@@ -687,37 +696,73 @@ function displayField(value: unknown): string {
   return "Structured protected field";
 }
 
-const reviewSafeObservationKeys = [
-  "amount",
-  "basis",
-  "currency",
-  "distanceMeters",
-  "durationMinutes",
-  "negotiated",
-  "partySize",
-  "paymentMethodAttempted",
-  "pricingUnit",
-  "taxesAndFees",
-  "unit",
-  "value",
-] as const;
+const reviewableObservationKeys: Readonly<Record<string, readonly string[]>> = {
+  identity: ["displayedName", "officialName", "aliases", "category", "resolutionEvidence"],
+  opening_signal: ["state", "basis", "postedHoursSeparatelyEvidenced"],
+  price: [
+    "amount",
+    "currency",
+    "item",
+    "pricingUnit",
+    "partySize",
+    "inclusions",
+    "basis",
+    "taxesAndFees",
+    "negotiated",
+    "paymentMethodAttempted",
+    "receiptAssetId",
+  ],
+  route_duration: ["originSubjectId", "destinationSubjectId", "transportMode", "durationSeconds"],
+  route_wait: ["transportMode", "queueState", "waitSeconds"],
+  road_condition: ["segmentId", "surface", "obstruction", "weatherContext"],
+  facility: ["facilityType", "state", "accessConditions"],
+  accessibility: ["feature", "state", "measuredValue", "unit", "measurementBasis"],
+  payment_method: ["method", "outcome", "transactionContext"],
+  connectivity: ["network", "zone", "deviceClass", "measurements"],
+  power: ["state", "basis", "socketPermission", "backupPowerStatementId"],
+  crowd_snapshot: ["boundary", "method", "count", "band"],
+  noise_snapshot: ["measurementPosition", "method", "dba", "band"],
+  weather_condition: ["condition", "observationBasis", "authoritativeSourceId"],
+  tide_context: ["sourceId", "sourceRetrievedAt", "shorelineState"],
+  menu_item: ["itemName", "amount", "currency", "availability", "dietaryDisclosureBasis"],
+  service_status: ["state", "basis", "limitations"],
+  contact_channel: ["channelType", "publicValue", "permission", "verificationMethod"],
+  local_caveat: ["warning", "appliesWhen", "directness", "corroborationCount"],
+};
 
-function reviewSafeObservationValue(value: Readonly<Record<string, unknown>>): string {
-  const fields = reviewSafeObservationKeys.flatMap((key) => {
+function reviewSafeObservationValue(
+  observationKind: string,
+  value: Readonly<Record<string, unknown>>,
+): string {
+  const fields = (reviewableObservationKeys[observationKind] ?? []).flatMap((key) => {
     const candidate = value[key];
-    if (
-      typeof candidate !== "string" &&
-      typeof candidate !== "number" &&
-      typeof candidate !== "boolean"
-    ) {
-      return [];
-    }
-    const text = String(candidate);
+    const text = displayGovernedObservationField(candidate);
+    if (!text) return [];
     return [[key, text.length > 120 ? `${text.slice(0, 117)}…` : text] as const];
   });
   return fields.length > 0
     ? fields.map(([key, candidate]) => `${key}: ${candidate}`).join(" · ")
-    : "No non-sensitive value fields available";
+    : "No governed review value fields available";
+}
+
+function displayGovernedObservationField(value: unknown): string | undefined {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "None";
+    if (
+      value.every(
+        (entry) =>
+          typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean",
+      )
+    ) {
+      return value.map(String).join(", ");
+    }
+    return `${value.length} governed structured entr${value.length === 1 ? "y" : "ies"}`;
+  }
+  if (typeof value === "object" && value !== null) return "Governed structured value";
+  return undefined;
 }
 
 function LockedDeskState(props: { embedded?: boolean }) {
