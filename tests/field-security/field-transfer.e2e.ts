@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("production Desk routes remain private, no-store, and visibly distinguish transfer completion", async ({
+test("production Desk routes remain private, no-store, and locked without local authorization", async ({
   page,
 }) => {
   const protectedSentinel = "PROTECTED_TRANSFER_SENTINEL_NEVER_LEAVE_242";
@@ -13,18 +13,17 @@ test("production Desk routes remain private, no-store, and visibly distinguish t
   expect(reviewCsp).toContain("connect-src 'self'");
   expect(reviewCsp).toMatch(/'nonce-[A-Za-z0-9]+'/);
   expect(reviewCsp).not.toContain("unsafe-inline");
-  await expect(page.getByRole("heading", { name: "Field review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Field review locked" })).toBeVisible();
 
   await page.evaluate((sentinel) => {
     Object.defineProperty(window, "__fieldTransferSentinel", { value: sentinel });
   }, protectedSentinel);
   const exportsResponse = await page.goto("/operator/field/exports");
   expect(exportsResponse?.status()).toBe(200);
-  await expect(
-    page.getByText("A copied file is not a Verified Field Transfer", { exact: false }),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Create Recovery Export" })).toBeDisabled();
-  await expect(page.getByText("Not created", { exact: true })).toBeVisible();
+  expect(exportsResponse?.headers()["cache-control"]).toContain("no-store");
+  await expect(page.getByRole("heading", { name: "Protected exports locked" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Verify and unlock" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Create Recovery Export" })).toHaveCount(0);
   expect(requests.join("\n")).not.toContain(protectedSentinel);
 });
 
@@ -53,6 +52,35 @@ test("hard offline reloads of Review and Exports resolve to the generic locked s
       ),
     )
     .toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const activeCache = await caches.open("ask-siargao-field-shell-active");
+        const marker = await activeCache.match("/__ask-siargao-active-field-build__");
+        const active = marker
+          ? ((await marker.json()) as { buildId?: string; preparationId?: string })
+          : undefined;
+        const shellCache = await caches.open("ask-siargao-field-shell-playwright-242");
+        const manifestResponse = await shellCache.match(
+          "/__ask-siargao-field-shell-dependencies__",
+        );
+        if (!manifestResponse) return undefined;
+        const manifest = (await manifestResponse.json()) as { assets?: string[]; version?: number };
+        const dependenciesComplete =
+          manifest.version === 1 &&
+          Array.isArray(manifest.assets) &&
+          manifest.assets.length > 0 &&
+          (await Promise.all(manifest.assets.map((path) => shellCache.match(path)))).every(Boolean);
+        return { active, dependenciesComplete };
+      }),
+    )
+    .toEqual({
+      active: {
+        buildId: "playwright-242",
+        preparationId: "playwright-preparation-242",
+      },
+      dependenciesComplete: true,
+    });
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect
     .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
