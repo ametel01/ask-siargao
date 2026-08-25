@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -329,14 +330,22 @@ export function ObservationForm(props: {
   );
 }
 
-function ObservationValueFields(props: {
-  governedSubjects: readonly Readonly<{ id: string; label: string }>[];
-  kind: ObservationKind;
-}) {
-  const { kind } = props;
-  const subjectOptions = props.governedSubjects.map(({ id, label }) => [id, label] as const);
-  switch (kind) {
-    case "identity":
+type ObservationValueFieldsContext = Readonly<{
+  subjectOptions: readonly (readonly [string, string])[];
+}>;
+
+type ObservationKindDefinition<K extends ObservationKind> = Readonly<{
+  parse: (data: FormData) => ObservationValueByKind[K];
+  render: (context: ObservationValueFieldsContext) => ReactNode;
+}>;
+
+type ObservationKindDefinitions = {
+  readonly [K in ObservationKind]: ObservationKindDefinition<K>;
+};
+
+const observationKindDefinitions = {
+  identity: {
+    render: () => {
       return (
         <>
           <TextField label="Displayed name" name="displayedName" required />
@@ -359,7 +368,19 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "opening_signal":
+    },
+    parse: (data) => {
+      return {
+        aliases: splitComma(data, "aliases"),
+        category: string(data, "category") as "place",
+        displayedName: string(data, "displayedName"),
+        officialName: optionalString(data, "officialName"),
+        resolutionEvidence: string(data, "resolutionEvidence") as "displayed_sign",
+      };
+    },
+  },
+  opening_signal: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -378,7 +399,17 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "price":
+    },
+    parse: (data) => {
+      return {
+        basis: string(data, "basis") as "observed",
+        postedHoursSeparatelyEvidenced: checked(data, "postedHoursSeparatelyEvidenced"),
+        state: string(data, "state") as "open",
+      };
+    },
+  },
+  price: {
+    render: () => {
       return (
         <>
           <TextField label="Amount" name="amount" required />
@@ -404,19 +435,35 @@ function ObservationValueFields(props: {
           <CheckboxField label="Negotiated price" name="negotiated" />
         </>
       );
-    case "route_duration":
+    },
+    parse: (data) => {
+      return {
+        amount: string(data, "amount"),
+        basis: string(data, "basis") as "posted",
+        currency: "PHP",
+        inclusions: splitComma(data, "inclusions"),
+        item: string(data, "item"),
+        negotiated: checked(data, "negotiated"),
+        partySize: number(data, "partySize"),
+        pricingUnit: string(data, "pricingUnit") as "item",
+        taxesAndFees: string(data, "taxesAndFees") as "included",
+      };
+    },
+  },
+  route_duration: {
+    render: (context) => {
       return (
         <>
           <SelectField
             label="Origin Subject"
             name="originSubjectId"
-            options={subjectOptions}
+            options={context.subjectOptions}
             required
           />
           <SelectField
             label="Destination Subject"
             name="destinationSubjectId"
-            options={subjectOptions}
+            options={context.subjectOptions}
             required
           />
           <SelectField
@@ -427,7 +474,18 @@ function ObservationValueFields(props: {
           <TextField label="Duration (seconds)" name="durationSeconds" type="number" required />
         </>
       );
-    case "route_wait":
+    },
+    parse: (data) => {
+      return {
+        destinationSubjectId: string(data, "destinationSubjectId"),
+        durationSeconds: number(data, "durationSeconds"),
+        originSubjectId: string(data, "originSubjectId"),
+        transportMode: string(data, "transportMode") as "walk",
+      };
+    },
+  },
+  route_wait: {
+    render: () => {
       return (
         <>
           <TextField label="Wait (seconds)" name="waitSeconds" type="number" required />
@@ -443,7 +501,17 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "road_condition":
+    },
+    parse: (data) => {
+      return {
+        queueState: string(data, "queueState") as "none",
+        transportMode: string(data, "transportMode") as "tricycle",
+        waitSeconds: number(data, "waitSeconds"),
+      };
+    },
+  },
+  road_condition: {
+    render: () => {
       return (
         <>
           <TextField label="Governed segment ID" name="segmentId" required />
@@ -464,7 +532,18 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "facility":
+    },
+    parse: (data) => {
+      return {
+        obstruction: string(data, "obstruction") as "none",
+        segmentId: string(data, "segmentId"),
+        surface: string(data, "surface") as "paved",
+        weatherContext: string(data, "weatherContext") as "dry",
+      };
+    },
+  },
+  facility: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -502,7 +581,17 @@ function ObservationValueFields(props: {
           </div>
         </>
       );
-    case "accessibility":
+    },
+    parse: (data) => {
+      return {
+        accessConditions: string(data, "accessConditions"),
+        facilityType: string(data, "facilityType") as "toilet",
+        state: string(data, "state") as "present",
+      };
+    },
+  },
+  accessibility: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -543,7 +632,19 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "payment_method":
+    },
+    parse: (data) => {
+      return {
+        feature: string(data, "feature") as "step",
+        measuredValue: optionalNumber(data, "measuredValue"),
+        measurementBasis: string(data, "measurementBasis") as "measured",
+        state: string(data, "state") as "present",
+        unit: optionalString(data, "unit") as "cm" | undefined,
+      };
+    },
+  },
+  payment_method: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -568,7 +669,17 @@ function ObservationValueFields(props: {
           </div>
         </>
       );
-    case "connectivity":
+    },
+    parse: (data) => {
+      return {
+        method: string(data, "method") as "cash",
+        outcome: string(data, "outcome") as "offered",
+        transactionContext: string(data, "transactionContext"),
+      };
+    },
+  },
+  connectivity: {
+    render: () => {
       return (
         <>
           <TextField label="Network" name="network" required />
@@ -599,7 +710,22 @@ function ObservationValueFields(props: {
           ))}
         </>
       );
-    case "power":
+    },
+    parse: (data) => {
+      return {
+        deviceClass: string(data, "deviceClass") as "phone",
+        measurements: [1, 2, 3].map((index) => ({
+          metric: string(data, `metric${index}`) as "download",
+          unit: string(data, `unit${index}`) as "Mbps",
+          value: number(data, `measurement${index}`),
+        })) as ObservationValueByKind["connectivity"]["measurements"],
+        network: string(data, "network"),
+        zone: string(data, "zone") as "indoors",
+      };
+    },
+  },
+  power: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -620,7 +746,18 @@ function ObservationValueFields(props: {
           <TextField label="Backup power Statement ID" name="backupPowerStatementId" />
         </>
       );
-    case "crowd_snapshot":
+    },
+    parse: (data) => {
+      return {
+        backupPowerStatementId: optionalString(data, "backupPowerStatementId"),
+        basis: string(data, "basis") as "direct_observation",
+        socketPermission: string(data, "socketPermission") as "granted",
+        state: string(data, "state") as "available",
+      };
+    },
+  },
+  crowd_snapshot: {
+    render: () => {
       return (
         <>
           <TextField label="Count boundary" name="boundary" required />
@@ -637,7 +774,18 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "noise_snapshot":
+    },
+    parse: (data) => {
+      return {
+        band: string(data, "band") as "empty",
+        boundary: string(data, "boundary"),
+        count: optionalNumber(data, "count"),
+        method: string(data, "method") as "counted",
+      };
+    },
+  },
+  noise_snapshot: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -654,7 +802,18 @@ function ObservationValueFields(props: {
           <TextField label="Measurement position" name="measurementPosition" required />
         </>
       );
-    case "weather_condition":
+    },
+    parse: (data) => {
+      return {
+        band: string(data, "band") as "quiet",
+        dba: optionalNumber(data, "dba"),
+        measurementPosition: string(data, "measurementPosition"),
+        method: string(data, "method") as "measured_dba",
+      };
+    },
+  },
+  weather_condition: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -678,7 +837,17 @@ function ObservationValueFields(props: {
           <TextField label="Authoritative Source ID" name="authoritativeSourceId" />
         </>
       );
-    case "tide_context":
+    },
+    parse: (data) => {
+      return {
+        authoritativeSourceId: optionalString(data, "authoritativeSourceId"),
+        condition: string(data, "condition") as "clear",
+        observationBasis: string(data, "observationBasis") as "direct",
+      };
+    },
+  },
+  tide_context: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -695,7 +864,17 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "menu_item":
+    },
+    parse: (data) => {
+      return {
+        shorelineState: string(data, "shorelineState") as "low",
+        sourceId: string(data, "sourceId"),
+        sourceRetrievedAt: new Date(string(data, "sourceRetrievedAt")).toISOString(),
+      };
+    },
+  },
+  menu_item: {
+    render: () => {
       return (
         <>
           <TextField label="Menu item" name="itemName" required />
@@ -713,7 +892,19 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "service_status":
+    },
+    parse: (data) => {
+      return {
+        amount: string(data, "amount"),
+        availability: string(data, "availability") as "available",
+        currency: "PHP",
+        dietaryDisclosureBasis: string(data, "dietaryDisclosureBasis") as "menu_label",
+        itemName: string(data, "itemName"),
+      };
+    },
+  },
+  service_status: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -731,7 +922,17 @@ function ObservationValueFields(props: {
           </div>
         </>
       );
-    case "contact_channel":
+    },
+    parse: (data) => {
+      return {
+        basis: string(data, "basis") as "observed",
+        limitations: optionalString(data, "limitations"),
+        state: string(data, "state") as "operating",
+      };
+    },
+  },
+  contact_channel: {
+    render: () => {
       return (
         <>
           <SelectField
@@ -752,7 +953,18 @@ function ObservationValueFields(props: {
           />
         </>
       );
-    case "local_caveat":
+    },
+    parse: (data) => {
+      return {
+        channelType: string(data, "channelType") as "phone",
+        permission: string(data, "permission") as "publicly_displayed",
+        publicValue: string(data, "publicValue"),
+        verificationMethod: string(data, "verificationMethod") as "displayed",
+      };
+    },
+  },
+  local_caveat: {
+    render: () => {
       return (
         <>
           <div className="sm:col-span-2">
@@ -791,148 +1003,8 @@ function ObservationValueFields(props: {
           />
         </>
       );
-  }
-}
-
-function buildValue(
-  kind: ObservationKind,
-  data: FormData,
-): ObservationValueByKind[ObservationKind] {
-  const optionalNumber = (name: string) => (string(data, name) ? number(data, name) : undefined);
-  const optionalString = (name: string) => string(data, name) || undefined;
-  switch (kind) {
-    case "identity":
-      return {
-        aliases: splitComma(data, "aliases"),
-        category: string(data, "category") as "place",
-        displayedName: string(data, "displayedName"),
-        officialName: optionalString("officialName"),
-        resolutionEvidence: string(data, "resolutionEvidence") as "displayed_sign",
-      };
-    case "opening_signal":
-      return {
-        basis: string(data, "basis") as "observed",
-        postedHoursSeparatelyEvidenced: checked(data, "postedHoursSeparatelyEvidenced"),
-        state: string(data, "state") as "open",
-      };
-    case "price":
-      return {
-        amount: string(data, "amount"),
-        basis: string(data, "basis") as "posted",
-        currency: "PHP",
-        inclusions: splitComma(data, "inclusions"),
-        item: string(data, "item"),
-        negotiated: checked(data, "negotiated"),
-        partySize: number(data, "partySize"),
-        pricingUnit: string(data, "pricingUnit") as "item",
-        taxesAndFees: string(data, "taxesAndFees") as "included",
-      };
-    case "route_duration":
-      return {
-        destinationSubjectId: string(data, "destinationSubjectId"),
-        durationSeconds: number(data, "durationSeconds"),
-        originSubjectId: string(data, "originSubjectId"),
-        transportMode: string(data, "transportMode") as "walk",
-      };
-    case "route_wait":
-      return {
-        queueState: string(data, "queueState") as "none",
-        transportMode: string(data, "transportMode") as "tricycle",
-        waitSeconds: number(data, "waitSeconds"),
-      };
-    case "road_condition":
-      return {
-        obstruction: string(data, "obstruction") as "none",
-        segmentId: string(data, "segmentId"),
-        surface: string(data, "surface") as "paved",
-        weatherContext: string(data, "weatherContext") as "dry",
-      };
-    case "facility":
-      return {
-        accessConditions: string(data, "accessConditions"),
-        facilityType: string(data, "facilityType") as "toilet",
-        state: string(data, "state") as "present",
-      };
-    case "accessibility":
-      return {
-        feature: string(data, "feature") as "step",
-        measuredValue: optionalNumber("measuredValue"),
-        measurementBasis: string(data, "measurementBasis") as "measured",
-        state: string(data, "state") as "present",
-        unit: optionalString("unit") as "cm" | undefined,
-      };
-    case "payment_method":
-      return {
-        method: string(data, "method") as "cash",
-        outcome: string(data, "outcome") as "offered",
-        transactionContext: string(data, "transactionContext"),
-      };
-    case "connectivity":
-      return {
-        deviceClass: string(data, "deviceClass") as "phone",
-        measurements: [1, 2, 3].map((index) => ({
-          metric: string(data, `metric${index}`) as "download",
-          unit: string(data, `unit${index}`) as "Mbps",
-          value: number(data, `measurement${index}`),
-        })) as ObservationValueByKind["connectivity"]["measurements"],
-        network: string(data, "network"),
-        zone: string(data, "zone") as "indoors",
-      };
-    case "power":
-      return {
-        backupPowerStatementId: optionalString("backupPowerStatementId"),
-        basis: string(data, "basis") as "direct_observation",
-        socketPermission: string(data, "socketPermission") as "granted",
-        state: string(data, "state") as "available",
-      };
-    case "crowd_snapshot":
-      return {
-        band: string(data, "band") as "empty",
-        boundary: string(data, "boundary"),
-        count: optionalNumber("count"),
-        method: string(data, "method") as "counted",
-      };
-    case "noise_snapshot":
-      return {
-        band: string(data, "band") as "quiet",
-        dba: optionalNumber("dba"),
-        measurementPosition: string(data, "measurementPosition"),
-        method: string(data, "method") as "measured_dba",
-      };
-    case "weather_condition":
-      return {
-        authoritativeSourceId: optionalString("authoritativeSourceId"),
-        condition: string(data, "condition") as "clear",
-        observationBasis: string(data, "observationBasis") as "direct",
-      };
-    case "tide_context":
-      return {
-        shorelineState: string(data, "shorelineState") as "low",
-        sourceId: string(data, "sourceId"),
-        sourceRetrievedAt: new Date(string(data, "sourceRetrievedAt")).toISOString(),
-      };
-    case "menu_item":
-      return {
-        amount: string(data, "amount"),
-        availability: string(data, "availability") as "available",
-        currency: "PHP",
-        dietaryDisclosureBasis: string(data, "dietaryDisclosureBasis") as "menu_label",
-        itemName: string(data, "itemName"),
-      };
-    case "service_status":
-      return {
-        basis: string(data, "basis") as "observed",
-        limitations: optionalString("limitations"),
-        state: string(data, "state") as "operating",
-      };
-    case "contact_channel":
-      return {
-        channelType: string(data, "channelType") as "phone",
-        permission: string(data, "permission") as "publicly_displayed",
-        publicValue: string(data, "publicValue"),
-        verificationMethod: string(data, "verificationMethod") as "displayed",
-      };
-    case "local_caveat": {
+    },
+    parse: (data) => {
       const appliesWhen = strings(
         data,
         "appliesWhen",
@@ -945,8 +1017,31 @@ function buildValue(
         directness: string(data, "caveatDirectness") as "direct_observation",
         warning: string(data, "warning"),
       };
-    }
-  }
+    },
+  },
+} satisfies ObservationKindDefinitions;
+
+function ObservationValueFields(props: {
+  governedSubjects: readonly Readonly<{ id: string; label: string }>[];
+  kind: ObservationKind;
+}) {
+  const subjectOptions = props.governedSubjects.map(({ id, label }) => [id, label] as const);
+  return observationKindDefinitions[props.kind].render({ subjectOptions });
+}
+
+function buildValue(
+  kind: ObservationKind,
+  data: FormData,
+): ObservationValueByKind[ObservationKind] {
+  return observationKindDefinitions[kind].parse(data);
+}
+
+function optionalNumber(data: FormData, name: string): number | undefined {
+  return string(data, name) ? number(data, name) : undefined;
+}
+
+function optionalString(data: FormData, name: string): string | undefined {
+  return string(data, name) || undefined;
 }
 
 function splitComma(data: FormData, name: string): string[] {
