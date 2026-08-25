@@ -65,6 +65,23 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
       }),
     )
     .toEqual({ buildId: "playwright-239", preparationId: "playwright-preparation-239" });
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const cache = await caches.open("ask-siargao-field-shell-playwright-239");
+        const response = await cache.match("/__ask-siargao-field-shell-dependencies__");
+        if (!response) return false;
+        const manifest = (await response.json()) as { assets?: string[]; version?: number };
+        return (
+          manifest.version === 1 &&
+          manifest.assets?.some((path) =>
+            path.includes("/chunks/app/operator/field/offline-shell/page-"),
+          ) === true &&
+          (await Promise.all(manifest.assets.map((path) => cache.match(path)))).every(Boolean)
+        );
+      }),
+    )
+    .toBe(true);
 
   const browserStorage = await page.evaluate(async () => {
     const cacheBodies: string[] = [];
@@ -81,7 +98,7 @@ test("prepares an identity-free shell and hard reloads offline without leakage",
   });
   expect(browserStorage.cacheBodies.join("\n")).toContain("Evidence station");
   expect(browserStorage.cacheBodies.join("\n")).toContain(
-    "Prepared offline areas: Recorder, Review, Exports, and Diagnostics and Recovery",
+    "Prepared offline areas: Plan, Recorder, Review, and Exports. Diagnostics and Recovery is an exceptional recovery surface.",
   );
   expect(JSON.stringify(browserStorage)).not.toContain(protectedSentinel);
   expect(requests.join("\n")).not.toContain(protectedSentinel);
@@ -98,7 +115,8 @@ test("consumes first-use evidence only after a challenged offline reload", async
   context,
   page,
 }) => {
-  await page.goto("/operator/field/offline-shell");
+  const setupPath = "/operator/field/security-workspace";
+  await page.goto(setupPath);
   await expect
     .poll(() =>
       page.evaluate(async () =>
@@ -108,70 +126,57 @@ test("consumes first-use evidence only after a challenged offline reload", async
       ),
     )
     .toBe(true);
-  const reloadChallenge = "123e4567-e89b-12d3-a456-426614174000";
-  await page.evaluate(async (challenge) => {
-    await navigator.serviceWorker.register("/field-service-worker", {
-      scope: "/",
-    });
-    const readyRegistration = await navigator.serviceWorker.ready;
-    if (!readyRegistration.active) throw new Error("field_service_worker_unavailable");
-
-    const shellResponse = await fetch("/operator/field/offline-shell", { cache: "no-store" });
-    const shellHtml = await shellResponse.text();
-    const shellCache = await caches.open("ask-siargao-field-shell-local");
-    await shellCache.put(
-      "/operator/field/offline-shell",
-      new Response(shellHtml, { headers: shellResponse.headers, status: shellResponse.status }),
-    );
-    const staticPaths = [
-      ...shellHtml.matchAll(/(?:src|href)=["'](\/_next\/static\/[^"']+)["']/g),
-    ].map((match) => match[1]);
-    for (const path of new Set(staticPaths)) {
-      await shellCache.put(path, await fetch(path, { cache: "reload" }));
-    }
-    const activeCache = await caches.open("ask-siargao-field-shell-active");
-    await activeCache.put(
-      "/__ask-siargao-active-field-build__",
-      new Response(JSON.stringify({ buildId: "local", preparationId: "readiness-reload-e2e" }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("ask-siargao-protected-field-vault");
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    const transaction = database.transaction("crypto-metadata", "readwrite");
-    transaction.objectStore("crypto-metadata").put({
-      key: "field-readiness-evidence",
-      value: {
-        buildId: "local",
-        offlineReloadChallenge: challenge,
-        readinessEvidence: {
-          cameraScanPermissionVerified: true,
-          offlineReloadVerified: false,
-          restoreVerified: true,
-          sampleCaptureVerified: true,
-          timeAndTimezoneVerified: true,
-        },
-        updatedAt: "2026-08-25T00:00:00.000Z",
-        version: 1,
-      },
-    });
-    await new Promise<void>((resolve, reject) => {
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-    });
-    database.close();
-    sessionStorage.setItem("ask-siargao-field-offline-reload-challenge", challenge);
-  }, reloadChallenge);
+  await page.getByRole("button", { name: "Prepare offline shell" }).click();
+  await expect(page.getByText(/Offline shell prepared/)).toBeVisible({ timeout: 20_000 });
 
   await context.setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
-  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Reload and verify offline" }).click();
+  await page.waitForLoadState("domcontentloaded");
+  expect(new URL(page.url()).pathname).toBe(setupPath);
   await expect(page.getByRole("heading", { name: "Protected fieldwork is locked" })).toBeVisible();
   await expect(page.getByText(/Offline hard reload verified/)).toBeVisible();
+  expect(
+    await page.evaluate(async () => {
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("ask-siargao-protected-field-vault");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction("crypto-metadata", "readonly");
+      const evidenceStore = transaction.objectStore("crypto-metadata");
+      const row = await new Promise<{
+        value: {
+          offlineReloadChallenge?: string;
+          readinessEvidence: { offlineReloadVerified: boolean };
+        };
+      }>((resolve, reject) => {
+        const request = evidenceStore.get("field-readiness-evidence");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const finalized = await new Promise<unknown>((resolve, reject) => {
+        const request = evidenceStore.get("field-readiness");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      database.close();
+      return {
+        challenge: row.value.offlineReloadChallenge,
+        finalized: Boolean(finalized),
+        sessionChallenge: sessionStorage.getItem("ask-siargao-field-offline-reload-challenge"),
+        verified: row.value.readinessEvidence.offlineReloadVerified,
+      };
+    }),
+  ).toEqual({ challenge: undefined, finalized: false, sessionChallenge: null, verified: true });
+  await expect(page.getByRole("button", { name: "Verify and unlock" })).toBeDisabled();
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  expect(new URL(page.url()).pathname).toBe(setupPath);
+  await expect(page.getByRole("heading", { name: "Protected fieldwork is locked" })).toBeVisible();
+  await expect(page.getByText(/Offline hard reload verified/)).toHaveCount(0);
+  await expect(page.getByText(/not fully prepared/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Verify and unlock" })).toBeDisabled();
   expect(
     await page.evaluate(async () => {
       const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -198,7 +203,6 @@ test("consumes first-use evidence only after a challenged offline reload", async
       };
     }),
   ).toEqual({ challenge: undefined, sessionChallenge: null, verified: true });
-  await expect(page.getByRole("button", { name: "Verify and unlock" })).toBeDisabled();
   await context.setOffline(false);
 });
 

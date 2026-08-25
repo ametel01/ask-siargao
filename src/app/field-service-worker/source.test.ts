@@ -18,4 +18,11 @@ test("selects the explicitly prepared field build instead of lexical cache order
   expect(serviceWorkerSource).toContain(
     "if (!(await isPreparedCacheComplete(preparedCache))) return;",
   );
+  expect(serviceWorkerSource).toContain(
+    'const FIELD_DEPENDENCY_MANIFEST_PATH = "/__ask-siargao-field-shell-dependencies__"',
+  );
+  expect(serviceWorkerSource).toContain("const staticPaths = extractStaticDependencies(html)");
+  expect(serviceWorkerSource).toContain("manifest.assets.length !== staticPaths.length");
+  expect(serviceWorkerSource).toContain("matchPreparedAsset(request)");
+  expect(serviceWorkerSource).not.toContain("caches.match(request)");
 });

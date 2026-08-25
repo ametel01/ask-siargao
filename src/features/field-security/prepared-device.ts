@@ -1,5 +1,8 @@
 import { type FieldReadinessEvidence, IndexedDbFieldVault } from "@/features/field-security/vault";
 
+export const fieldOfflineShellPath = "/operator/field/offline-shell";
+export const fieldOfflineDependencyManifestPath = "/__ask-siargao-field-shell-dependencies__";
+
 export type PreparedFieldDeviceDiscovery = {
   hasAuthorization: boolean;
   hasDeviceKeys: boolean;
@@ -75,15 +78,7 @@ export async function hasCompletePreparedFieldShell(buildId: string): Promise<bo
   ]);
   if (!registration || !keys.includes(`ask-siargao-field-shell-${buildId}`)) return false;
   const cache = await caches.open(`ask-siargao-field-shell-${buildId}`);
-  const shell = await cache.match("/operator/field/offline-shell");
-  if (!shell) return false;
-  const html = await shell.clone().text();
-  const staticPaths = [...html.matchAll(/(?:src|href)=["'](\/_next\/static\/[^"']+)["']/g)]
-    .map((match) => match[1])
-    .filter((path) => !path.includes(".."));
-  for (const path of new Set(staticPaths)) {
-    if (!(await cache.match(path))) return false;
-  }
+  if (!(await isCompletePreparedFieldCache(cache))) return false;
   const activeCache = await caches.open("ask-siargao-field-shell-active");
   const marker = await activeCache.match("/__ask-siargao-active-field-build__");
   if (!marker) return false;
@@ -100,6 +95,61 @@ export async function hasCompletePreparedFieldShell(buildId: string): Promise<bo
   } catch {
     return false;
   }
+}
+
+export async function isCompletePreparedFieldCache(cache: Pick<Cache, "match">): Promise<boolean> {
+  const [shell, manifestResponse] = await Promise.all([
+    cache.match(fieldOfflineShellPath),
+    cache.match(fieldOfflineDependencyManifestPath),
+  ]);
+  if (!shell || !manifestResponse) return false;
+  const expectedAssets = extractFieldOfflineStaticDependencies(await shell.clone().text());
+  if (expectedAssets.length === 0) return false;
+  let manifest: unknown;
+  try {
+    manifest = await manifestResponse.json();
+  } catch {
+    return false;
+  }
+  if (!isFieldOfflineDependencyManifest(manifest, expectedAssets)) return false;
+  for (const path of expectedAssets) {
+    if (!(await cache.match(path))) return false;
+  }
+  return true;
+}
+
+export function extractFieldOfflineStaticDependencies(html: string): string[] {
+  const paths = new Set<string>();
+  for (const match of html.matchAll(
+    /(?:\/_next\/)?static\/(?:chunks|css|media)\/[A-Za-z0-9._%/-]+/gu,
+  )) {
+    const path = match[0].startsWith("/_next/") ? match[0] : `/_next/${match[0]}`;
+    if (isSafeFieldStaticPath(path)) paths.add(path);
+  }
+  return [...paths].sort();
+}
+
+function isFieldOfflineDependencyManifest(
+  value: unknown,
+  expectedAssets: readonly string[],
+): boolean {
+  if (!value || typeof value !== "object") return false;
+  const manifest = value as { assets?: unknown; version?: unknown };
+  return (
+    manifest.version === 1 &&
+    Array.isArray(manifest.assets) &&
+    manifest.assets.length === expectedAssets.length &&
+    manifest.assets.every(
+      (path, index) =>
+        typeof path === "string" && isSafeFieldStaticPath(path) && path === expectedAssets[index],
+    )
+  );
+}
+
+function isSafeFieldStaticPath(path: string): boolean {
+  return (
+    /^\/_next\/static\/(?:chunks|css|media)\/[A-Za-z0-9._%/-]+$/u.test(path) && !path.includes("..")
+  );
 }
 
 async function hasLivePersistentStorage(recordedPersisted: boolean): Promise<boolean> {

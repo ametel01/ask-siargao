@@ -74,20 +74,19 @@ export function CaptureForms(props: {
         </legend>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
           {captureModes.map(([value, label]) => (
-            <Button
+            <button
               aria-pressed={mode === value}
-              className={`min-h-11 whitespace-normal ${
+              className={`inline-flex min-h-11 items-center justify-center rounded-lg border px-3 text-sm font-medium whitespace-normal outline-none transition-[background-color,border-color,box-shadow,color,transform] select-none focus-visible:border-[var(--brand-lagoon-700)] focus-visible:ring-3 focus-visible:ring-[var(--brand-lagoon-300)]/50 active:translate-y-px ${
                 mode === value
-                  ? "bg-[var(--brand-lagoon-700)] text-[var(--brand-paper-50)]"
-                  : "bg-[var(--brand-paper-50)] text-[var(--brand-navy-950)]"
+                  ? "border-[var(--brand-lagoon-700)] bg-[var(--brand-lagoon-700)] text-[var(--brand-paper-50)] hover:bg-[var(--brand-reef-700)]"
+                  : "border-[var(--border-default)] bg-[var(--brand-paper-50)] text-[var(--brand-navy-950)] hover:bg-[var(--brand-lavender-100)]"
               }`}
               key={value}
               type="button"
-              variant={mode === value ? "default" : "outline"}
               onClick={() => setMode(value)}
             >
               {label}
-            </Button>
+            </button>
           ))}
         </div>
       </fieldset>
