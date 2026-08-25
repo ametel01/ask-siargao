@@ -1,7 +1,7 @@
 # Field Workspace completion status
 
-The aggregate implementation is technically validated on the pushed candidate
-SHA, but #244 is not accepted for release.
+The aggregate implementation has passed candidate-local automated validation,
+but #244 is not accepted for release.
 
 ## Administrative blocker
 
@@ -17,13 +17,16 @@ SHA, but #244 is not accepted for release.
   `FIELD_PLANNER_INITIAL_HANDOFF_JSON` preseed to be generated from the approved
   protocol/preflight authority and configured before first use. The authenticated
   `/api/operator/field/planning/handoff` route now serves that machine-generated handoff; it
-  remains fail-closed when the deployment variable is absent or protocol-mismatched. This is an
-  operational pre-seeding handoff, not a browser JSON authoring surface.
-- Attended iPad and Mac migration, Files/AirDrop transfer, restore, rollback,
-  restart, VoiceOver, touch, and dictation evidence.
+  remains fail-closed when the deployment variable is absent, malformed, stale, or
+  protocol-mismatched, and the Recorder persists an accepted handoff into encrypted local custody.
+  This is an operational pre-seeding handoff, not a browser JSON authoring surface.
+- Attended execution of the built-in first-use camera/scan, time/timezone, encrypted sample,
+  recovery restore, and challenged offline-reload checks on a real iPad.
+- Attended iPad and Mac migration, Files/AirDrop transfer, interruption resume, destination
+  decryption/reference verification, signed receipt return and source acceptance, recovery restore,
+  rollback, restart, VoiceOver, touch, and dictation evidence.
 - Independent checker evidence and exact production deployment/provider
   acceptance for the protected Field Workspace.
-- Destination-side transfer receipt creation and source receipt verification.
 - Product-owner/accountable-editor acceptance of the final Field Workspace
   contract.
 
