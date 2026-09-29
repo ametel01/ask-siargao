@@ -580,7 +580,7 @@ async function insertSettledPaidAnswerWithoutProviderIds(db: DatabaseQueryClient
       `request_${suffix}`,
       `lease_${suffix}`,
       new Date("2026-07-14T07:10:00.000Z"),
-      new Date("2026-09-14T08:00:00.000Z"),
+      new Date("2100-09-14T08:00:00.000Z"),
       new Date("2026-07-14T07:00:00.000Z"),
       new Date("2026-07-14T07:30:00.000Z"),
     ],
