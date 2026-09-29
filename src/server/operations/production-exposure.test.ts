@@ -70,6 +70,65 @@ describe("production exposure controller", () => {
     });
   });
 
+  test("releases failed Travel Answer reservations and retains successful ones", async () => {
+    const store = createExposureMemoryStoreForTests();
+    const env = {
+      NODE_ENV: "production",
+      REDIS_URL: "rediss://redis.example.test",
+      TRAVEL_ANSWER_EXPOSURE_MODE: "open",
+    };
+    const now = new Date("2026-08-10T04:00:00.000Z");
+
+    const failed = await beginTravelAnswerExposure("answer_failed", { env, now, store });
+    expect(failed).toMatchObject({ status: "allowed", remaining: 999 });
+    if (failed.status !== "allowed") {
+      throw new Error("Expected the failed-answer fixture to reserve exposure.");
+    }
+    await failed.settle({ success: false });
+
+    const successful = await beginTravelAnswerExposure("answer_successful", { env, now, store });
+    expect(successful).toMatchObject({ status: "allowed", remaining: 999 });
+    if (successful.status !== "allowed") {
+      throw new Error("Expected the successful-answer fixture to reserve exposure.");
+    }
+    await successful.settle({ success: true });
+
+    expect(
+      await beginTravelAnswerExposure("answer_after_success", { env, now, store }),
+    ).toMatchObject({ status: "allowed", remaining: 998 });
+  });
+
+  test("deduplicates a Travel Answer reservation by admitted operation id", async () => {
+    const store = createExposureMemoryStoreForTests();
+    const env = {
+      NODE_ENV: "production",
+      REDIS_URL: "rediss://redis.example.test",
+      TRAVEL_ANSWER_EXPOSURE_MODE: "open",
+    };
+    const now = new Date("2026-08-10T04:00:00.000Z");
+
+    const original = await beginTravelAnswerExposure("answer_same", { env, now, store });
+    expect(original).toMatchObject({
+      status: "allowed",
+      remaining: 999,
+    });
+    const duplicate = await beginTravelAnswerExposure("answer_same", { env, now, store });
+    expect(duplicate).toMatchObject({
+      status: "allowed",
+      remaining: 999,
+    });
+    if (original.status !== "allowed" || duplicate.status !== "allowed") {
+      throw new Error("Expected both same-operation fixtures to reserve exposure.");
+    }
+
+    await original.settle({ success: true });
+    await duplicate.settle({ success: false });
+
+    expect(
+      await beginTravelAnswerExposure("answer_after_duplicate", { env, now, store }),
+    ).toMatchObject({ status: "allowed", remaining: 998 });
+  });
+
   test("deduplicates accounts and stops the 101st new account", async () => {
     const store = createExposureMemoryStoreForTests();
     const env = { NODE_ENV: "production", REDIS_URL: "rediss://redis.example.test" };

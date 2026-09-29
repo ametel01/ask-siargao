@@ -7,6 +7,7 @@ import {
 } from "@/app/api/stripe/webhook/webhook-route";
 import type { DatabaseQueryClient } from "@/server/db/query-client";
 import { withRealRedisHarness } from "@/server/integration/redis-harness";
+import { beginTravelAnswerExposure } from "@/server/operations/production-exposure";
 import { verifyStripeWebhookPayload } from "@/server/payments/stripe";
 import { STRIPE_API_VERSION } from "@/server/payments/stripe-event-inbox";
 import { createRedisQuotaStore, type QuotaStore } from "@/server/security/rate-limit";
@@ -25,6 +26,7 @@ await withRealRedisHarness(async (harness) => {
     await runIdempotencyRegression(stores);
     await runConcurrencyLeaseRegression(stores);
     await runRollingWindowRegression(stores);
+    await runTravelAnswerExposureRegression(stores);
     await runProductionPaidFailClosedRegression();
     await runVerifiedStripeWebhookRedisIndependenceRegression();
 
@@ -334,6 +336,55 @@ async function runRollingWindowRegression(stores: readonly QuotaStore[]) {
     windowMs: 60_000,
   });
   assertEqual(afterExpiry?.status, "reserved", "expired rolling reservations must free capacity");
+}
+
+async function runTravelAnswerExposureRegression(stores: readonly QuotaStore[]) {
+  const env = {
+    NODE_ENV: "production",
+    REDIS_URL: "rediss://redis.example.test",
+    TRAVEL_ANSWER_EXPOSURE_MODE: "open",
+  };
+  const now = new Date("2026-08-07T00:05:00.000Z");
+  const committed = await beginTravelAnswerExposure("redis-exposure-committed", {
+    env,
+    now,
+    store: stores[0],
+  });
+  if (committed.status !== "allowed") {
+    throw new Error("committed Travel Answer exposure fixture must reserve");
+  }
+  await committed.settle({ success: true });
+
+  const failed = await beginTravelAnswerExposure("redis-exposure-failed", {
+    env,
+    now,
+    store: stores[1],
+  });
+  if (failed.status !== "allowed") {
+    throw new Error("failed Travel Answer exposure fixture must reserve");
+  }
+  await failed.settle({ success: false });
+
+  const duplicate = await beginTravelAnswerExposure("redis-exposure-committed", {
+    env,
+    now,
+    store: stores[1],
+  });
+  if (duplicate.status !== "allowed") {
+    throw new Error("duplicate Travel Answer exposure fixture must remain allowed");
+  }
+  await duplicate.settle({ success: false });
+
+  const afterRelease = await beginTravelAnswerExposure("redis-exposure-after-release", {
+    env,
+    now,
+    store: stores[0],
+  });
+  assertEqual(
+    afterRelease.status === "allowed" ? afterRelease.remaining : null,
+    998,
+    "failed and duplicate exposure handles must not strand or release committed capacity",
+  );
 }
 
 async function runProductionPaidFailClosedRegression() {

@@ -726,6 +726,7 @@ describe("chat route", () => {
   test("defers assistant history persistence when a scheduler is configured", async () => {
     const db = await openChatRouteTestDatabase();
     const deferredTasks: Array<() => Promise<void>> = [];
+    const exposureSettlements: boolean[] = [];
     const dependencies = chatDependencies({
       message: "This answer should persist after delivery.",
       sources: [genericSourceSummary],
@@ -737,6 +738,13 @@ describe("chat route", () => {
     });
     dependencies.createId = deterministicIds();
     dependencies.deferPersistence = (task) => deferredTasks.push(task);
+    dependencies.beginTravelAnswerExposure = async () => ({
+      status: "allowed",
+      remaining: 999,
+      settle: async ({ success }) => {
+        exposureSettlements.push(success);
+      },
+    });
 
     const response = await chatResponse(
       jsonRequest({ messages: [{ role: "user", content: "Where should I have lunch?" }] }),
@@ -755,6 +763,7 @@ describe("chat route", () => {
     });
     expect(deferredTasks).toHaveLength(1);
     expect(messagesBeforeDeferredTask.rows.map((message) => message.role)).toEqual(["user"]);
+    expect(exposureSettlements).toEqual([]);
 
     await deferredTasks[0]?.();
     const messagesAfterDeferredTask = await db.query<{ role: string; content: string }>(
@@ -764,8 +773,44 @@ describe("chat route", () => {
       { role: "user", content: "Where should I have lunch?" },
       { role: "assistant", content: "This answer should persist after delivery." },
     ]);
+    expect(exposureSettlements).toEqual([true]);
 
     await db.close();
+  });
+
+  test("releases global exposure when deferred assistant persistence fails", async () => {
+    const db = await openChatRouteTestDatabase();
+    const deferredTasks: Array<() => Promise<void>> = [];
+    const exposureSettlements: boolean[] = [];
+    const dependencies = chatDependencies({
+      message: "This answer cannot be stored after delivery.",
+      sources: [genericSourceSummary],
+    });
+    dependencies.db = db;
+    dependencies.auth = async () => ({
+      userId: "user_deferred_history_failure",
+      sessionClaims: { email: "deferred-failure@example.com" },
+    });
+    dependencies.createId = deterministicIds();
+    dependencies.deferPersistence = (task) => deferredTasks.push(task);
+    dependencies.beginTravelAnswerExposure = async () => ({
+      status: "allowed",
+      remaining: 999,
+      settle: async ({ success }) => {
+        exposureSettlements.push(success);
+      },
+    });
+
+    const response = await chatResponse(
+      jsonRequest({ messages: [{ role: "user", content: "Where should I have lunch?" }] }),
+      dependencies,
+    );
+    await db.close();
+
+    expect(response.status).toBe(200);
+    expect(deferredTasks).toHaveLength(1);
+    await expect(deferredTasks[0]?.()).rejects.toThrow();
+    expect(exposureSettlements).toEqual([false]);
   });
 
   test("appends authenticated chat to an owned thread", async () => {
