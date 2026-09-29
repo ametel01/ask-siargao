@@ -8,6 +8,7 @@ import {
 
 export const productionDailyAccountLimit = 100;
 export const productionDailyTravelAnswerLimit = 1_000;
+const oneDayMs = 24 * 60 * 60 * 1_000;
 
 export type ExposureOptions = {
   env?: Record<string, string | undefined>;
@@ -16,7 +17,11 @@ export type ExposureOptions = {
 };
 
 export type TravelAnswerExposureResult =
-  | { status: "allowed"; remaining: number }
+  | {
+      status: "allowed";
+      remaining: number;
+      settle(input: { success: boolean }): Promise<void>;
+    }
   | {
       status: "closed" | "limit_reached" | "unavailable";
       reason: string;
@@ -26,7 +31,7 @@ export type TravelAnswerExposureResult =
 let defaultProductionStore: QuotaStore | undefined;
 
 export async function beginTravelAnswerExposure(
-  _requestId: string,
+  requestId: string,
   options: ExposureOptions = {},
 ): Promise<TravelAnswerExposureResult> {
   const env = options.env ?? process.env;
@@ -38,7 +43,11 @@ export async function beginTravelAnswerExposure(
     return denied("closed", "emergency_exposure_off", 503);
   }
   if (!production) {
-    return { status: "allowed", remaining: productionDailyTravelAnswerLimit };
+    return {
+      status: "allowed",
+      remaining: productionDailyTravelAnswerLimit,
+      settle: async () => undefined,
+    };
   }
 
   const store = resolveProductionStore(env, options.store);
@@ -46,20 +55,34 @@ export async function beginTravelAnswerExposure(
     return denied("unavailable", "shared_exposure_store_unavailable", 503);
   }
 
+  const reservation = {
+    key: `exposure:travel-answers:${utcDay(now)}`,
+    reservationId: requestId,
+  };
   try {
-    const result = await store.consumeBudget({
-      amount: 1,
-      key: `exposure:travel-answers:${utcDay(now)}`,
+    const result = await store.reserveRollingWindow({
+      ...reservation,
       limit: productionDailyTravelAnswerLimit,
       nowMs: now.getTime(),
-      windowMs: millisecondsUntilNextUtcDay(now),
+      windowMs: oneDayMs,
     });
-    if (result.status === "exceeded") {
+    if (result.status === "rejected") {
       return denied("limit_reached", "daily_travel_answer_limit_reached", 429);
     }
+    const ownsReservation = result.status === "reserved";
+    let settled = false;
     return {
       status: "allowed",
-      remaining: Math.max(result.limit - result.used, 0),
+      remaining: Math.max(productionDailyTravelAnswerLimit - result.count, 0),
+      async settle({ success }) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (!success && ownsReservation) {
+          await store.releaseRollingWindow(reservation);
+        }
+      },
     };
   } catch {
     return denied("unavailable", "shared_exposure_store_unavailable", 503);

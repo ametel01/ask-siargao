@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "protocol-migration.v1",
+  "componentVersion": "1.0.1",
+  "migrationId": "migration_legacy_0_9_0_to_baseline_1_0_1",
+  "fromPackageVersion": "0.9.0",
+  "toPackageVersion": "1.0.1",
+  "sourceSchemaVersions": ["field-record.v1"],
+  "targetProtocolPackageId": "field-protocol-siargao-baseline",
+  "targetCampaignId": "campaign_island_baseline",
+  "kindMappings": [
+    { "from": "opening_hours", "to": "opening_signal" },
+    { "from": "internet_speed", "to": "connectivity" }
+  ],
+  "subjectMappings": [
+    { "from": "legacy_del_carmen", "to": "subject_area_del_carmen" },
+    { "from": "legacy_general_luna", "to": "subject_area_general_luna" }
+  ],
+  "legacyObservationRoutes": [
+    {
+      "subjectId": "subject_area_del_carmen",
+      "observationKind": "opening_signal",
+      "assignmentId": "assignment_del_carmen_essentials",
+      "objectiveId": "objective_del_carmen_observe_services",
+      "coverageRequirementId": "coverage_opening"
+    },
+    {
+      "subjectId": "subject_area_del_carmen",
+      "observationKind": "connectivity",
+      "assignmentId": "assignment_del_carmen_essentials",
+      "objectiveId": "objective_del_carmen_observe_services",
+      "coverageRequirementId": "coverage_connectivity"
+    },
+    {
+      "subjectId": "subject_area_general_luna",
+      "observationKind": "connectivity",
+      "assignmentId": "assignment_general_luna_journey",
+      "objectiveId": "objective_general_luna_repeat_crowd",
+      "coverageRequirementId": "coverage_connectivity"
+    }
+  ],
+  "methodMappings": [
+    {
+      "from": "structured_visual_check",
+      "to": "method_structured_visual_check@1.0.0"
+    },
+    { "from": "network_test", "to": "method_network_three_test@1.0.0" }
+  ],
+  "ambiguousKinds": [
+    {
+      "kind": "free_text_observation",
+      "reason": "Free text cannot be mapped to one controlled Observation Kind without human interpretation."
+    }
+  ],
+  "unsupportedKinds": ["legacy_arbitrary_json"]
+}

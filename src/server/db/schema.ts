@@ -2603,6 +2603,99 @@ export const operationalScheduleStates = pgTable(
   ],
 );
 
+export const fieldAuthorizedDevices = pgTable(
+  "field_authorized_devices",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    signingPublicKey: jsonb("signing_public_key").$type<JsonWebKey>().notNull(),
+    signingPublicKeyFingerprint: text("signing_public_key_fingerprint").notNull().unique(),
+    agreementPublicKey: jsonb("agreement_public_key").$type<JsonWebKey>().notNull(),
+    agreementPublicKeyFingerprint: text("agreement_public_key_fingerprint").notNull().unique(),
+    webauthnCredentialId: text("webauthn_credential_id").notNull().unique(),
+    webauthnPublicKey: jsonb("webauthn_public_key").$type<JsonWebKey>().notNull(),
+    webauthnBackupEligible: boolean("webauthn_backup_eligible").notNull(),
+    webauthnUserVerified: boolean("webauthn_user_verified").notNull(),
+    applicationVersion: text("application_version").notNull(),
+    registrationVersion: text("registration_version").notNull(),
+    status: text("status").notNull().default("active"),
+    registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("field_authorized_devices_account_status_idx").on(
+      table.accountId,
+      table.status,
+      table.registeredAt,
+      table.id,
+    ),
+    check("field_authorized_devices_role_check", sql`${table.role} in ('recorder', 'desk')`),
+    check("field_authorized_devices_status_check", sql`${table.status} in ('active', 'revoked')`),
+  ],
+);
+
+export const fieldOfflineGrants = pgTable(
+  "field_offline_grants",
+  {
+    id: text("id").primaryKey(),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => fieldAuthorizedDevices.id, { onDelete: "cascade" }),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    grantVersion: text("grant_version").notNull(),
+    signerKeyId: text("signer_key_id").notNull(),
+    signatureFingerprint: text("signature_fingerprint").notNull(),
+    grantClaims: jsonb("grant_claims").$type<Record<string, unknown>>().notNull(),
+    status: text("status").notNull().default("active"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("field_offline_grants_device_expiry_idx").on(
+      table.deviceId,
+      table.status,
+      table.expiresAt,
+      table.id,
+    ),
+    index("field_offline_grants_account_idx").on(table.accountId, table.createdAt, table.id),
+  ],
+);
+
+export const fieldDeviceAuditEvents = pgTable(
+  "field_device_audit_events",
+  {
+    id: text("id").primaryKey(),
+    deviceId: text("device_id").references(() => fieldAuthorizedDevices.id, {
+      onDelete: "set null",
+    }),
+    accountId: text("account_id").references(() => users.id, { onDelete: "set null" }),
+    operation: text("operation").notNull(),
+    outcomeCode: text("outcome_code").notNull(),
+    reasonCode: text("reason_code"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("field_device_audit_events_device_time_idx").on(
+      table.deviceId,
+      table.occurredAt,
+      table.id,
+    ),
+    index("field_device_audit_events_account_time_idx").on(
+      table.accountId,
+      table.occurredAt,
+      table.id,
+    ),
+  ],
+);
+
 export const operationalReconciliationRunsRelations = relations(
   operationalReconciliationRuns,
   ({ many }) => ({ findings: many(operationalFindings) }),
@@ -2650,3 +2743,6 @@ export type OperationalWorkerTask = typeof operationalWorkerTasks.$inferSelect;
 export type NewOperationalWorkerTask = typeof operationalWorkerTasks.$inferInsert;
 export type OperationalScheduleState = typeof operationalScheduleStates.$inferSelect;
 export type NewOperationalScheduleState = typeof operationalScheduleStates.$inferInsert;
+export type FieldAuthorizedDevice = typeof fieldAuthorizedDevices.$inferSelect;
+export type FieldOfflineGrant = typeof fieldOfflineGrants.$inferSelect;
+export type FieldDeviceAuditEvent = typeof fieldDeviceAuditEvents.$inferSelect;

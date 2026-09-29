@@ -114,6 +114,16 @@ type AuthenticatedChatPersistence = {
   userMessageId: string;
 };
 
+type AuthenticatedChatPersistencePreflight =
+  | null
+  | { status: "not_found" }
+  | {
+      status: "ready";
+      db: DatabaseQueryClient;
+      thread: ChatHistoryThread | null;
+      userId: string;
+    };
+
 type AuthenticatedChatUserContext = {
   db: DatabaseQueryClient;
   profileContext: TripContextProfileInput | null;
@@ -162,7 +172,13 @@ export async function answerTravelQuestion(
   > | null = null;
   let paidChatUsage: Extract<PaidChatUsageSessionResult, { status: "allowed" }> | null = null;
   let paidChatSettlement: PaidChatUsageSettlement | null = null;
+  let travelAnswerExposure: Extract<
+    Awaited<ReturnType<typeof beginTravelAnswerExposure>>,
+    { status: "allowed" }
+  > | null = null;
+  let exposureSettlementDeferred = false;
   let authenticatedIdempotency: Awaited<ReturnType<typeof checkRequestIdempotency>> | null = null;
+  let anonymousIdempotency: Awaited<ReturnType<typeof checkRequestIdempotency>> | null = null;
   let headersAnnounced = false;
   const announceHeadersReady = () => {
     if (headersAnnounced) {
@@ -175,15 +191,6 @@ export async function answerTravelQuestion(
   const idempotencyKey =
     input.request.headers.get("idempotency-key") ?? input.request.headers.get("x-idempotency-key");
   try {
-    const exposure = await (dependencies.beginTravelAnswerExposure ?? beginTravelAnswerExposure)(
-      requestId,
-      { now },
-    );
-    if (exposure.status !== "allowed") {
-      announceHeadersReady();
-      return outcomeFromJsonResponse(exposure.response, responseHeaders, latency);
-    }
-
     const normalizedClientContext = normalizeTripContextClientContext(input.clientContext, now);
     const latestUserMessage = getLatestUserMessage(input.messages);
     if (!latestUserMessage) {
@@ -313,16 +320,12 @@ export async function answerTravelQuestion(
       anonymousFreeAllowance = allowance;
     }
 
-    const authenticatedPersistence = await prepareAuthenticatedChatPersistence({
+    const authenticatedPersistencePreflight = await preflightAuthenticatedChatPersistence({
       authenticatedUserContext,
-      dependencies,
-      latestUserMessage,
       threadId: input.threadId,
-      intent,
-      now,
     });
 
-    if (authenticatedPersistence?.status === "not_found") {
+    if (authenticatedPersistencePreflight?.status === "not_found") {
       await anonymousFreeAllowance?.settle({ success: false });
       await paidChatUsage?.settle({ success: false, releaseReason: "internal_failure" });
       announceHeadersReady();
@@ -330,22 +333,53 @@ export async function answerTravelQuestion(
     }
 
     if (!authenticatedUserContext) {
-      const idempotency = await checkRequestIdempotency({
+      anonymousIdempotency = await checkRequestIdempotency({
         actorId: anonymousFreeAllowance?.actor.tripHash ?? "anonymous-free-allowance-disabled",
         body: input.body,
         headerValue: idempotencyKey,
         nowMs: now.getTime(),
       });
       if (
-        idempotency.status === "duplicate" ||
-        idempotency.status === "conflict" ||
-        idempotency.status === "unavailable"
+        anonymousIdempotency.status === "duplicate" ||
+        anonymousIdempotency.status === "conflict" ||
+        anonymousIdempotency.status === "unavailable"
       ) {
         await anonymousFreeAllowance?.settle({ success: false });
         announceHeadersReady();
-        return outcomeFromJsonResponse(idempotencyJson(idempotency), responseHeaders, latency);
+        return outcomeFromJsonResponse(
+          idempotencyJson(anonymousIdempotency),
+          responseHeaders,
+          latency,
+        );
       }
     }
+
+    const admittedIdempotency = authenticatedIdempotency ?? anonymousIdempotency;
+    const admittedOperationId =
+      admittedIdempotency?.status === "stored" ? admittedIdempotency.tokenHash : requestId;
+    const exposure = await (dependencies.beginTravelAnswerExposure ?? beginTravelAnswerExposure)(
+      admittedOperationId,
+      { now },
+    );
+    if (exposure.status !== "allowed") {
+      await anonymousFreeAllowance?.settle({ success: false });
+      paidChatSettlement =
+        (await paidChatUsage?.settle({
+          success: false,
+          releaseReason: "internal_failure",
+        })) ?? null;
+      announceHeadersReady();
+      return outcomeFromJsonResponse(exposure.response, responseHeaders, latency);
+    }
+    travelAnswerExposure = exposure;
+
+    const authenticatedPersistence = await prepareAuthenticatedChatPersistence({
+      dependencies,
+      intent,
+      latestUserMessage,
+      now,
+      preflight: authenticatedPersistencePreflight,
+    });
 
     logger.info(
       {
@@ -494,8 +528,15 @@ export async function answerTravelQuestion(
       } else if (dependencies.deferPersistence) {
         try {
           dependencies.deferPersistence(async () => {
-            await persistAssistantMessage(true);
+            try {
+              await persistAssistantMessage(true);
+              await travelAnswerExposure?.settle({ success: true });
+            } catch (error) {
+              await travelAnswerExposure?.settle({ success: false }).catch(() => undefined);
+              throw error;
+            }
           });
+          exposureSettlementDeferred = true;
           latency.persistenceMs = 0;
         } catch (error) {
           logger.warn(
@@ -519,6 +560,9 @@ export async function answerTravelQuestion(
     });
 
     await anonymousFreeAllowance?.settle({ success: true, meters: ["chat_message"] });
+    if (!exposureSettlementDeferred) {
+      await travelAnswerExposure.settle({ success: true });
+    }
 
     if (paidChatSettlement?.status === "settled" || paidChatSettlement?.status === "duplicate") {
       if (!paidChatSettlement.responseBody) {
@@ -544,6 +588,7 @@ export async function answerTravelQuestion(
         ?.settle({ success: false, releaseReason: "internal_failure" })
         .catch(() => undefined);
     }
+    await travelAnswerExposure?.settle({ success: false }).catch(() => undefined);
     const message = error instanceof Error ? error.message : "Travel Answer failed.";
     const missingConfiguration =
       message.includes("OPENAI_API_KEY") ||
@@ -732,38 +777,53 @@ function trackFreeAllowanceBlock(
   });
 }
 
-async function prepareAuthenticatedChatPersistence({
+async function preflightAuthenticatedChatPersistence({
   authenticatedUserContext,
-  dependencies,
-  intent,
-  latestUserMessage,
-  now,
   threadId,
 }: {
   authenticatedUserContext: AuthenticatedChatUserContext | null;
-  dependencies: DurableTravelAnswerDependencies;
-  intent: ChatRequestIntent;
-  latestUserMessage: AskSiargaoChatMessage | undefined;
-  now: Date;
   threadId: string | undefined;
-}) {
-  if (latestUserMessage?.role !== "user" || !authenticatedUserContext) {
+}): Promise<AuthenticatedChatPersistencePreflight> {
+  if (!authenticatedUserContext) {
     return null;
   }
 
   const { db, userId } = authenticatedUserContext;
-  const thread = threadId
-    ? await loadOwnedChatThread(db, { threadId, userId })
-    : await createChatThread(db, {
-        id: createTravelAnswerId(dependencies, "chat_thread"),
-        userId,
-        title: chatThreadTitleFromMessage(latestUserMessage.content),
-        now,
-      });
+  const thread = threadId ? await loadOwnedChatThread(db, { threadId, userId }) : null;
 
-  if (!thread) {
+  if (threadId && !thread) {
     return { status: "not_found" as const };
   }
+
+  return { status: "ready", db, thread, userId };
+}
+
+async function prepareAuthenticatedChatPersistence({
+  dependencies,
+  intent,
+  latestUserMessage,
+  now,
+  preflight,
+}: {
+  dependencies: DurableTravelAnswerDependencies;
+  intent: ChatRequestIntent;
+  latestUserMessage: AskSiargaoChatMessage;
+  now: Date;
+  preflight: Exclude<AuthenticatedChatPersistencePreflight, { status: "not_found" }>;
+}) {
+  if (!preflight) {
+    return null;
+  }
+
+  const { db, userId } = preflight;
+  const thread =
+    preflight.thread ??
+    (await createChatThread(db, {
+      id: createTravelAnswerId(dependencies, "chat_thread"),
+      userId,
+      title: chatThreadTitleFromMessage(latestUserMessage.content),
+      now,
+    }));
 
   const userMessageId = createTravelAnswerId(dependencies, "chat_message");
   await appendChatHistoryMessage(db, {

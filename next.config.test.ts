@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import nextConfig, { contentSecurityPolicyReportOnly } from "./next.config";
+import nextConfig, {
+  contentSecurityPolicyReportOnly,
+  createFieldWorkspaceContentSecurityPolicy,
+} from "./next.config";
 
 describe("mobile rendering performance", () => {
   test("inlines the small Tailwind bundle to remove first-load CSS round trips", () => {
@@ -37,6 +40,26 @@ describe("security response headers", () => {
       expect(source).toMatch(/^https:\/\/\*\.[^*/]+$/);
     }
     expect(csp?.value).not.toContain("unsafe-eval");
+  });
+
+  test("enforces an isolated no-store policy on the Field Workspace", async () => {
+    const headerRules = await nextConfig.headers?.();
+    const fieldRule = headerRules?.find((rule) => rule.source === "/operator/field/:path*");
+    const values = Object.fromEntries(
+      fieldRule?.headers.map((header) => [header.key.toLowerCase(), header.value]) ?? [],
+    );
+
+    expect(values["cache-control"]).toBe("private, no-store");
+    expect(values["content-security-policy"]).toBeUndefined();
+    expect(values["permissions-policy"]).toContain("camera=(self)");
+    const productionCsp = createFieldWorkspaceContentSecurityPolicy("test-nonce", "production");
+    const developmentCsp = createFieldWorkspaceContentSecurityPolicy("test-nonce", "development");
+    expect(productionCsp).toContain("connect-src 'self'");
+    expect(productionCsp).toContain("'nonce-test-nonce'");
+    expect(productionCsp).not.toContain("unsafe-inline");
+    expect(productionCsp).not.toContain("unsafe-eval");
+    expect(developmentCsp).toContain("'unsafe-eval'");
+    expect(developmentCsp).not.toContain("unsafe-inline");
   });
 });
 

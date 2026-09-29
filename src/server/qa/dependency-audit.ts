@@ -3,10 +3,7 @@ export type DependencyAuditException = {
   expiresAt: string;
 };
 
-export const dependencyAuditExceptions: readonly DependencyAuditException[] = [
-  { advisoryId: "GHSA-w3rx-r6r6-pgpr", expiresAt: "2026-09-09T00:00:00.000Z" },
-  { advisoryId: "GHSA-5p2g-fcmc-qvqq", expiresAt: "2026-09-09T00:00:00.000Z" },
-];
+export const dependencyAuditExceptions: readonly DependencyAuditException[] = [];
 
 export function activeDependencyAuditExceptionIds(
   now = new Date(),

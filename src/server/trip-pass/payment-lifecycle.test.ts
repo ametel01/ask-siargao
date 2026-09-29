@@ -15,7 +15,6 @@ import {
 } from "@/server/trip-pass/payment-lifecycle";
 
 const activationTime = new Date("2026-08-08T00:00:00.000Z");
-const expiry = new Date("2026-08-22T00:00:00.000Z");
 
 describe("Trip Pass payment lifecycle", () => {
   test("counts only successful cumulative refunds and leaves review access/meters unchanged", async () => {
@@ -107,7 +106,7 @@ describe("Trip Pass payment lifecycle", () => {
 
   test("open disputes suspend, overlapping wins restore only after the last open dispute", async () => {
     await withTestDb(async (db) => {
-      await insertActiveLifecycle(db, "overlap");
+      const fixtureExpiry = await insertActiveLifecycle(db, "overlap");
 
       await applyAuthoritativeDisputeFact(disputeFact("one", "overlap", "open"), db);
       await applyAuthoritativeDisputeFact(disputeFact("two", "overlap", "open"), db);
@@ -136,7 +135,7 @@ describe("Trip Pass payment lifecycle", () => {
       const pass = await db.query<{ expires_at: Date | string }>(
         "select expires_at from trip_passes where id = 'pass_overlap'",
       );
-      expect(new Date(pass.rows[0]?.expires_at ?? 0)).toEqual(expiry);
+      expect(new Date(pass.rows[0]?.expires_at ?? 0)).toEqual(fixtureExpiry);
     });
   });
 
@@ -252,6 +251,11 @@ function disputeFact(
 }
 
 async function insertActiveLifecycle(db: DatabaseQueryClient, suffix: string) {
+  const fixtureClock = await db.query<{ expires_at: Date | string }>(
+    "select transaction_timestamp() + interval '14 days' as expires_at",
+  );
+  const fixtureExpiry = new Date(fixtureClock.rows[0]?.expires_at ?? 0);
+  if (!Number.isFinite(fixtureExpiry.getTime())) throw new Error("fixture_expiry_unavailable");
   await db.query("insert into users (id, email) values ($1, $2)", [
     `user_${suffix}`,
     `${suffix}@example.com`,
@@ -270,13 +274,14 @@ async function insertActiveLifecycle(db: DatabaseQueryClient, suffix: string) {
     `insert into trip_passes (
        id, user_id, status, stripe_payment_intent_id, starts_at, expires_at, created_at, updated_at
      ) values ($1, $2, 'active', $3, $4, $5, $4, $4)`,
-    [`pass_${suffix}`, `user_${suffix}`, `pi_${suffix}`, activationTime, expiry],
+    [`pass_${suffix}`, `user_${suffix}`, `pi_${suffix}`, activationTime, fixtureExpiry],
   );
   await db.query(
     `insert into trip_usage_meters (id, trip_pass_id, meter_type, used, "limit", reset_at, updated_at)
      values ($1, $2, 'chat_message', 17, 150, $3, $4)`,
-    [`meter_${suffix}`, `pass_${suffix}`, expiry, activationTime],
+    [`meter_${suffix}`, `pass_${suffix}`, fixtureExpiry, activationTime],
   );
+  return fixtureExpiry;
 }
 
 async function installReservationFixture(db: DatabaseQueryClient, suffix: string) {

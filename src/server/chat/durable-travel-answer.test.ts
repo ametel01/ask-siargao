@@ -16,6 +16,18 @@ describe("durable Travel Answer", () => {
     await seedActiveTripPass(db, "user_paid_domain_seam", "trip_pass_paid_domain_seam");
     const modelRequests: string[] = [];
     const dependencies = paidTravelAnswerDependencies(db, "user_paid_domain_seam", modelRequests);
+    const exposureSettlements: boolean[] = [];
+    let exposureStarts = 0;
+    dependencies.beginTravelAnswerExposure = async () => {
+      exposureStarts += 1;
+      return {
+        status: "allowed",
+        remaining: 999,
+        settle: async ({ success }) => {
+          exposureSettlements.push(success);
+        },
+      };
+    };
     const input = travelAnswerInput({ "idempotency-key": "paid-domain-seam-token" });
 
     const first = await answerTravelQuestion(input, dependencies);
@@ -29,6 +41,8 @@ describe("durable Travel Answer", () => {
     expect(replay.status).toBe(200);
     expect(replay.body.message).toBe("Paid answer behind the domain seam.");
     expect(modelRequests).toHaveLength(1);
+    expect(exposureStarts).toBe(1);
+    expect(exposureSettlements).toEqual([true]);
     await expectChatMeterUsed(db, "trip_pass_paid_domain_seam", 1);
     await expectPaidAnswerReservation(db, "user_paid_domain_seam", "settled");
 
@@ -57,6 +71,15 @@ describe("durable Travel Answer", () => {
     const db = await openTravelAnswerTestDatabase();
     await seedActiveTripPass(db, "user_paid_missing_turn", "trip_pass_paid_missing_turn");
     const dependencies = paidTravelAnswerDependencies(db, "user_paid_missing_turn", []);
+    let exposureStarts = 0;
+    dependencies.beginTravelAnswerExposure = async () => {
+      exposureStarts += 1;
+      return {
+        status: "allowed",
+        remaining: 999,
+        settle: async () => undefined,
+      };
+    };
     const messages = [{ role: "assistant" as const, content: "Previous answer." }];
     const body = JSON.stringify({ messages });
 
@@ -75,8 +98,67 @@ describe("durable Travel Answer", () => {
 
     expect(answer.status).toBe(400);
     expect(answer.body.error).toBe("invalid_travel_answer_input");
+    expect(exposureStarts).toBe(0);
     await expectChatMeterUsed(db, "trip_pass_paid_missing_turn", 0);
     await expectPaidAnswerReservationCount(db, "user_paid_missing_turn", 0);
+
+    await db.close();
+  });
+
+  test("releases global exposure when answer generation fails", async () => {
+    const exposureSettlements: boolean[] = [];
+    const dependencies: DurableTravelAnswerDependencies = {
+      auth: null,
+      beginAnonymousFreeChat: null,
+      beginTravelAnswerExposure: async () => ({
+        status: "allowed",
+        remaining: 999,
+        settle: async ({ success }) => {
+          exposureSettlements.push(success);
+        },
+      }),
+      runAskSiargaoAgentTurn: async () => {
+        throw new Error("provider failed");
+      },
+    };
+
+    const answer = await answerTravelQuestion(travelAnswerInput(), dependencies);
+
+    expect(answer.status).toBe(502);
+    expect(answer.body.error).toBe("chat_generation_failed");
+    expect(exposureSettlements).toEqual([false]);
+  });
+
+  test("denies exhausted global exposure before creating authenticated chat history", async () => {
+    const db = await openTravelAnswerTestDatabase();
+    await seedActiveTripPass(db, "user_exposure_denied", "trip_pass_exposure_denied");
+    const dependencies = paidTravelAnswerDependencies(db, "user_exposure_denied", []);
+    dependencies.beginTravelAnswerExposure = async () => ({
+      status: "limit_reached",
+      reason: "daily_travel_answer_limit_reached",
+      response: Response.json(
+        {
+          error: "travel_answers_unavailable",
+          reason: "daily_travel_answer_limit_reached",
+        },
+        { status: 429 },
+      ),
+    });
+
+    const answer = await answerTravelQuestion(travelAnswerInput(), dependencies);
+    const history = await db.query<{ count: number }>(
+      "select count(*)::int as count from chat_messages",
+    );
+    const threads = await db.query<{ count: number }>(
+      "select count(*)::int as count from chat_threads",
+    );
+
+    expect(answer.status).toBe(429);
+    expect(answer.body.error).toBe("travel_answers_unavailable");
+    expect(history.rows[0]?.count).toBe(0);
+    expect(threads.rows[0]?.count).toBe(0);
+    await expectChatMeterUsed(db, "trip_pass_exposure_denied", 0);
+    await expectPaidAnswerReservation(db, "user_exposure_denied", "released");
 
     await db.close();
   });

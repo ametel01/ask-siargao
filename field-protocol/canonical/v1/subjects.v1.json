@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "governed-subject-registry.v1",
+  "componentVersion": "1.0.0",
+  "provisionalSubjectRules": {
+    "allowedCategories": ["place", "service", "route", "organisation"],
+    "requiredFields": ["displayedName", "category", "governedAreaId", "distinguishingDetails"],
+    "resolutionRequiredBeforeBatch": true
+  },
+  "subjects": [
+    {
+      "id": "subject_area_del_carmen",
+      "kind": "area",
+      "name": "Del Carmen",
+      "governedAreaId": "area_del_carmen"
+    },
+    {
+      "id": "subject_area_general_luna",
+      "kind": "area",
+      "name": "General Luna and Catangnan",
+      "governedAreaId": "area_general_luna"
+    },
+    {
+      "id": "subject_sayak_airport",
+      "kind": "point",
+      "name": "Sayak Airport",
+      "governedAreaId": "area_del_carmen"
+    },
+    { "id": "subject_area_dapa", "kind": "area", "name": "Dapa", "governedAreaId": "area_dapa" },
+    {
+      "id": "subject_route_airport_del_carmen",
+      "kind": "route",
+      "name": "Sayak Airport to Del Carmen",
+      "governedAreaId": "area_del_carmen"
+    },
+    {
+      "id": "subject_route_del_carmen_general_luna",
+      "kind": "route",
+      "name": "Del Carmen to General Luna",
+      "governedAreaId": "area_central_corridor"
+    },
+    {
+      "id": "subject_route_del_carmen_dapa",
+      "kind": "route",
+      "name": "Del Carmen to Dapa",
+      "governedAreaId": "area_central_corridor"
+    },
+    {
+      "id": "subject_route_south_central",
+      "kind": "route",
+      "name": "South and central corridor",
+      "governedAreaId": "area_south_central"
+    },
+    {
+      "id": "subject_route_northbound",
+      "kind": "route",
+      "name": "Northbound services and access",
+      "governedAreaId": "area_north"
+    },
+    {
+      "id": "subject_route_santa_monica_alegria",
+      "kind": "route",
+      "name": "Santa Monica and Alegria route",
+      "governedAreaId": "area_north"
+    },
+    { "id": "subject_area_pilar", "kind": "area", "name": "Pilar", "governedAreaId": "area_pilar" },
+    {
+      "id": "subject_del_carmen_departure_points",
+      "kind": "area",
+      "name": "Del Carmen governed departure points",
+      "governedAreaId": "area_del_carmen"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "field-protocol-trusted-signers.v1",
+  "signers": [
+    {
+      "keyId": "ask-siargao-field-protocol-2026-01",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAHz50PLHM25xqjJvMus5IfgdveJKGCsQbRCQp7s5d1IA=",
+      "status": "trusted"
+    },
+    {
+      "keyId": "ask-siargao-field-protocol-2026-02",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAMnIejrkV/CCZHZpQiXE+ZW5x/l1dRspg+oHU1+W1lcg=",
+      "status": "trusted"
+    },
+    {
+      "keyId": "ask-siargao-field-protocol-2026-04",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA8bsFBs3TOI6KD+etL5AP28qXEb5S1SYc96YsmfdRkEE=",
+      "status": "trusted"
+    }
+  ]
+}

@@ -337,6 +337,244 @@ Evidence reviewed within the declared freshness window appropriate to its claim.
 without having been retrieved during the current request.
 _Avoid_: Live evidence, timeless fact, recently updated
 
+**Field Researcher**:
+The person carrying out a Field Assignment and recording its evidence. A Field Researcher may also
+be an Operator, but fieldwork and authenticated product operation are separate responsibilities.
+_Avoid_: Operator, administrator, data-entry user
+
+**Field Campaign**:
+A scoped research programme that groups unscheduled Field Assignments under one purpose,
+methodology version, and evidence objective.
+_Avoid_: Upload batch, itinerary, generic project
+
+**Field Assignment**:
+The planned unit of fieldwork defining a subject or route, research questions, required checklist,
+repeat expectations, and safe fallback for one field session. It is selected into a day's work rather
+than bound to a predetermined date.
+_Avoid_: Task, free-form visit, record group
+
+**Follow-up Assignment**:
+An unscheduled Field Assignment created from unresolved coverage while preserving the original
+Assignment and Visit history that established the need for more work.
+_Avoid_: Reopened Assignment, reminder, edited outing
+
+**Closed with Gaps**:
+The terminal Field Assignment state showing that fieldwork ended with one or more required objectives
+blocked by explicit Capture Exceptions. It is not equivalent to Complete.
+_Avoid_: Complete, failed, deferred
+
+**Research Objective**:
+A required question, observation, measurement, or repetition within a Field Assignment whose coverage
+can be completed, explicitly omitted, or remain outstanding.
+_Avoid_: Search item, prompt, generic checklist item
+
+**Objective Action**:
+The controlled action a Research Objective asks the Field Researcher to perform: observe, measure,
+attempt, ask, traverse, document, or repeat.
+_Avoid_: Free-form instruction, checklist label, observation kind
+
+**Coverage Requirement**:
+The explicit requiredness, record count, supporting evidence, and repetition conditions that determine
+whether a Research Objective has adequate capture.
+_Avoid_: Done checkbox, completion percentage, suggested data
+
+**Objective Coverage**:
+The derived state of a Research Objective based on linked typed records and Capture Exceptions. It
+cannot be declared complete by a manual checkbox.
+_Avoid_: Done flag, researcher assertion, record count alone
+
+**Eligibility Window**:
+A declared set of conditions under which a Field Assignment or Research Objective may validly be
+attempted, such as daypart, weekday class, tide context, access, or operating state.
+_Avoid_: Scheduled date, appointment, deadline
+
+**Field Day Plan**:
+A Field Researcher-confirmed grouping of unscheduled, eligible, geographically compatible Field
+Assignments for one outing, with explicit capacity, safety margin, fallbacks, and planning evidence.
+_Avoid_: Fixed itinerary, calendar schedule, automatic route
+
+**Field Readiness Check**:
+The pre-outing verification that identity, device authorization, recovery, storage, protocol, offline
+operation, permissions, time, and restoration are adequate for protected fieldwork.
+_Avoid_: Login check, deployment readiness, safety guarantee
+
+**Field Plan Snapshot**:
+The immutable offline record of a confirmed Field Day Plan, its inputs, source retrieval context,
+eligibility decisions, exclusions, researcher adjustments, and compatible protocol versions.
+_Avoid_: Live itinerary, cached recommendation, editable history
+
+**Travel Compatibility Graph**:
+The versioned island model of governed areas, route corridors, transport modes, transfer boundaries,
+and conservative duration bands used for deterministic Field Day planning.
+_Avoid_: Live directions, straight-line distance, hidden routing score
+
+**Partial Coverage Set**:
+An explicitly valid subset of a Field Assignment's Research Objectives that may be completed
+independently without misrepresenting the remaining required coverage.
+_Avoid_: Arbitrary partial visit, skipped questions, unfinished Assignment
+
+**Field Visit**:
+The time-bounded execution of Field Assignment work at one subject or defined area, providing shared
+place, time, condition, and provenance context for its captured records.
+_Avoid_: Field Assignment, destination, check-in
+
+**Route Run**:
+An atomic traversal record between defined endpoints under stated transport, timing, price, access,
+and environmental conditions.
+_Avoid_: Route guide, itinerary, estimated journey
+
+**Provisional Subject**:
+A structured placeholder for an encountered place, service, route, or organisation that cannot yet be
+matched to a known Subject and requires later identity resolution.
+_Avoid_: Free-text subject, unknown place, new listing
+
+**Subject**:
+The governed identity of a place, service, route, organisation, or other bounded thing described by
+field evidence. A Subject is distinct from the Source who supplies a statement about it.
+_Avoid_: Free-text place, Source, observation target
+
+**Evidence Asset**:
+A private photo, scan, audio, video, receipt, or document linked to captured field records with its
+provenance, rights, consent, integrity, redaction, and retention state.
+_Avoid_: Public media, attachment, proof
+
+**Capture Protocol**:
+The versioned definition of Field Assignments, Research Objectives, controlled choices, typed record
+schemas, methods, permissions, and validation rules used to interpret captured evidence.
+_Avoid_: Form version, JSON schema, researcher preference
+
+**Field Protocol Package**:
+A signed, integrity-checked offline distribution that pins the compatible Capture Protocol, Campaign,
+schemas, registries, methods, governed Subjects, geography, rules, and human-readable guidance.
+_Avoid_: Markdown playbook, application update, database snapshot
+
+**Protocol Migration**:
+An explicit, previewable mapping from records under one Capture Protocol version to another that
+preserves originals and quarantines ambiguous or failed conversions.
+_Avoid_: Automatic rewrite, schema coercion, in-place upgrade
+
+**Observation Kind**:
+A controlled evidence category with its own versioned value shape, allowed units, required context,
+validation rules, and default freshness guidance.
+_Avoid_: Tag, custom type, arbitrary string
+
+**Capture Confidence**:
+The Field Researcher's high, medium, or low assessment of the quality and completeness of a specific
+capture under its stated method and conditions. It is not confidence in an admitted Fact's truth.
+_Avoid_: Fact confidence, truth score, certainty
+
+**Method Profile**:
+A versioned description of how an observation is produced, including the procedure and relevant
+instrument or device characteristics needed to interpret it.
+_Avoid_: Free-text method, device nickname, measurement note
+
+**Raw Measurement**:
+The immutable value and unit reported by the selected Method Profile before any conversion or
+normalisation.
+_Avoid_: Normalized Measurement, corrected value, display value
+
+**Normalized Measurement**:
+A derived canonical value linked to its Raw Measurement and the exact conversion version used to
+produce it.
+_Avoid_: Raw Measurement, overwritten value, authoritative correction
+
+**Public Location Precision**:
+The governed, purpose-limited location representation permitted outside Protected Field Data. It is
+stored separately from any precise private coordinates and never implies permission to disclose them.
+_Avoid_: Precise location, map pin, redacted coordinates
+
+**Private Context Note**:
+Free-form private context attached to a Visit or captured record for later human review. It cannot
+satisfy a Research Objective or automatically become admitted Evidence.
+_Avoid_: Field Observation, validated note, public description
+
+**Capture Exception**:
+A controlled, contextual reason that required evidence could not be captured, such as denied access,
+unsafe conditions, declined permission, subject unavailability, equipment failure, or interruption.
+_Avoid_: Completed objective, blank field, miscellaneous note
+
+**Ready for Desk**:
+The capture state showing that a record passes its protocol, integrity, reference, permission, and
+coverage checks but has not yet received a Field Review.
+_Avoid_: Validated fact, approved evidence, ready
+
+**Field Review**:
+The recorded human decision to include, exclude, correct, or seek more evidence for captured field
+records before batch export. Reviewer identity and independence from the Field Researcher are explicit.
+_Avoid_: Fact Admission, schema validation, automatic approval
+
+**Field Recovery Export**:
+A private, hashed and authenticated-encrypted device backup containing captured and unfinished
+fieldwork, including drafts, Capture Exceptions, Schema Gaps, and unresolved records. It is never an
+ingestion-ready Field Batch.
+_Avoid_: Field Batch, validated export, database backup
+
+**Offline Field Grant**:
+A time-bounded, device-bound authorization established through a verified online identity that permits
+protected fieldwork while disconnected. Expiration locks rather than destroys local evidence; the
+grant is not a shared token or proof of current server access.
+_Avoid_: Admin token, permanent session, exported credential
+
+**Field Recovery Secret**:
+A researcher-held secret established and verified during device setup that can restore an encrypted
+Field Recovery Export when no authorized device remains available. Ask Siargao holds no bypass copy.
+_Avoid_: Account password, admin recovery, shared export password
+
+**Authorized Field Device**:
+A Recorder or Desk device whose public key and role were registered through verified Field Researcher
+or Operator authorization. Revocation removes future trust but does not remotely erase evidence.
+_Avoid_: Browser session, trusted filename, shared computer
+
+**Verified Field Transfer**:
+A cross-device handoff completed only after the recipient decrypts the export, verifies integrity and
+referential closure, and returns a receipt the source device can verify.
+_Avoid_: Download, AirDrop completed, file copied
+
+**Protected Field Data**:
+Field data requiring restricted handling, including precise location, private Source identity or
+contact, consent details, Private Context Notes, and unredacted Evidence Assets.
+_Avoid_: Analytics payload, public evidence, ordinary cache
+
+**Field Recorder**:
+The offline-first guided workspace a Field Researcher uses to complete a Field Assignment and capture
+structured records. It is not a review, server-ingestion, or publication surface.
+_Avoid_: Field Desk, Field Ingestion, JSON editor
+
+**Field Workspace**:
+The protected product surface containing Field Day planning, Recorder capture, Desk review, and export
+areas while keeping each lifecycle and authority boundary explicit.
+_Avoid_: Admin console, Field Ingestion, JSON workbench
+
+**Field Desk**:
+The private workspace for reviewing, correcting, and exporting records created by the Field Recorder.
+It does not admit Facts, publish claims, or accept a server upload.
+_Avoid_: Field Recorder, Field Ingestion, admin console
+
+**Field Ingestion**:
+The future authenticated server process that verifies and accepts a Field Batch into quarantine or
+staging. It is distinct from field capture, desk review, Fact Admission, and publication.
+_Avoid_: Field Recorder, Field Desk, automatic publication
+
+**Source**:
+A person who supplies attributed information during field research, recorded with their relevant role
+and basis of knowledge. The term does not imply authority, accuracy, or permission to publish.
+_Avoid_: Operator, interview subject, local authority
+
+**Source Statement**:
+An immutable attributed record of what a Source said, including whether it is an exact quotation or
+paraphrase and its consent and use boundaries.
+_Avoid_: Operator statement, fact, testimonial
+
+**Statement Translation**:
+A separate attributed derivative of a Source Statement that preserves the original language and
+records the translator or translation method used.
+_Avoid_: Corrected quotation, overwritten statement, original text
+
+**Schema Gap**:
+A captured indication that the current protocol cannot represent an encountered observation without
+distortion. It cannot become validated evidence until the protocol is extended and the record mapped.
+_Avoid_: Other, custom field, best-fit category
+
 **Field Observation**:
 An immutable, atomic record of what an identified observer saw, measured, paid, experienced, or was
 told at a stated place, time, method, and set of conditions. It is not a publishable Fact until it
@@ -344,9 +582,16 @@ passes review and Fact Admission.
 _Avoid_: Live Field Data, local truth, field fact
 
 **Field Batch**:
-A versioned, hashed, idempotent upload containing Field Visits, Field Observations, statements,
-route runs, and private evidence-asset references from one offline capture export.
+A versioned, hashed, idempotent export containing an explicit selection of Field-reviewed Visits,
+Observations, Source Statements, Route Runs, and private evidence-asset references. It may span Field
+Day Plans while preserving every record's original capture lineage and is authenticated-encrypted
+whenever it carries Protected Field Data.
 _Avoid_: Database dump, fact import, photo upload
+
+**Legacy Capture**:
+A record produced under an older or permissive field schema that requires explicit mapping into the
+current Capture Protocol before it can become Ready for Desk or enter a Field Batch.
+_Avoid_: Valid record, automatic migration, ready record
 
 **Fact Admission**:
 The governed review decision that maps an approved Field Observation into a Source Record, Fact,

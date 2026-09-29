@@ -1,63 +1,53 @@
-import type { StoredFieldRecord } from "@/features/field-ingestion/field-capture";
-
 const databaseName = "ask-siargao-field-ingestion";
 const storeName = "field-records";
-const databaseVersion = 1;
 
-export async function loadStoredFieldRecords(): Promise<StoredFieldRecord[]> {
-  const database = await openDatabase();
-  return await new Promise<StoredFieldRecord[]>((resolve, reject) => {
-    const request = database.transaction(storeName, "readonly").objectStore(storeName).getAll();
-    request.onsuccess = () => resolve(request.result as StoredFieldRecord[]);
-    request.onerror = () => reject(request.error);
-  }).finally(() => database.close());
+export type DiscoveredLegacyFieldRecord = Readonly<{
+  importedAt: string;
+  record: unknown;
+  signature: string;
+  sourceName: string;
+  storageKey: string;
+}>;
+
+/**
+ * Read-only retirement adapter for PR #226 browser data. It never creates, upgrades, writes,
+ * deletes, or clears the historical database.
+ */
+export async function discoverLegacyFieldRecords(): Promise<DiscoveredLegacyFieldRecord[]> {
+  if (typeof indexedDB === "undefined") return [];
+  const databases = await indexedDB.databases?.();
+  if (databases && !databases.some((database) => database.name === databaseName)) return [];
+  const database = await openExistingDatabase();
+  if (!database) return [];
+  try {
+    if (!database.objectStoreNames.contains(storeName)) return [];
+    return await new Promise<DiscoveredLegacyFieldRecord[]>((resolve, reject) => {
+      const request = database.transaction(storeName, "readonly").objectStore(storeName).getAll();
+      request.onsuccess = () => resolve(request.result as DiscoveredLegacyFieldRecord[]);
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    database.close();
+  }
 }
 
-export async function saveStoredFieldRecords(records: StoredFieldRecord[]): Promise<void> {
-  if (records.length === 0) return;
-  const database = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(storeName, "readwrite");
-    const store = transaction.objectStore(storeName);
-    for (const record of records) store.put(record);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  }).finally(() => database.close());
-}
-
-export async function deleteStoredFieldRecord(storageKey: string): Promise<void> {
-  const database = await openDatabase();
-  await requestCompletion(database, (store) => store.delete(storageKey));
-}
-
-export async function clearStoredFieldRecords(): Promise<void> {
-  const database = await openDatabase();
-  await requestCompletion(database, (store) => store.clear());
-}
-
-async function requestCompletion(
-  database: IDBDatabase,
-  requestFactory: (store: IDBObjectStore) => IDBRequest,
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(storeName, "readwrite");
-    requestFactory(transaction.objectStore(storeName));
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  }).finally(() => database.close());
-}
-
-function openDatabase(): Promise<IDBDatabase> {
+function openExistingDatabase(): Promise<IDBDatabase | undefined> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, databaseVersion);
+    const request = indexedDB.open(databaseName);
+    let created = false;
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(storeName)) {
-        request.result.createObjectStore(storeName, { keyPath: "storageKey" });
-      }
+      created = true;
+      request.transaction?.abort();
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      if (created) {
+        request.result.close();
+        resolve(undefined);
+      } else resolve(request.result);
+    };
+    request.onerror = () => {
+      if (created && request.error?.name === "AbortError") resolve(undefined);
+      else reject(request.error);
+    };
   });
 }

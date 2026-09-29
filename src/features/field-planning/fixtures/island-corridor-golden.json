@@ -1,0 +1,23 @@
+{
+  "selected": [
+    {
+      "assignmentId": "assignment_dapa_hub",
+      "areaId": "area_central_corridor",
+      "travelFromPreviousMinutes": 50,
+      "workMinutes": 300,
+      "returnToStartMinutes": 50
+    },
+    {
+      "assignmentId": "assignment_general_luna_journey",
+      "areaId": "area_general_luna",
+      "travelFromPreviousMinutes": 60,
+      "workMinutes": 240,
+      "returnToStartMinutes": 110
+    }
+  ],
+  "reserveMinutes": 180,
+  "usableMinutes": 760,
+  "consumedMinutes": 650,
+  "plannedReturnMinutes": 110,
+  "remainingMinutes": 0
+}

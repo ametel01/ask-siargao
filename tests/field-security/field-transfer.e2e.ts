@@ -1,0 +1,96 @@
+import { expect, test } from "@playwright/test";
+
+test("production Desk routes remain private, no-store, and locked without local authorization", async ({
+  page,
+}) => {
+  const protectedSentinel = "PROTECTED_TRANSFER_SENTINEL_NEVER_LEAVE_242";
+  const requests: string[] = [];
+  page.on("request", (request) => requests.push(request.url()));
+  const review = await page.goto("/operator/field/review");
+  expect(review?.status()).toBe(200);
+  expect(review?.headers()["cache-control"]).toContain("no-store");
+  const reviewCsp = review?.headers()["content-security-policy"] ?? "";
+  expect(reviewCsp).toContain("connect-src 'self'");
+  expect(reviewCsp).toMatch(/'nonce-[A-Za-z0-9]+'/);
+  expect(reviewCsp).not.toContain("unsafe-inline");
+  await expect(page.getByRole("heading", { name: "Field review locked" })).toBeVisible();
+
+  await page.evaluate((sentinel) => {
+    Object.defineProperty(window, "__fieldTransferSentinel", { value: sentinel });
+  }, protectedSentinel);
+  const exportsResponse = await page.goto("/operator/field/exports");
+  expect(exportsResponse?.status()).toBe(200);
+  expect(exportsResponse?.headers()["cache-control"]).toContain("no-store");
+  await expect(page.getByRole("heading", { name: "Protected exports locked" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Verify and unlock" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Create Recovery Export" })).toHaveCount(0);
+  expect(requests.join("\n")).not.toContain(protectedSentinel);
+});
+
+test("hard offline reloads of Review and Exports resolve to the generic locked shell", async ({
+  context,
+  page,
+}) => {
+  await page.goto("/operator/field/security-workspace");
+  await page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.register("/field-service-worker", {
+      scope: "/",
+    });
+    await navigator.serviceWorker.ready;
+    (registration.active ?? registration.installing)?.postMessage({
+      activeVisit: false,
+      buildId: "playwright-242",
+      preparationId: "playwright-preparation-242",
+      shellPath: "/operator/field/offline-shell",
+      type: "PREPARE_FIELD_OFFLINE",
+    });
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        (await caches.keys()).includes("ask-siargao-field-shell-playwright-242"),
+      ),
+    )
+    .toBe(true);
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const activeCache = await caches.open("ask-siargao-field-shell-active");
+        const marker = await activeCache.match("/__ask-siargao-active-field-build__");
+        const active = marker
+          ? ((await marker.json()) as { buildId?: string; preparationId?: string })
+          : undefined;
+        const shellCache = await caches.open("ask-siargao-field-shell-playwright-242");
+        const manifestResponse = await shellCache.match(
+          "/__ask-siargao-field-shell-dependencies__",
+        );
+        if (!manifestResponse) return undefined;
+        const manifest = (await manifestResponse.json()) as { assets?: string[]; version?: number };
+        const dependenciesComplete =
+          manifest.version === 1 &&
+          Array.isArray(manifest.assets) &&
+          manifest.assets.length > 0 &&
+          (await Promise.all(manifest.assets.map((path) => shellCache.match(path)))).every(Boolean);
+        return { active, dependenciesComplete };
+      }),
+    )
+    .toEqual({
+      active: {
+        buildId: "playwright-242",
+        preparationId: "playwright-preparation-242",
+      },
+      dependenciesComplete: true,
+    });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect
+    .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
+    .toBe(true);
+  await context.setOffline(true);
+  for (const path of ["/operator/field/review", "/operator/field/exports"]) {
+    await page.goto(path, { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("heading", { name: "Protected fieldwork is locked" }),
+    ).toBeVisible();
+  }
+  await context.setOffline(false);
+});
